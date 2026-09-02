@@ -1,28 +1,27 @@
 FROM node:20-alpine AS base
 WORKDIR /app
 
-# Install dependencies
 FROM base AS deps
-COPY package*.json ./
-COPY packages/Vibe-Workflow/packages/workflow-builder/package*.json ./packages/Vibe-Workflow/packages/workflow-builder/
-COPY packages/Open-Poe-AI/packages/agents/package*.json ./packages/Open-Poe-AI/packages/agents/
-COPY packages/Open-AI-Design-Agent/packages/design-agent/package*.json ./packages/Open-AI-Design-Agent/packages/design-agent/
-COPY packages/studio/package*.json ./packages/studio/
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Build sub-packages
-FROM deps AS builder
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build:packages
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-# Production runner
 FROM base AS runner
 ENV NODE_ENV=production
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
 
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
 EXPOSE 3000
-CMD ["npm", "start"]
+CMD ["node", "server.js"]
