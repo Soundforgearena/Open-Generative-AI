@@ -14,9 +14,15 @@ export const dynamic = 'force-dynamic';
  * fakes the redirect gets nothing.
  */
 export async function POST(request) {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  // Named per-product because the Stripe account is shared with several other
+  // products. A generic name invites pointing the wrong signing secret at this
+  // endpoint, which would silently reject every legitimate event.
+  // The unprefixed name is accepted as a fallback so a deploy that lands before
+  // the variable rename does not drop webhooks on the floor.
+  const secret =
+    process.env.CINEXVIDEO_STRIPE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) {
-    console.error('webhook received but STRIPE_WEBHOOK_SECRET is not set');
+    console.error('webhook received but CINEXVIDEO_STRIPE_WEBHOOK_SECRET is not set');
     return new Response('Webhook not configured', { status: 503 });
   }
 
