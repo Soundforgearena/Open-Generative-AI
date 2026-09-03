@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import AuthScreen from '@/components/cinex/AuthScreen';
 import AdminCockpit from '@/components/cinex/AdminCockpit';
+import RevenuePanel from '@/components/cinex/RevenuePanel';
 import {
   confirmExport,
   createProject,
@@ -322,9 +323,16 @@ export default function Home() {
             Admin Cockpit
           </button>
         )}
+        {account.is_super_admin && (
+          <button className={view === 'revenue' ? 'tab active' : 'tab'} onClick={() => setView('revenue')}>
+            Revenue &amp; Payouts
+          </button>
+        )}
       </nav>
 
-      {view === 'admin' && account.is_admin ? (
+      {view === 'revenue' && account.is_super_admin ? (
+        <RevenuePanel notify={notify} />
+      ) : view === 'admin' && account.is_admin ? (
         <AdminCockpit notify={notify} />
       ) : (
         <>

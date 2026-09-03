@@ -1,0 +1,7 @@
+-- record_revenue() splits one money event; idempotent on (source, reference_id)
+-- so a retried webhook can never pay a partner twice. Rounding dust stays with
+-- the platform so platform_cents + distributed_cents always equals base_cents.
+-- See the applied migration cinexvideo_revenue_split_engine for the full body,
+-- plus partner_balances (view), open_partner_payout() and settle_partner_payout().
+-- admin_set_revenue_split() writes app_settings.revenue_split and audits to
+-- user_admin_actions; it is restricted to super admins.

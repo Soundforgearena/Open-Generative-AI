@@ -62,3 +62,7 @@
 .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--white); }
 button:disabled { opacity:.55; cursor:not-allowed; }
 @media (max-width:900px) { .cockpit-split { grid-template-columns:1fr; } .project-picker { max-width:none; } }
+.fine-print.warn { color:var(--coral); }
+.row-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.director-controls select, .inline-field select { background:var(--black); border:1px solid var(--mid); color:var(--white); border-radius:8px; padding:9px; }
+.admin-table input[type='number'] { width:76px; background:var(--black); border:1px solid var(--mid); color:var(--white); border-radius:6px; padding:6px; }
