@@ -3,57 +3,88 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import {
+  captureOAuthSession,
+  getStoredSession,
+  getAccount,
+  getCreditPacks,
+  startCheckout,
+  startGoogleSignIn,
+  signOut as clearStoredSession,
+} from '../lib/cinexvideo-client';
 
 export default function CinexLanding() {
   const router = useRouter();
-  const supabase = createClientComponentClient();
   const [user, setUser] = useState(null);
   const [credits, setCredits] = useState(0);
   const [showBilling, setShowBilling] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [packs, setPacks] = useState([]);
+  const [checkoutEnabled, setCheckoutEnabled] = useState(false);
+  const [billingMessage, setBillingMessage] = useState('');
+  const [busyPack, setBusyPack] = useState(null);
 
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUser(session.user);
-        // Fetch credit balance
-        const { data } = await supabase
-          .from('credit_wallets')
-          .select('balance')
-          .eq('user_id', session.user.id)
-          .single();
-        if (data) setCredits(data.balance);
+    let cancelled = false;
+    const load = async () => {
+      captureOAuthSession();
+      if (!getStoredSession()?.access_token) return;
+      try {
+        const account = await getAccount();
+        if (cancelled) return;
+        setUser(account.user);
+        setCredits(account.credits ?? 0);
+      } catch {
+        clearStoredSession();
       }
     };
-    checkUser();
-  }, [supabase]);
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleSignIn = () => {
     setIsGoogleLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-        queryParams: { access_type: 'offline', prompt: 'consent' },
-      },
-    });
-    if (error) {
-      console.error('Google sign-in failed:', error);
-      setIsGoogleLoading(false);
-    }
+    startGoogleSignIn();
   };
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
+  const handleSignOut = () => {
+    clearStoredSession();
     setUser(null);
     setCredits(0);
     router.refresh();
   };
 
-  const openBilling = () => setShowBilling(true);
+  const openBilling = async () => {
+    setShowBilling(true);
+    setBillingMessage('');
+    try {
+      const data = await getCreditPacks();
+      setPacks(data.packs || []);
+      setCheckoutEnabled(Boolean(data.checkout_enabled));
+      if (!data.checkout_enabled) {
+        setBillingMessage('Credit purchases are not switched on for this deployment yet.');
+      }
+    } catch {
+      setBillingMessage('Credit packs are temporarily unavailable.');
+    }
+  };
+
   const closeBilling = () => setShowBilling(false);
+
+  const handleBuy = async (packCode) => {
+    setBusyPack(packCode);
+    setBillingMessage('');
+    try {
+      const { url } = await startCheckout(packCode);
+      if (url) window.location.assign(url);
+    } catch (err) {
+      setBillingMessage(err.message || 'Checkout could not be started.');
+    } finally {
+      setBusyPack(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black text-white">
@@ -190,16 +221,27 @@ export default function CinexLanding() {
             <h3 className="text-2xl font-bold mb-4">Add Credits</h3>
             <p className="text-slate-400 mb-6">Choose a credit pack to continue creating</p>
             <div className="space-y-4">
-              <button className="w-full p-4 bg-amber-500 hover:bg-amber-600 rounded-xl font-bold transition-colors">
-                Quick Top-Up - $9.99
-              </button>
-              <button className="w-full p-4 bg-white/10 hover:bg-white/20 rounded-xl font-semibold transition-colors">
-                Creator Pack - $24.99
-              </button>
-              <button className="w-full p-4 bg-white/10 hover:bg-white/20 rounded-xl font-semibold transition-colors">
-                Studio Pack - $49.99
-              </button>
+              {packs.map((pack, index) => (
+                <button
+                  key={pack.code}
+                  onClick={() => handleBuy(pack.code)}
+                  disabled={!checkoutEnabled || busyPack === pack.code}
+                  className={`w-full p-4 rounded-xl font-semibold transition-colors disabled:opacity-50 ${
+                    index === 0
+                      ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold'
+                      : 'bg-white/10 hover:bg-white/20'
+                  }`}
+                >
+                  {busyPack === pack.code
+                    ? 'Starting checkout...'
+                    : `${pack.name} - $${(pack.price_cents / 100).toFixed(2)} for ${pack.credits.toLocaleString()} credits`}
+                </button>
+              ))}
+              {packs.length === 0 && !billingMessage && (
+                <p className="text-slate-400 text-sm">Loading credit packs...</p>
+              )}
             </div>
+            {billingMessage && <p className="mt-4 text-sm text-amber-300">{billingMessage}</p>}
             <button
               onClick={closeBilling}
               className="mt-6 w-full py-3 bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
