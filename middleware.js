@@ -1,6 +1,19 @@
 import { NextResponse } from 'next/server';
 import { getLocaleFromPathname } from './lib/locales';
 
+// Supabase Auth, REST and Storage are called directly from the browser, so the
+// project origin must be allow-listed in connect-src or every sign-in, upload
+// and signed-URL fetch is silently blocked by the CSP.
+const SUPABASE_ORIGIN = (() => {
+    try {
+        return process.env.NEXT_PUBLIC_SUPABASE_URL
+            ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin
+            : '';
+    } catch {
+        return '';
+    }
+})();
+
 function addSecurityHeaders(response) {
     // Prevent MIME type sniffing (CWE-693)
     response.headers.set('X-Content-Type-Options', 'nosniff');
@@ -16,7 +29,15 @@ function addSecurityHeaders(response) {
     // and other muapi subdomains that the renderer fetches directly.
     response.headers.set(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https://muapi.ai https://*.muapi.ai; font-src 'self' data:;"
+        [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+            'img-src \'self\' data: blob: https:',
+            'media-src \'self\' data: blob: https:',
+            `connect-src 'self' https://muapi.ai https://*.muapi.ai${SUPABASE_ORIGIN ? ` ${SUPABASE_ORIGIN}` : ''}`,
+            "font-src 'self' data: https://fonts.gstatic.com",
+        ].join('; ')
     );
     return response;
 }
