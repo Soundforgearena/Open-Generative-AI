@@ -76,6 +76,12 @@ export async function GET(request, { params }) {
       });
       await updateRows('generation_requests', { id: `eq.${job.id}` }, { status: 'completed', output });
 
+      // Revenue is recognised here, not at purchase: this is the point where
+      // the credits are actually spent and the provider cost is incurred.
+      // record_revenue is idempotent on the request id, so a duplicate poll
+      // cannot pay partners twice.
+      await callRpc('settle_generation_revenue', { p_generation_request_id: job.id });
+
       if (job.scene_id && job.scene_version) {
         await updateRows(
           'scene_versions',

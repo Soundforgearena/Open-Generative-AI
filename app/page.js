@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import AuthScreen from '@/components/cinex/AuthScreen';
 import AdminCockpit from '@/components/cinex/AdminCockpit';
 import RevenuePanel from '@/components/cinex/RevenuePanel';
+import CreditStore from '@/components/cinex/CreditStore';
 import {
   confirmExport,
   createProject,
@@ -50,6 +51,7 @@ export default function Home() {
   const [busy, setBusy] = useState('');
   const [toast, setToast] = useState('');
   const [exportQuote, setExportQuote] = useState(null);
+  const [storeOpen, setStoreOpen] = useState(false);
 
   const notify = useCallback((message) => {
     setToast(message);
@@ -108,6 +110,26 @@ export default function Home() {
     if (getStoredSession()) bootstrap();
     else setReady(true);
   }, [bootstrap]);
+
+  // Stripe sends the customer back here. The credits themselves are granted by
+  // the webhook, so this only refreshes the balance and explains any delay.
+  useEffect(() => {
+    const result = new URLSearchParams(window.location.search).get('purchase');
+    if (!result) return;
+    window.history.replaceState({}, '', window.location.pathname);
+    if (result === 'success') {
+      notify('Payment received — adding your credits now.');
+      const retry = (attempt) =>
+        loadAccount()
+          .then((data) => {
+            if (!data.credits && attempt < 5) setTimeout(() => retry(attempt + 1), 2000);
+          })
+          .catch(() => {});
+      setTimeout(() => retry(0), 1500);
+    } else if (result === 'cancelled') {
+      notify('Checkout cancelled — you have not been charged.');
+    }
+  }, [loadAccount, notify]);
 
   useEffect(() => {
     loadProject(projectId).catch((err) => notify(err.message));
@@ -269,7 +291,9 @@ export default function Home() {
           <span className={`status-dot ${account.maintenance ? 'orange' : 'green'}`} />{' '}
           {account.maintenance ? 'MAINTENANCE' : 'SYSTEM LIVE'}
           <span className="divider" />
-          {account.credits} CREDITS
+          <button className="credit-pill" onClick={() => setStoreOpen(true)}>
+            {account.credits} CREDITS <span>+</span>
+          </button>
           {account.promotion_active && (
             <>
               <span className="divider" />
@@ -661,19 +685,11 @@ export default function Home() {
                     >
                       Export with watermark <small>Included</small>
                     </button>
-                    <button
-                      className="primary"
-                      onClick={() => askExportQuote('clean')}
-                      disabled={busy === 'export'}
-                    >
-                      Remove watermark <small>Credits required</small>
+                    <button className="primary" disabled title="Final delivery is coming soon">
+                      Remove watermark <small>Coming soon</small>
                     </button>
-                    <button
-                      className="secondary"
-                      onClick={() => askExportQuote('storyboard')}
-                      disabled={busy === 'export'}
-                    >
-                      Storyboard pack <small>Credits required</small>
+                    <button className="secondary" disabled title="Final delivery is coming soon">
+                      Storyboard pack <small>Coming soon</small>
                     </button>
                   </div>
                 </div>
@@ -683,6 +699,7 @@ export default function Home() {
         </>
       )}
 
+      {storeOpen && <CreditStore notify={notify} onClose={() => { setStoreOpen(false); loadAccount().catch(() => {}); }} />}
       {toast && <div className="toast">{toast}</div>}
     </main>
   );

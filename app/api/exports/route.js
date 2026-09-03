@@ -9,6 +9,13 @@ import {
 
 const EXPORT_TYPES = ['watermarked', 'clean', 'storyboard'];
 
+// Paid exports are switched off until the render worker exists. Nothing
+// currently writes export_jobs.output_path, so charging credits for a clean
+// export or a storyboard pack would take payment for a file we cannot deliver.
+// Flip this to false once the worker ships.
+const PAID_EXPORTS_DISABLED = process.env.ENABLE_PAID_EXPORTS !== 'true';
+const PAID_EXPORT_TYPES = ['clean', 'storyboard'];
+
 /**
  * Quote an export. Watermarked delivery is included with a paid generation;
  * clean delivery and storyboard packs consume credits. The customer only ever
@@ -28,6 +35,12 @@ export async function POST(request) {
     } = body;
 
     if (!EXPORT_TYPES.includes(exportType)) return safeError('That export option is not available.');
+    if (PAID_EXPORTS_DISABLED && PAID_EXPORT_TYPES.includes(exportType)) {
+      return safeError(
+        'Final delivery is coming soon. Watermarked exports are available now and your credits stay untouched.',
+        503
+      );
+    }
     if (!projectId) return safeError('Export details are incomplete.');
 
     const project = await selectOne('projects', { id: `eq.${projectId}` }, 'id,owner_id,title');

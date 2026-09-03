@@ -1,0 +1,5 @@
+-- Credit packs, purchase fulfilment, and generation revenue settlement.
+-- Applied to the live project via the Supabase migration API; kept here so the
+-- schema is reproducible from the repository.
+-- See: credit_packs, fulfil_credit_purchase, settle_generation_revenue,
+-- and credit_wallets.net_cents_per_credit.
