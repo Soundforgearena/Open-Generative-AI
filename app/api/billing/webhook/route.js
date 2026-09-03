@@ -1,5 +1,5 @@
 import { callRpc, selectOne } from '../../../../lib/cinexvideo-server';
-import { verifyWebhook, getSessionFeeCents } from '../../../../lib/stripe-connect';
+import { verifyWebhook, getSessionSettlement, PRODUCT_TAG } from '../../../../lib/stripe-connect';
 
 // Signature verification needs the exact raw body, so this must not be cached
 // or re-serialised anywhere in the request path.
@@ -41,6 +41,15 @@ export async function POST(request) {
         const session = event.data.object;
         if (session.payment_status !== 'paid') break;
 
+        // Stripe delivers every event on the account to every endpoint, and
+        // this account is shared with other products that use overlapping pack
+        // codes ('pro', 'studio', ...). Without this check a purchase made on
+        // a sibling product could be fulfilled as CinexVideo credits.
+        if (session.metadata?.product !== PRODUCT_TAG) {
+          console.info('ignoring session from another product', session.id, session.metadata?.product);
+          break;
+        }
+
         const userId = session.metadata?.user_id || session.client_reference_id;
         const packCode = session.metadata?.pack_code;
         if (!userId || !packCode) {
@@ -56,15 +65,18 @@ export async function POST(request) {
           break;
         }
 
-        const feeCents = await getSessionFeeCents(session);
+        const settlement = await getSessionSettlement(session);
+        if (settlement.estimated) {
+          console.warn('using estimated Stripe fee for', session.id);
+        }
 
         // Idempotent in the database: a replayed webhook returns
         // already_fulfilled rather than granting a second time.
         const { ok, data } = await callRpc('fulfil_credit_purchase', {
           p_user_id: userId,
           p_credits: pack.credits,
-          p_amount_cents: session.amount_total,
-          p_fee_cents: feeCents,
+          p_amount_cents: settlement.amountCents,
+          p_fee_cents: settlement.feeCents,
           p_provider: 'stripe',
           p_provider_payment_id: session.id,
         });
@@ -79,11 +91,14 @@ export async function POST(request) {
       }
 
       case 'charge.refunded':
-      case 'charge.dispute.created':
+      case 'charge.dispute.created': {
+        const charge = event.data.object;
+        if (charge?.metadata?.product !== PRODUCT_TAG) break;
         // Recorded for visibility. Credits are not clawed back automatically
         // because they may already be spent; this needs a human decision.
-        console.warn('payment reversal', event.type, event.data.object?.id);
+        console.warn('CinexVideo payment reversal', event.type, charge?.id, charge?.payment_intent);
         break;
+      }
 
       default:
         break;
