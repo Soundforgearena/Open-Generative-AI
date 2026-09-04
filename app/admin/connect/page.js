@@ -5,18 +5,30 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
 import PartnerOnboardingCard from '../../../components/admin/PartnerOnboardingCard';
 
+const ALLOWED_ADMIN_EMAILS = [
+  'beatkitbuilder@gmail.com',
+  'kingbeatexclusives@gmail.com',
+  'OfficialAmaziahMusic@gmail.com',
+];
+
 export default function AdminConnectPage() {
   const router = useRouter();
   const supabase = createClientComponentClient();
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [isAuthorized, setIsAuthorized] = useState(false);
   const [partners, setPartners] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const checkSuperAdmin = async () => {
+    const checkAuthorization = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) {
+        router.push('/');
+        return;
+      }
+
+      const userEmail = session.user.email;
+      if (!userEmail || !ALLOWED_ADMIN_EMAILS.includes(userEmail)) {
         router.push('/');
         return;
       }
@@ -27,16 +39,16 @@ export default function AdminConnectPage() {
         .eq('user_id', session.user.id)
         .single();
 
-      if (!admin || admin.role !== 'super_admin') {
+      if (!admin || (admin.role !== 'super_admin' && admin.role !== 'admin')) {
         router.push('/');
         return;
       }
 
-      setIsSuperAdmin(true);
+      setIsAuthorized(true);
       loadPartners();
     };
 
-    checkSuperAdmin();
+    checkAuthorization();
   }, []);
 
   const loadPartners = async () => {
@@ -57,7 +69,7 @@ export default function AdminConnectPage() {
     setLoading(false);
   };
 
-  if (!isSuperAdmin || loading) {
+  if (!isAuthorized || loading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black text-white flex items-center justify-center">
         <p className="text-slate-400">Loading admin dashboard...</p>
@@ -77,7 +89,7 @@ export default function AdminConnectPage() {
 
         <h1 className="text-4xl font-bold mb-4">Stripe Connect Onboarding</h1>
         <p className="text-slate-400 mb-8">
-          Manage revenue partner onboarding and payout configuration (Super Admin only)
+          Manage revenue partner onboarding and payout configuration (Authorized admins only)
         </p>
 
         {error && (
