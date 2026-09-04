@@ -1,118 +1,126 @@
-import { callRpc, selectOne } from '../../../../lib/cinexvideo-server';
-import { verifyWebhook, getSessionSettlement, PRODUCT_TAG } from '../../../../lib/stripe-connect';
+import { NextResponse } from 'next/server';
+import { headers } from 'next/headers';
+import { createClient } from '@supabase/supabase-js';
+import Stripe from 'stripe';
 
-// Signature verification needs the exact raw body, so this must not be cached
-// or re-serialised anywhere in the request path.
-export const dynamic = 'force-dynamic';
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: '2024-06-20',
+});
 
-/**
- * Stripe webhook.
- *
- * This is the only place credits are granted from a purchase. The browser
- * returning to /?purchase=success is a UI hint, not proof of payment — a
- * customer who closes the tab still gets their credits, and a customer who
- * fakes the redirect gets nothing.
- */
-export async function POST(request) {
-  // Named per-product because the Stripe account is shared with several other
-  // products. A generic name invites pointing the wrong signing secret at this
-  // endpoint, which would silently reject every legitimate event.
-  // The unprefixed name is accepted as a fallback so a deploy that lands before
-  // the variable rename does not drop webhooks on the floor.
-  const secret =
-    process.env.CINEXVIDEO_STRIPE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
-  if (!secret) {
-    console.error('webhook received but CINEXVIDEO_STRIPE_WEBHOOK_SECRET is not set');
-    return new Response('Webhook not configured', { status: 503 });
-  }
+const webhookSecret =
+  process.env.CINEXVIDEO_STRIPE_WEBHOOK_SECRET ||
+  process.env.STRIPE_WEBHOOK_SECRET;
 
-  const rawBody = await request.text();
-  const signature = request.headers.get('stripe-signature');
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
-  if (!(await verifyWebhook(rawBody, signature, secret))) {
-    // Never reveal why. An attacker probing signatures learns nothing.
-    return new Response('Invalid signature', { status: 400 });
-  }
+export async function POST(req) {
+  const body = await req.text();
+  const signature = headers().get('stripe-signature');
 
   let event;
+
   try {
-    event = JSON.parse(rawBody);
-  } catch {
-    return new Response('Malformed payload', { status: 400 });
+    event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err.message);
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
+
+  // Only handle CinexVideo events if shared Stripe account
+  const isCinexVideo =
+    event.data?.object?.metadata?.product === 'cinexvideo' ||
+    event.data?.object?.metadata?.cinexvideo_partner_id;
 
   try {
     switch (event.type) {
       case 'checkout.session.completed': {
+        if (!isCinexVideo) break;
         const session = event.data.object;
-        if (session.payment_status !== 'paid') break;
+        const userId = session.metadata?.user_id;
+        const credits = parseInt(session.metadata?.credits || '0', 10);
+        const paymentId = session.payment_intent || session.id;
 
-        // Stripe delivers every event on the account to every endpoint, and
-        // this account is shared with other products that use overlapping pack
-        // codes ('pro', 'studio', ...). Without this check a purchase made on
-        // a sibling product could be fulfilled as CinexVideo credits.
-        if (session.metadata?.product !== PRODUCT_TAG) {
-          console.info('ignoring session from another product', session.id, session.metadata?.product);
+        if (!userId || !credits) {
+          console.warn('Invalid checkout session metadata', session);
           break;
         }
 
-        const userId = session.metadata?.user_id || session.client_reference_id;
-        const packCode = session.metadata?.pack_code;
-        if (!userId || !packCode) {
-          console.error('checkout.session.completed missing metadata', session.id);
-          break;
-        }
+        // Record payment
+        const { data: payment } = await supabase
+          .from('payment_records')
+          .insert({
+            user_id: userId,
+            provider: 'stripe',
+            provider_payment_id: paymentId,
+            amount_cents: session.amount_total,
+            credits,
+            status: 'completed',
+            currency: 'usd',
+          })
+          .select()
+          .single();
 
-        // Credits come from the database, not from the session metadata, so a
-        // tampered session cannot mint credits.
-        const pack = await selectOne('credit_packs', { code: `eq.${packCode}` }, 'credits,price_cents');
-        if (!pack) {
-          console.error('unknown pack in webhook', packCode);
-          break;
-        }
-
-        const settlement = await getSessionSettlement(session);
-        if (settlement.estimated) {
-          console.warn('using estimated Stripe fee for', session.id);
-        }
-
-        // Idempotent in the database: a replayed webhook returns
-        // already_fulfilled rather than granting a second time.
-        const { ok, data } = await callRpc('fulfil_credit_purchase', {
+        // Update wallet
+        await supabase.rpc('credit_wallets_add_purchase', {
           p_user_id: userId,
-          p_credits: pack.credits,
-          p_amount_cents: settlement.amountCents,
-          p_fee_cents: settlement.feeCents,
-          p_provider: 'stripe',
-          p_provider_payment_id: session.id,
+          p_credits: credits,
+          p_amount_cents: session.amount_total,
         });
 
-        if (!ok) {
-          // Returning non-2xx makes Stripe retry, which is what we want.
-          console.error('fulfilment failed', session.id, data);
-          return new Response('Fulfilment failed', { status: 500 });
-        }
-        console.info('fulfilment', session.id, data?.status);
+        // Ledger entry
+        await supabase.from('credit_ledger').insert({
+          user_id: userId,
+          amount: credits,
+          entry_type: 'purchase',
+          reference_id: payment?.id,
+          description: `Stripe checkout: ${credits} credits`,
+        });
         break;
       }
 
-      case 'charge.refunded':
-      case 'charge.dispute.created': {
-        const charge = event.data.object;
-        if (charge?.metadata?.product !== PRODUCT_TAG) break;
-        // Recorded for visibility. Credits are not clawed back automatically
-        // because they may already be spent; this needs a human decision.
-        console.warn('CinexVideo payment reversal', event.type, charge?.id, charge?.payment_intent);
+      case 'account.updated': {
+        const partnerId = event.data.object.metadata?.cinexvideo_partner_id;
+        if (!partnerId) break;
+
+        const account = event.data.object;
+        const status = account.details_submitted ? 'onboarding_submitted' : 'needs_onboarding';
+
+        await supabase
+          .from('revenue_partners')
+          .update({
+            onboarding_status: status,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', partnerId);
+        break;
+      }
+
+      case 'account.onboarding_finished': {
+        const partnerId = event.data.object.metadata?.cinexvideo_partner_id;
+        if (!partnerId) break;
+
+        await supabase
+          .from('revenue_partners')
+          .update({
+            onboarding_status: 'active',
+            payouts_enabled: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', partnerId);
         break;
       }
 
       default:
+        // Ignore unrelated events
         break;
     }
 
-    return Response.json({ received: true });
+    return NextResponse.json({ received: true });
   } catch (err) {
-    console.error('webhook handler', err);
-    return new Response('Handler error', { status: 500 });
+    console.error('Webhook handler error:', err);
+    return NextResponse.json({ error: 'Handler failed' }, { status: 500 });
   }
 }
