@@ -8,13 +8,13 @@ import PartnerOnboardingCard from '../../../components/admin/PartnerOnboardingCa
 export default function AdminConnectPage() {
   const router = useRouter();
   const supabase = createClientComponentClient();
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [partners, setPartners] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const checkAdmin = async () => {
+    const checkSuperAdmin = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) {
         router.push('/');
@@ -27,16 +27,16 @@ export default function AdminConnectPage() {
         .eq('user_id', session.user.id)
         .single();
 
-      if (!admin) {
+      if (!admin || admin.role !== 'super_admin') {
         router.push('/');
         return;
       }
 
-      setIsAdmin(true);
+      setIsSuperAdmin(true);
       loadPartners();
     };
 
-    checkAdmin();
+    checkSuperAdmin();
   }, []);
 
   const loadPartners = async () => {
@@ -57,7 +57,7 @@ export default function AdminConnectPage() {
     setLoading(false);
   };
 
-  if (!isAdmin || loading) {
+  if (!isSuperAdmin || loading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black text-white flex items-center justify-center">
         <p className="text-slate-400">Loading admin dashboard...</p>
@@ -77,7 +77,7 @@ export default function AdminConnectPage() {
 
         <h1 className="text-4xl font-bold mb-4">Stripe Connect Onboarding</h1>
         <p className="text-slate-400 mb-8">
-          Manage revenue partner onboarding and payout configuration
+          Manage revenue partner onboarding and payout configuration (Super Admin only)
         </p>
 
         {error && (
