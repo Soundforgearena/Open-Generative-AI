@@ -1,111 +1,76 @@
-import { NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import { stripeEnabled, getStripe } from '../../../../lib/stripe-connect';
+import { guard, selectOne, updateRows, safeError } from '../../../../lib/cinexvideo-server';
+import {
+  stripeEnabled,
+  createExpressAccount,
+  createOnboardingLink,
+} from '../../../../lib/stripe-connect';
 
-// Route handlers must stay dynamic: they read cookies and talk to Stripe at
-// request time, never during the build.
+/**
+ * Legacy Stripe Express onboarding endpoint.
+ *
+ * Kept for older clients that post { partnerId, email } and expect
+ * { accountId, onboardingUrl } back. /api/partners/connect is the canonical
+ * route; this one shares the same bearer-token auth so both agree on who the
+ * caller is.
+ */
 export const dynamic = 'force-dynamic';
 
-export async function POST(req) {
+export async function POST(request) {
+  const { user, superAdmin, error } = await guard(request);
+  if (error) return error;
+
   if (!stripeEnabled()) {
-    return NextResponse.json(
-      { error: 'Stripe is not configured on this deployment.' },
-      { status: 503 }
-    );
+    return safeError('Stripe payouts are not configured on this deployment yet.', 503);
   }
 
-  const stripe = getStripe();
-
   try {
-    const supabase = createRouteHandlerClient({ cookies: req.cookies });
-    const { data: { session } } = await supabase.auth.getSession();
+    const body = await request.json().catch(() => ({}));
+    const partnerId = body.partnerId || body.partner_id;
 
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // A super admin may onboard on behalf of a partner; everyone else may only
+    // onboard themselves, regardless of the id they pass.
+    const partner = partnerId && superAdmin
+      ? await selectOne('revenue_partners', { id: `eq.${partnerId}` })
+      : await selectOne('revenue_partners', { user_id: `eq.${user.id}` });
 
-    const { email, partnerId } = await req.json();
+    if (!partner) return safeError('You are not set up as a revenue partner.', 403);
 
-    if (!email || !partnerId) {
-      return NextResponse.json(
-        { error: 'email and partnerId are required' },
-        { status: 400 }
-      );
-    }
-
-    // Verify caller is admin or the partner themselves
-    const { data: partner } = await supabase
-      .from('revenue_partners')
-      .select('user_id, email, share_percent, active')
-      .eq('id', partnerId)
-      .single();
-
-    if (!partner) {
-      return NextResponse.json({ error: 'Partner not found' }, { status: 404 });
-    }
-
-    // Check admin status
-    const { data: adminCheck } = await supabase
-      .from('admin_members')
-      .select('role')
-      .eq('user_id', session.user.id)
-      .single();
-
-    const isAdmin = !!adminCheck;
-    const isSelf = partner.user_id === session.user.id;
-
-    if (!isAdmin && !isSelf) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
-    // Check if already has a Stripe account
     if (partner.stripe_account_id) {
-      return NextResponse.json(
-        { error: 'Partner already has a Stripe account' },
-        { status: 400 }
-      );
+      return safeError('This partner already has a Stripe account.', 400);
     }
 
-    // Create Express account
-    const account = await stripe.accounts.create({
-      type: 'express',
-      email: partner.email || email,
-      capabilities: {
-        transfers: { requested: true },
-      },
-      metadata: {
-        cinexvideo_partner_id: partnerId,
-        partner_email: partner.email || email,
-      },
+    const origin = process.env.NEXT_PUBLIC_SITE_URL
+      || process.env.NEXT_PUBLIC_APP_URL
+      || new URL(request.url).origin;
+
+    const account = await createExpressAccount({
+      email: partner.email || body.email,
+      country: body.country || process.env.STRIPE_PARTNER_COUNTRY || 'US',
+      businessUrl: origin,
+      partnerId: partner.id,
+      displayName: partner.display_name,
     });
 
-    // Create onboarding link
-    const accountLink = await stripe.accountLinks.create({
-      account: account.id,
-      refresh_url: `${process.env.NEXT_PUBLIC_APP_URL}/billing/connect?refresh=true`,
-      return_url: `${process.env.NEXT_PUBLIC_APP_URL}/billing/connect?success=true`,
-      type: 'account_onboarding',
-    });
-
-    // Update partner record
-    await supabase
-      .from('revenue_partners')
-      .update({
+    await updateRows(
+      'revenue_partners',
+      { id: `eq.${partner.id}` },
+      {
         stripe_account_id: account.id,
-        onboarding_status: 'onboarding_in_progress',
+        payout_provider: 'stripe_express',
+        onboarding_status: 'action_required',
         updated_at: new Date().toISOString(),
-      })
-      .eq('id', partnerId);
-
-    return NextResponse.json({
-      accountId: account.id,
-      onboardingUrl: accountLink.url,
-    });
-  } catch (err) {
-    console.error('Stripe Connect onboarding error:', err);
-    return NextResponse.json(
-      { error: 'Failed to create onboarding link' },
-      { status: 500 }
+      }
     );
+
+    const onboardingUrl = await createOnboardingLink({
+      accountId: account.id,
+      refreshUrl: `${origin}/?payouts=refresh`,
+      returnUrl: `${origin}/?payouts=done`,
+    });
+
+    return Response.json({ accountId: account.id, onboardingUrl, url: onboardingUrl });
+  } catch (err) {
+    console.error('stripe connect onboarding', err);
+    return safeError('Could not start Stripe onboarding.', 502);
   }
 }

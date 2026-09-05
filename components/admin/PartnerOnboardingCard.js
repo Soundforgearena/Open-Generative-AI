@@ -9,10 +9,7 @@ export default function PartnerOnboardingCard({ partner, onRefresh }) {
     loading: onboardingLoading,
     error: onboardingError,
     startOnboarding,
-  } = useConnectOnboarding({
-    partnerId: partner.id,
-    email: partner.email,
-  });
+  } = useConnectOnboarding({ partnerId: partner.id });
 
   const handleStartOnboarding = async () => {
     setMessage(null);
