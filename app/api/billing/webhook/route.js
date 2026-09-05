@@ -1,29 +1,53 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
-import Stripe from 'stripe';
+import { stripeEnabled, constructWebhookEvent } from '../../../../lib/stripe-connect';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2024-06-20',
-});
+// Webhooks are request-time only; nothing here may run during the build.
+export const dynamic = 'force-dynamic';
 
 const webhookSecret =
   process.env.CINEXVIDEO_STRIPE_WEBHOOK_SECRET ||
   process.env.STRIPE_WEBHOOK_SECRET;
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+/**
+ * Lazily build the service-role Supabase client.
+ *
+ * Creating it at module scope crashes the build when the env vars are absent,
+ * and it must never be created in a browser bundle.
+ */
+let cachedSupabase = null;
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error(
+      'Supabase is not configured: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.'
+    );
+  }
+  if (!cachedSupabase) {
+    cachedSupabase = createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return cachedSupabase;
+}
 
 export async function POST(req) {
+  if (!stripeEnabled() || !webhookSecret) {
+    return NextResponse.json(
+      { error: 'Stripe webhooks are not configured on this deployment.' },
+      { status: 503 }
+    );
+  }
+
   const body = await req.text();
-  const signature = headers().get('stripe-signature');
+  const signature = (await headers()).get('stripe-signature');
 
   let event;
 
   try {
-    event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+    event = constructWebhookEvent(body, signature, webhookSecret);
   } catch (err) {
     console.error('Webhook signature verification failed:', err.message);
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
@@ -33,6 +57,14 @@ export async function POST(req) {
   const isCinexVideo =
     event.data?.object?.metadata?.product === 'cinexvideo' ||
     event.data?.object?.metadata?.cinexvideo_partner_id;
+
+  let supabase;
+  try {
+    supabase = getSupabase();
+  } catch (err) {
+    console.error('Webhook storage unavailable:', err.message);
+    return NextResponse.json({ error: 'Storage not configured' }, { status: 503 });
+  }
 
   try {
     switch (event.type) {

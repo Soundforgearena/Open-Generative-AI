@@ -1,12 +1,21 @@
 import { NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import Stripe from 'stripe';
+import { stripeEnabled, getStripe } from '../../../../lib/stripe-connect';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2024-06-20',
-});
+// Route handlers must stay dynamic: they read cookies and talk to Stripe at
+// request time, never during the build.
+export const dynamic = 'force-dynamic';
 
 export async function POST(req) {
+  if (!stripeEnabled()) {
+    return NextResponse.json(
+      { error: 'Stripe is not configured on this deployment.' },
+      { status: 503 }
+    );
+  }
+
+  const stripe = getStripe();
+
   try {
     const supabase = createRouteHandlerClient({ cookies: req.cookies });
     const { data: { session } } = await supabase.auth.getSession();

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
 import PartnerOnboardingCard from '../../../components/admin/PartnerOnboardingCard';
@@ -13,14 +13,47 @@ const ALLOWED_ADMIN_EMAILS = [
 
 export default function AdminConnectPage() {
   const router = useRouter();
-  const supabase = createClientComponentClient();
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [partners, setPartners] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // The Supabase browser client reads NEXT_PUBLIC_* env vars and throws when
+  // they are absent, which breaks prerendering at build time. Creating it
+  // on demand keeps it out of the server render pass entirely.
+  const supabaseRef = useRef(null);
+  const getSupabase = useCallback(() => {
+    if (!supabaseRef.current) {
+      supabaseRef.current = createClientComponentClient();
+    }
+    return supabaseRef.current;
+  }, []);
+
+  const loadPartners = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data, error: queryError } = await getSupabase()
+        .from('revenue_partners')
+        .select('id, email, display_name, share_percent, active, stripe_account_id, onboarding_status, payouts_enabled, payout_provider')
+        .order('created_at', { ascending: false });
+
+      if (queryError) {
+        setError(queryError.message);
+      } else {
+        setPartners(data || []);
+      }
+    } catch (err) {
+      setError(err.message || 'Could not load revenue partners.');
+    } finally {
+      setLoading(false);
+    }
+  }, [getSupabase]);
+
   useEffect(() => {
     const checkAuthorization = async () => {
+      const supabase = getSupabase();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) {
         router.push('/');
@@ -48,26 +81,11 @@ export default function AdminConnectPage() {
       loadPartners();
     };
 
-    checkAuthorization();
-  }, []);
-
-  const loadPartners = async () => {
-    setLoading(true);
-    setError(null);
-
-    const { data, error } = await supabase
-      .from('revenue_partners')
-      .select('id, email, display_name, share_percent, active, stripe_account_id, onboarding_status, payouts_enabled, payout_provider')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      setError(error.message);
-    } else {
-      setPartners(data || []);
-    }
-
-    setLoading(false);
-  };
+    checkAuthorization().catch((err) => {
+      setError(err.message || 'Could not verify admin access.');
+      setLoading(false);
+    });
+  }, [getSupabase, loadPartners, router]);
 
   if (!isAuthorized || loading) {
     return (
