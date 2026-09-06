@@ -1,0 +1,8 @@
+import { safeError } from '../../../../../lib/cinexvideo-server';
+
+export async function POST(request) {
+  const expected = process.env.CRON_SECRET;
+  const provided = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+  if (!expected || !provided || provided !== expected) return safeError('Cron authorization required.', 401);
+  return Response.json({ status: 'unavailable', message: 'Reconciliation scheduler is not configured for this deployment.' }, { status: 503 });
+}
