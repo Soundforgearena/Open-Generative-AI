@@ -33,7 +33,7 @@ export default function PrivacyPage() {
           <h2>6. Your Choices</h2>
           <p>You may update, correct, or delete your account information at any time. You may also opt out of receiving promotional emails from us.</p>
           
-          <h2>7. Children's Privacy</h2>
+          <h2>7. Children&apos;s Privacy</h2>
           <p>Our services are not intended for children under 13. We do not knowingly collect personal information from children under 13.</p>
           
           <h2>8. International Data Transfers</h2>

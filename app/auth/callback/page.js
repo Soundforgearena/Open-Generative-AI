@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { storeSession } from '../../../lib/cinexvideo-client';
 import {
@@ -57,9 +58,9 @@ export default function AuthCallback() {
     <main className="min-h-screen flex items-center justify-center bg-slate-950 text-white px-6">
       <div className="text-center">
         <p className="text-lg">{message}</p>
-        <a href="/" className="mt-4 inline-block text-amber-400 hover:text-amber-300">
+        <Link href="/" className="mt-4 inline-block text-amber-400 hover:text-amber-300">
           Back to CinexVideo
-        </a>
+        </Link>
       </div>
     </main>
   );

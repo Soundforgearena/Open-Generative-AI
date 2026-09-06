@@ -34,7 +34,7 @@ export default function TermsPage() {
           <p>You agree not to use CinexVideo to create content that is illegal, harmful, threatening, abusive, harassing, defamatory, vulgar, obscene, or otherwise objectionable.</p>
           
           <h2>7. Disclaimer of Warranties</h2>
-          <p>CinexVideo is provided "as is" without any warranties, express or implied. We do not warrant that the service will be uninterrupted, error-free, or completely secure.</p>
+          <p>CinexVideo is provided &quot;as is&quot; without any warranties, express or implied. We do not warrant that the service will be uninterrupted, error-free, or completely secure.</p>
           
           <h2>8. Limitation of Liability</h2>
           <p>To the maximum extent permitted by law, CinexVideo shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the service.</p>
