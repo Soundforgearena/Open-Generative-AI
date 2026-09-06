@@ -35,20 +35,7 @@ const trustPoints = [
 export default function HomePage() {
   return (
     <main className="cinex-page">
-      <div className="cinex-background" aria-hidden="true" />
-      <div className="cinex-vignette" aria-hidden="true" />
-
-      <header className="cinex-header">
-        <Link href="/" className="cinex-brand" aria-label="CineXVideo home">
-          <img
-            src="/favicon.jpg"
-            alt=""
-            className="cinex-brand-mark"
-            aria-hidden="true"
-          />
-          <span>CineX<span>Video</span></span>
-        </Link>
-
+      <header className="cinex-header cinex-container">
         <nav className="cinex-nav" aria-label="Primary navigation">
           <a href="#create">Create</a>
           <a href="#features">Features</a>
@@ -56,59 +43,50 @@ export default function HomePage() {
         </nav>
       </header>
 
-      <section className="cinex-hero" aria-labelledby="cinex-title">
-        <div className="cinex-hero-content">
-          <div className="cinex-logo-lockup">
-            <img
-              src="/favicon.jpg"
-              alt="CineXVideo"
-              className="cinex-main-mark"
-            />
-            <h1 id="cinex-title">
-              CINE<span>X</span>VIDEO
-            </h1>
-          </div>
-
-          <p className="cinex-tagline">Your story. Now in motion.</p>
-
-          <div id="create" className="cinex-cta-wrap">
+      <section className="cinex-hero cinex-container" aria-labelledby="cinex-title">
+        <h1 id="cinex-title" className="cinex-sr-only">CineXVideo</h1>
+        <div
+          className="cinex-hero-art"
+          role="img"
+          aria-label="Cinematic worlds brought to life with CineXVideo"
+        />
+        <div id="create" className="cinex-cta-wrap">
             <Link href="/create" className="cinex-primary-cta">
               <span className="clapper" aria-hidden="true">▰</span>
               Create a Video
             </Link>
-          </div>
-
-          <div className="cinex-actions" aria-label="Choose how to begin">
-            {workflowOptions.map((option) => (
-              <Link
-                key={option.href}
-                href={option.href}
-                className="cinex-action-card"
-              >
-                <span className="cinex-action-icon" aria-hidden="true">
-                  {option.icon}
-                </span>
-                <span className="cinex-action-text">
-                  <strong>{option.title}</strong>
-                  <small>{option.description}</small>
-                </span>
-              </Link>
-            ))}
-          </div>
-
-          <div id="features" className="cinex-trust-row">
-            {trustPoints.map(([icon, label]) => (
-              <span key={label} className="cinex-trust-item">
-                <span aria-hidden="true">{icon}</span>
-                {label}
-              </span>
-            ))}
-          </div>
-
-          <p className="cinex-footer-line">
-            Made for <span>creators</span>. Built for <span>impact</span>.
-          </p>
         </div>
+      </section>
+
+      <section className="cinex-secondary cinex-container" aria-labelledby="cinex-options-title">
+        <h2 id="cinex-options-title">Choose your starting point</h2>
+        <div className="cinex-actions" aria-label="Choose how to begin">
+          {workflowOptions.map((option) => (
+            <Link key={option.href} href={option.href} className="cinex-action-card">
+              <span className="cinex-action-icon" aria-hidden="true">
+                {option.icon}
+              </span>
+              <span className="cinex-action-text">
+                <strong>{option.title}</strong>
+                <small>{option.description}</small>
+              </span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section id="features" className="cinex-features cinex-container" aria-label="CineXVideo features">
+        <div className="cinex-trust-row">
+          {trustPoints.map(([icon, label]) => (
+            <span key={label} className="cinex-trust-item">
+              <span aria-hidden="true">{icon}</span>
+              {label}
+            </span>
+          ))}
+        </div>
+        <p className="cinex-footer-line">
+          Made for <span>creators</span>. Built for <span>impact</span>.
+        </p>
       </section>
     </main>
   );
