@@ -2,23 +2,50 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { captureOAuthSession } from '../../../lib/cinexvideo-client';
+import { storeSession } from '../../../lib/cinexvideo-client';
+import { getSupabaseBrowserClient } from '../../../lib/supabase-browser';
 
 /**
- * Supabase sends the browser here after Google sign-in with the tokens in the
- * URL fragment. We store the session client-side and continue into the app.
+ * Supabase sends the browser here after Google sign-in with a PKCE code. The
+ * browser client keeps the verifier, then exchanges the code for a session.
  */
 export default function AuthCallback() {
   const router = useRouter();
   const [message, setMessage] = useState('Completing sign-in...');
 
   useEffect(() => {
-    const session = captureOAuthSession();
-    if (session?.access_token) {
-      router.replace('/');
-      return;
+    let cancelled = false;
+
+    async function completeSignIn() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const callbackError = params.get('error_description') || params.get('error');
+        if (callbackError) throw new Error(callbackError);
+
+        const code = params.get('code');
+        if (!code) throw new Error('The sign-in callback did not include an authorization code.');
+
+        const supabase = getSupabaseBrowserClient();
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) throw error;
+        if (!data.session?.access_token) throw new Error('Supabase returned no active session.');
+
+        storeSession(data.session);
+        if (!cancelled) router.replace('/');
+      } catch (callbackFailure) {
+        console.error('CineXVideo OAuth callback failed', callbackFailure);
+        if (cancelled) return;
+        const detail = process.env.NODE_ENV === 'development'
+          ? ` ${callbackFailure.message}`
+          : '';
+        setMessage(`We could not complete that sign-in. Please try again.${detail}`);
+      }
     }
-    setMessage('We could not complete that sign-in. Please try again.');
+
+    completeSignIn();
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   return (

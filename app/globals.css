@@ -447,12 +447,22 @@ button {
 }
 
 .cinex-route-primary {
+  cursor: pointer;
+  font: inherit;
   padding: 15px 24px;
   border: 1px solid var(--cinex-gold);
   border-radius: 8px;
   color: #171109;
   background: var(--cinex-gold);
   text-transform: uppercase;
+}
+
+.cinex-route-error {
+  max-width: 520px;
+  margin: 18px 0 0;
+  color: #ffb4a9;
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .cinex-route-back {
