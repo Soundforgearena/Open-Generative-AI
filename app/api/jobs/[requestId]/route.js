@@ -83,9 +83,14 @@ export async function GET(request, { params }) {
       const costNormalized = normalizeMuapiCost({ response: data });
       const reservation = await findCreditReservation(job.reservation_reference);
       if (reservation && reservation.status === 'reserved') {
+        const actualCredits = Number.isInteger(costNormalized.amountCredits)
+          ? Math.min(Math.max(0, costNormalized.amountCredits), reservation.max_reservation_credits)
+          : costNormalized.amountUsdCents == null
+            ? reservation.max_reservation_credits
+            : Math.min(Math.max(0, costNormalized.amountUsdCents), reservation.max_reservation_credits);
         await callRpc('settle_reservation_v2', {
           p_reservation_id: reservation.id,
-          p_settled_credits: job.credits_reserved,
+          p_settled_credits: actualCredits,
           p_generation_job_id: job.id,
         });
         if (costNormalized.reliable && costNormalized.amountUsdCents != null) {
@@ -98,12 +103,13 @@ export async function GET(request, { params }) {
             raw_response: data,
           });
         }
+      } else {
+        await callRpc('consume_credits', {
+          p_user_id: user.id,
+          p_credits: job.credits_reserved,
+          p_reference_id: job.reservation_reference,
+        });
       }
-      await callRpc('consume_credits', {
-        p_user_id: user.id,
-        p_credits: job.credits_reserved,
-        p_reference_id: job.reservation_reference,
-      });
       await updateRows('generation_requests', { id: `eq.${job.id}` }, { status: 'completed', output });
 
       // Revenue is recognised here, not at purchase: this is the point where
@@ -147,12 +153,13 @@ export async function GET(request, { params }) {
         p_reservation_id: reservation.id,
         p_reason: 'provider_failed',
       });
+    } else {
+      await callRpc('release_credits', {
+        p_user_id: user.id,
+        p_credits: job.credits_reserved,
+        p_reference_id: job.reservation_reference,
+      });
     }
-    await callRpc('release_credits', {
-      p_user_id: user.id,
-      p_credits: job.credits_reserved,
-      p_reference_id: job.reservation_reference,
-    });
     await updateRows(
       'generation_requests',
       { id: `eq.${job.id}` },

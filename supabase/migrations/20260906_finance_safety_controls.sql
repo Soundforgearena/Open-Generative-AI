@@ -47,6 +47,13 @@ create policy credit_reservations_owner_select on public.credit_reservations
 -- Insert/update/delete intentionally has no policy: only the service role
 -- (server routes) may mutate reservations, never the browser directly.
 
+-- Link the existing generation table to the same client idempotency key. The
+-- partial unique index preserves existing rows created by the legacy route.
+alter table public.generation_requests add column if not exists idempotency_key text;
+create unique index if not exists generation_requests_user_idempotency_idx
+  on public.generation_requests(user_id, idempotency_key)
+  where idempotency_key is not null;
+
 -- ---------------------------------------------------- provider_cost_records
 -- Actual MuAPI cost per completed/failed job, used for real settlement and
 -- margin verification instead of the estimate alone.

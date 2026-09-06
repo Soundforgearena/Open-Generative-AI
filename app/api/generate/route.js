@@ -65,7 +65,43 @@ export async function POST(request) {
     }
 
     const credits = Number(quoteRow.credits);
-    const reference = crypto.randomUUID();
+    const idempotencyKey = request.headers.get('idempotency-key') || crypto.randomUUID();
+    const reservation = await callRpc('reserve_credits_v2', {
+      p_user_id: user.id,
+      p_operation: operation,
+      p_estimated_credits: credits,
+      p_max_reservation_credits: credits,
+      p_pricing_policy_version: '2026-09-06-v1',
+      p_idempotency_key: idempotencyKey,
+    });
+    const reservationRow = Array.isArray(reservation.data) ? reservation.data[0] : reservation.data;
+    if (!reservation.ok || !reservationRow?.id) {
+      const message = String(reservation.data?.message || '');
+      if (message.includes('INSUFFICIENT_CREDITS')) {
+        return safeError('You need more credits to continue.', 402);
+      }
+      return safeError('Could not reserve credits. Please try again.', 409);
+    }
+    const reference = reservationRow.id;
+    if (reservationRow.generation_job_id) {
+      const existingJob = await selectOne(
+        'generation_requests',
+        { id: `eq.${reservationRow.generation_job_id}`, user_id: `eq.${user.id}` },
+        'id,provider_request_id,credits_reserved,scene_version,status'
+      );
+      if (existingJob) {
+        return Response.json(
+          {
+            job_id: existingJob.id,
+            request_id: existingJob.provider_request_id,
+            credits_required: existingJob.credits_reserved,
+            scene_version: existingJob.scene_version,
+            status: existingJob.status,
+          },
+          { status: 202 }
+        );
+      }
+    }
 
     const reserved = await callRpc('reserve_credits', {
       p_user_id: user.id,
@@ -105,9 +141,47 @@ export async function POST(request) {
       operation,
       reservation_reference: reference,
       credits_reserved: credits,
+      idempotency_key: idempotencyKey,
       status: 'queued',
     });
-    const jobId = job.data?.[0]?.id || null;
+    let jobRow = job.data?.[0] || null;
+    if (!job.ok) {
+      jobRow = await selectOne(
+        'generation_requests',
+        { user_id: `eq.${user.id}`, idempotency_key: `eq.${idempotencyKey}` },
+        'id,provider_request_id,credits_reserved,scene_version,status'
+      );
+      if (!jobRow) {
+        await callRpc('release_reservation_v2', {
+          p_reservation_id: reference,
+          p_reason: 'job_record_failed',
+        });
+        return safeError('Generation could not be started. Please try again.', 500);
+      }
+      return Response.json(
+        {
+          job_id: jobRow.id,
+          request_id: jobRow.provider_request_id,
+          credits_required: jobRow.credits_reserved,
+          scene_version: jobRow.scene_version,
+          status: jobRow.status,
+        },
+        { status: 202 }
+      );
+    }
+    const jobId = jobRow?.id || null;
+    if (!jobId) {
+      await callRpc('release_reservation_v2', {
+        p_reservation_id: reference,
+        p_reason: 'job_record_failed',
+      });
+      return safeError('Generation could not be started. Please try again.', 500);
+    }
+    await updateRows(
+      'credit_reservations',
+      { id: `eq.${reference}` },
+      { generation_job_id: jobId }
+    );
 
     try {
       const apiKey = requireSecret('MUAPI_API_KEY');
@@ -123,13 +197,11 @@ export async function POST(request) {
       const providerRequestId = providerData?.request_id || providerData?.id;
       if (!providerRequestId) throw new Error('provider returned no job id');
 
-      if (jobId) {
-        await updateRows(
-          'generation_requests',
-          { id: `eq.${jobId}` },
-          { provider_request_id: providerRequestId, status: 'running' }
-        );
-      }
+      await updateRows(
+        'generation_requests',
+        { id: `eq.${jobId}` },
+        { provider_request_id: providerRequestId, status: 'running' }
+      );
 
       return Response.json(
         { job_id: jobId, request_id: providerRequestId, credits_required: credits, scene_version: sceneVersion },
@@ -137,18 +209,15 @@ export async function POST(request) {
       );
     } catch (providerError) {
       console.error('generate provider failure', providerError);
-      await callRpc('release_credits', {
-        p_user_id: user.id,
-        p_credits: credits,
-        p_reference_id: reference,
+      await callRpc('release_reservation_v2', {
+        p_reservation_id: reference,
+        p_reason: 'provider_error',
       });
-      if (jobId) {
-        await updateRows(
-          'generation_requests',
-          { id: `eq.${jobId}` },
-          { status: 'released', error_note: 'provider_error' }
-        );
-      }
+      await updateRows(
+        'generation_requests',
+        { id: `eq.${jobId}` },
+        { status: 'released', error_note: 'provider_error' }
+      );
       if (sceneId) {
         await updateRows('scenes', { id: `eq.${sceneId}` }, { status: 'failed' });
         if (sceneVersion) {
