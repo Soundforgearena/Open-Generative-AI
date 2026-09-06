@@ -212,6 +212,7 @@ button {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   transition: transform 160ms ease, filter 160ms ease, box-shadow 160ms ease;
+  text-decoration: none;
 }
 
 .cinex-primary-cta:hover {
@@ -260,6 +261,7 @@ button {
     rgba(4, 6, 9, 0.72);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 7px 20px rgba(0, 0, 0, 0.24);
   transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+  text-decoration: none;
 }
 
 .cinex-action-card:hover {
@@ -343,6 +345,137 @@ button {
   color: var(--cinex-gold);
 }
 
+.cinex-route-page {
+  min-height: 100svh;
+}
+
+.cinex-route-home {
+  color: var(--cinex-gold-light);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.cinex-route-content {
+  width: min(720px, calc(100% - 40px));
+  min-height: calc(100svh - 76px);
+  margin: 0 auto;
+  padding: 70px 0 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.cinex-route-eyebrow {
+  margin: 0 0 14px;
+  color: var(--cinex-gold-light);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.cinex-route-content h1 {
+  margin: 0;
+  color: var(--cinex-text);
+  font-family: 'Montserrat', sans-serif;
+  font-size: clamp(2.25rem, 7vw, 4.8rem);
+  font-weight: 900;
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+  text-transform: uppercase;
+  text-shadow: 0 4px 26px rgba(0, 0, 0, 0.85);
+}
+
+.cinex-route-description {
+  max-width: 570px;
+  margin: 22px 0 0;
+  color: var(--cinex-muted);
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.cinex-route-actions {
+  width: 100%;
+  margin-top: 38px;
+  display: grid;
+  gap: 12px;
+}
+
+.cinex-route-option {
+  display: grid;
+  gap: 6px;
+  padding: 20px 22px;
+  border: 1px solid rgba(239, 204, 130, 0.52);
+  border-radius: 9px;
+  color: var(--cinex-text);
+  text-align: left;
+  text-decoration: none;
+  background: rgba(7, 10, 16, 0.78);
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.cinex-route-option:hover,
+.cinex-route-option:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--cinex-gold);
+  background: rgba(58, 44, 23, 0.88);
+}
+
+.cinex-route-option strong {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 1.35rem;
+  text-transform: uppercase;
+}
+
+.cinex-route-option span {
+  color: var(--cinex-muted);
+  font-size: 0.88rem;
+}
+
+.cinex-route-primary,
+.cinex-route-back {
+  margin-top: 34px;
+  color: var(--cinex-gold-light);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.cinex-route-primary {
+  padding: 15px 24px;
+  border: 1px solid var(--cinex-gold);
+  border-radius: 8px;
+  color: #171109;
+  background: var(--cinex-gold);
+  text-transform: uppercase;
+}
+
+.cinex-route-back {
+  margin-top: auto;
+  padding-top: 54px;
+  font-size: 0.88rem;
+}
+
+.cinex-route-home:hover,
+.cinex-route-home:focus-visible,
+.cinex-route-back:hover,
+.cinex-route-back:focus-visible {
+  color: #fff;
+}
+
+.cinex-route-primary:focus-visible,
+.cinex-route-home:focus-visible,
+.cinex-route-option:focus-visible,
+.cinex-route-back:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 4px;
+}
+
 @media (max-width: 760px) {
   .cinex-header {
     width: min(100% - 32px, 1320px);
@@ -392,6 +525,11 @@ button {
   .cinex-footer-line {
     font-size: 0.62rem;
     line-height: 1.6;
+  }
+
+  .cinex-route-content {
+    min-height: calc(100svh - 64px);
+    padding-top: 48px;
   }
 }
 

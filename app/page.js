@@ -1,26 +1,25 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 
 const workflowOptions = [
   {
     title: 'Start with a Story',
     description: 'Turn your ideas into a cinematic video',
     icon: '✎',
-    mode: 'story',
+    href: '/create/story',
   },
   {
     title: 'Use My Script',
     description: 'Bring your script to life',
     icon: '▤',
-    mode: 'script',
+    href: '/create/script',
   },
   {
     title: 'Explore Templates',
     description: 'Discover cinematic templates',
     icon: '⌕',
-    mode: 'templates',
+    href: '/templates',
   },
 ];
 
@@ -34,12 +33,6 @@ const trustPoints = [
 ];
 
 export default function HomePage() {
-  const router = useRouter();
-
-  function beginCreation(mode = 'story') {
-    router.push(`/create?mode=${mode}`);
-  }
-
   return (
     <main className="cinex-page">
       <div className="cinex-background" aria-hidden="true" />
@@ -79,23 +72,18 @@ export default function HomePage() {
           <p className="cinex-tagline">Your story. Now in motion.</p>
 
           <div id="create" className="cinex-cta-wrap">
-            <button
-              type="button"
-              className="cinex-primary-cta"
-              onClick={() => beginCreation('story')}
-            >
+            <Link href="/create" className="cinex-primary-cta">
               <span className="clapper" aria-hidden="true">▰</span>
               Create a Video
-            </button>
+            </Link>
           </div>
 
           <div className="cinex-actions" aria-label="Choose how to begin">
             {workflowOptions.map((option) => (
-              <button
-                key={option.mode}
-                type="button"
+              <Link
+                key={option.href}
+                href={option.href}
                 className="cinex-action-card"
-                onClick={() => beginCreation(option.mode)}
               >
                 <span className="cinex-action-icon" aria-hidden="true">
                   {option.icon}
@@ -104,7 +92,7 @@ export default function HomePage() {
                   <strong>{option.title}</strong>
                   <small>{option.description}</small>
                 </span>
-              </button>
+              </Link>
             ))}
           </div>
 
