@@ -40,6 +40,33 @@ The app provides `/dashboard` for authenticated local drafts and
 only exposes Google sign-in in the web UI. Generation remains disabled until the
 account and generation services are configured.
 
+### Music Video Studio
+
+Music Video Studio is available at `/music-video` and provides local planning
+for demo track profiles, editable lyric timing, Director treatments, and
+beat-aware storyboards. Demo mode never uploads audio, transcribes audio, calls
+providers, or generates video. Users must confirm they own the music or have
+permission to use it; this is a workflow confirmation, not legal advice.
+Lip-sync planning stays blocked until lyrics are reviewed and confirmed, while
+instrumental projects use no lip-sync.
+
+Production integration still requires authenticated audio storage/upload,
+server-side transcription and alignment, an authorized music-platform
+connection if pursued, a video/lip-sync provider, billing/credits, and export
+delivery.
+
+### Continuity Bible and Guardian
+
+Episode and Music Video review surfaces include a Continuity Bible and a local
+Continuity Guardian. The demo validator checks declared identity, wardrobe,
+props, location/light/weather, emotional state, camera direction, lyric/lip-sync
+gating, and timeline handoffs. It produces warnings and blocking issues for
+manual review; it is not vision-model QA and does not claim perfect continuity.
+
+Future production continuity requires private project-owned reference storage,
+server-side vision/clip QA, provider reference-image/end-frame support, and a
+real video generation and assembly pipeline.
+
 ### Local demo mode
 
 Set `NEXT_PUBLIC_DEMO_MODE=true` only for local development or preview testing.

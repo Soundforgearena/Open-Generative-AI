@@ -7,6 +7,7 @@ import { createDemoProject, saveDemoProject } from '@/lib/demo-project-store';
 import { demoModeEnabled } from '@/lib/demo-mode';
 import { createStoryboard } from '@/lib/storyboard';
 import { validateProjectInput } from '@/lib/validation';
+import AskAiDirectorButton from './AskAiDirectorButton';
 
 const STYLES = ['Cinematic', 'Neo-noir', 'Documentary', 'Music video', 'Animation', 'Commercial'];
 const RATIOS = ['16:9', '9:16', '4:3', '1:1', '2.39:1'];
@@ -104,15 +105,18 @@ export default function DemoProjectBuilder({ sourceType = 'idea', template, onCr
           Project title
           <input name="title" value={values.title} onChange={updateValue} placeholder="Midnight Signal" required />
           {errors.title && <span className="cinex-form-error">{errors.title}</span>}
+          <AskAiDirectorButton fieldType="title" value={values.title} context={{ sourceType, style: values.style, duration: values.duration }} onApply={(suggestion) => setValues((current) => ({ ...current, title: suggestion.split('\n')[0] }))} />
         </label>
         <label>
           {sourceLabel}
           <textarea name="sourceText" value={values.sourceText} onChange={updateValue} rows={sourceType === 'script' ? 10 : 6} placeholder="Describe the story, world, or script..." required />
           {errors.sourceText && <span className="cinex-form-error">{errors.sourceText}</span>}
+          <AskAiDirectorButton fieldType={sourceType === 'script' ? 'script' : sourceType === 'idea' ? 'idea' : 'story'} value={values.sourceText} context={{ sourceType, genre: values.style, duration: values.duration, style: values.style }} onApply={(suggestion) => setValues((current) => ({ ...current, sourceText: suggestion }))} />
         </label>
         <label>
           Visual notes <span className="cinex-form-optional">Optional</span>
           <textarea name="notes" value={values.notes} onChange={updateValue} rows={3} placeholder="Lighting, camera movement, or references..." />
+          <AskAiDirectorButton fieldType="visualNotes" value={values.notes} context={{ sourceType, style: values.style, duration: values.duration }} onApply={(suggestion) => setValues((current) => ({ ...current, notes: suggestion }))} />
         </label>
         <div className="cinex-form-grid">
           <label>

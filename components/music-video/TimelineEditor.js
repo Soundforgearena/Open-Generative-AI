@@ -1,0 +1,6 @@
+'use client';
+
+export default function TimelineEditor({ shot, onChange }) {
+  if (!shot) return <p className="cinex-form-optional">Select a shot to edit its timing and direction.</p>;
+  return <section className="cinex-shot-plan" aria-labelledby="timeline-editor-title"><h2 id="timeline-editor-title">Timeline editor</h2><div className="cinex-form-grid"><label>Start seconds<input type="number" min="0" value={shot.startSeconds} onChange={(event) => onChange({ startSeconds: Number(event.target.value) })} /></label><label>End seconds<input type="number" min="1" value={shot.endSeconds} onChange={(event) => onChange({ endSeconds: Number(event.target.value) })} /></label></div><label>Shot type<select value={shot.type} onChange={(event) => onChange({ type: event.target.value })}><option>performance</option><option>narrative</option><option>lyric</option><option>transition</option><option>abstract</option></select></label><label>Purpose<textarea value={shot.purpose} onChange={(event) => onChange({ purpose: event.target.value })} rows={3} /></label><button type="button" className="cinex-auth-secondary" onClick={() => onChange({ locked: !shot.locked })}>{shot.locked ? 'Unlock timing' : 'Lock timing'}</button></section>;
+}

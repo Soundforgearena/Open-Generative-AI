@@ -8,6 +8,10 @@ import { demoModeEnabled } from '@/lib/demo-mode';
 import { getDemoProject, saveDemoProject } from '@/lib/demo-project-store';
 import { getProject, updateProject, updateScene } from '@/lib/cinexvideo-client';
 import { safeProjectId } from '@/lib/safe-navigation';
+import AskAiDirectorButton from '@/components/AskAiDirectorButton';
+import ContinuityGuardianPanel from '@/components/continuity/ContinuityGuardianPanel';
+import ContinuityBibleEditor from '@/components/continuity/ContinuityBibleEditor';
+import { createContinuityBible } from '@/lib/continuity/continuity-bible';
 
 function MissingDraft() {
   return (
@@ -177,6 +181,8 @@ function ReviewContent() {
       description="Edit the draft and scenes before any generation step."
     >
       {demoModeEnabled && <p className="cinex-demo-indicator">Demo mode — local data only</p>}
+      {state === 'ready' && project && <ContinuityGuardianPanel project={project} onFix={() => window.location.assign('/create/director')} />}
+      {state === 'ready' && project && <ContinuityBibleEditor value={project.continuityBible || createContinuityBible()} onChange={(continuityBible) => updateLocalProject({ ...project, continuityBible })} />}
       {state === 'loading' && <p className="cinex-form-success" role="status">{message}</p>}
       {state === 'error' && <p className="cinex-form-error" role="alert">{message}</p>}
       {state === 'missing' && <MissingDraft />}
@@ -186,6 +192,7 @@ function ReviewContent() {
             <label>
               Project title
               <input value={project.title || ''} onChange={(event) => updateLocalProject({ ...project, title: event.target.value })} />
+              <AskAiDirectorButton fieldType="title" value={project.title} context={{ sourceType: project.sourceType, style: project.style, duration: project.duration }} onApply={(suggestion) => updateLocalProject({ ...project, title: suggestion.split('\n')[0] })} />
             </label>
             <dl>
               <div><dt>Source idea</dt><dd>{project.sourceText || project.logline || 'Not specified'}</dd></div>
@@ -193,10 +200,12 @@ function ReviewContent() {
               <div><dt>Duration</dt><dd>{project.duration || 'Not specified'} seconds</dd></div>
               <div><dt>Visual notes</dt><dd>{project.notes || 'No visual notes added.'}</dd></div>
             </dl>
+            <AskAiDirectorButton fieldType="story" value={project.sourceText || project.logline} context={{ sourceType: project.sourceType, style: project.style, duration: project.duration }} onApply={(suggestion) => updateLocalProject({ ...project, sourceText: suggestion })} />
             <div className="cinex-dashboard-actions">
               <button type="button" className="cinex-route-primary" onClick={continueToGeneration} disabled={simulating || completed}>{simulating ? 'Simulating generation...' : completed ? 'Generation simulation complete' : demoModeEnabled ? 'Simulate Generation' : 'Continue to Generation'}</button>
               <button type="button" className="cinex-auth-secondary" onClick={saveChanges}>Save changes</button>
             </div>
+            <Link href="/create/director" className="cinex-route-secondary-link">Open AI Director Writing Room</Link>
             {message && <p className="cinex-form-success" role="status">{message}</p>}
             {completed && <Link href={`/projects/${encodeURIComponent(project.id)}`} className="cinex-route-secondary-link">View completed project</Link>}
           </section>
@@ -208,9 +217,13 @@ function ReviewContent() {
                 <article className="cinex-scene-card" key={scene.id || index}>
                   <div className="cinex-scene-card-header"><strong>Scene {scene.sceneNumber}</strong><span>{scene.estimatedDuration}s · {scene.status}</span></div>
                   <input value={scene.title || ''} aria-label={`Scene ${scene.sceneNumber} title`} onChange={(event) => updateSceneValue(index, { title: event.target.value })} />
+                  <AskAiDirectorButton fieldType="scene" value={scene.title} context={{ sceneContext: scene.summary, style: project.style, duration: scene.estimatedDuration }} onApply={(suggestion) => updateSceneValue(index, { title: suggestion.split('\n')[0] })} />
                   <textarea value={scene.summary || ''} aria-label={`Scene ${scene.sceneNumber} summary`} onChange={(event) => updateSceneValue(index, { summary: event.target.value })} rows={2} />
+                  <AskAiDirectorButton fieldType="scene" value={scene.summary} context={{ sceneContext: scene.title, style: project.style, duration: scene.estimatedDuration }} onApply={(suggestion) => updateSceneValue(index, { summary: suggestion })} />
                   <p><strong>Visual prompt:</strong> {scene.visualPrompt || 'Not specified'}</p>
+                  <AskAiDirectorButton fieldType="visualNotes" value={scene.visualPrompt} context={{ sceneContext: scene.summary, style: project.style, duration: scene.estimatedDuration }} onApply={(suggestion) => updateSceneValue(index, { visualPrompt: suggestion })} />
                   <p><strong>Narration/dialogue:</strong> {scene.narration || 'None'}</p>
+                  <AskAiDirectorButton fieldType="scene" value={scene.narration} context={{ sceneContext: scene.summary, style: project.style, duration: scene.estimatedDuration }} onApply={(suggestion) => updateSceneValue(index, { narration: suggestion })} />
                   <div className="cinex-scene-actions">
                     <button type="button" className="cinex-auth-secondary" onClick={() => reorderScene(index, -1)}>Move up</button>
                     <button type="button" className="cinex-auth-secondary" onClick={() => reorderScene(index, 1)}>Move down</button>

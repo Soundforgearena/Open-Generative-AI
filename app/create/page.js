@@ -38,6 +38,7 @@ export default function CreatePage() {
         ))}
         <Link href="/templates" className="cinex-create-tab-link">Start from a template</Link>
       </div>
+      <Link href="/create/director" className="cinex-route-secondary-link">Open the AI Director Writing Room</Link>
       {template && <p className="cinex-selection-note">Starting from <strong>{template.title}</strong></p>}
       <DemoProjectBuilder sourceType={sourceType} template={template} />
       {demoModeEnabled && recentProjects.length > 0 && (
