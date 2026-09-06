@@ -57,7 +57,30 @@ button {
   padding-top: 22px;
   padding-bottom: 22px;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cinex-home-mark {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  pointer-events: auto;
+  border-radius: 8px;
+  transition: filter 160ms ease, transform 160ms ease;
+}
+
+.cinex-home-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: inherit;
+}
+
+.cinex-home-mark:hover,
+.cinex-home-mark:focus-visible {
+  filter: drop-shadow(0 0 8px rgba(245, 178, 68, 0.7));
+  transform: translateY(-1px);
 }
 
 .cinex-nav {
@@ -67,6 +90,8 @@ button {
 }
 
 .cinex-nav a {
+  cursor: pointer;
+  pointer-events: auto;
   color: rgba(255, 255, 255, 0.86);
   text-decoration: none;
   font-size: 0.84rem;
@@ -150,6 +175,7 @@ button {
   border-radius: 14px;
   padding: 16px 28px;
   cursor: pointer;
+  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -217,6 +243,7 @@ button {
 .cinex-action-card {
   min-height: 77px;
   cursor: pointer;
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 13px;
@@ -334,6 +361,7 @@ button {
   position: absolute;
   inset: 0;
   z-index: -3;
+  pointer-events: none;
   background: url('/HERO.jpeg') center top / cover no-repeat;
 }
 
@@ -356,6 +384,7 @@ button {
   letter-spacing: 0.06em;
   text-decoration: none;
   text-transform: uppercase;
+  pointer-events: auto;
 }
 
 .cinex-route-page .cinex-brand span span {
@@ -480,6 +509,7 @@ button {
   color: #171109;
   background: var(--cinex-gold);
   text-transform: uppercase;
+  pointer-events: auto;
 }
 
 .cinex-route-error {
@@ -504,11 +534,272 @@ button {
 }
 
 .cinex-route-primary:focus-visible,
+.cinex-home-mark:focus-visible,
+.cinex-auth-secondary:focus-visible,
 .cinex-route-home:focus-visible,
 .cinex-route-option:focus-visible,
 .cinex-route-back:focus-visible {
   outline: 3px solid #fff;
   outline-offset: 4px;
+}
+
+.cinex-selection-note {
+  width: 100%;
+  margin: 30px 0 -18px;
+  padding: 12px 16px;
+  border-left: 3px solid var(--cinex-gold);
+  color: var(--cinex-muted);
+  text-align: left;
+  background: rgba(7, 10, 16, 0.72);
+}
+
+.cinex-selection-note strong,
+.cinex-selected-template strong {
+  color: var(--cinex-gold-light);
+}
+
+.cinex-route-secondary-link {
+  margin-top: 24px;
+  color: var(--cinex-gold-light);
+  font-size: 0.88rem;
+  font-weight: 700;
+  pointer-events: auto;
+  text-decoration: none;
+}
+
+.cinex-route-secondary-link:hover,
+.cinex-route-secondary-link:focus-visible {
+  color: #fff;
+}
+
+.cinex-workflow-form {
+  width: 100%;
+  margin-top: 34px;
+  display: grid;
+  gap: 18px;
+  text-align: left;
+}
+
+.cinex-workflow-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--cinex-gold-light);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.cinex-workflow-form input,
+.cinex-workflow-form textarea,
+.cinex-workflow-form select {
+  width: 100%;
+  border: 1px solid rgba(239, 204, 130, 0.42);
+  border-radius: 6px;
+  padding: 13px 14px;
+  color: var(--cinex-text);
+  background: rgba(7, 10, 16, 0.86);
+  font: inherit;
+  line-height: 1.45;
+}
+
+.cinex-workflow-form textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.cinex-workflow-form input::placeholder,
+.cinex-workflow-form textarea::placeholder {
+  color: rgba(208, 201, 189, 0.62);
+}
+
+.cinex-workflow-form input:focus,
+.cinex-workflow-form textarea:focus,
+.cinex-workflow-form select:focus {
+  border-color: var(--cinex-gold);
+  outline: 3px solid rgba(246, 181, 75, 0.25);
+  outline-offset: 2px;
+}
+
+.cinex-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.cinex-form-optional {
+  color: var(--cinex-muted);
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+
+.cinex-selected-template {
+  padding: 12px 14px;
+  border: 1px solid rgba(239, 204, 130, 0.35);
+  color: var(--cinex-muted);
+  background: rgba(7, 10, 16, 0.74);
+}
+
+.cinex-form-error {
+  margin: 0;
+  color: #ffb4a9;
+  font-size: 0.88rem;
+}
+
+.cinex-form-success {
+  padding: 13px 15px;
+  border-left: 3px solid #8dd49b;
+  color: #c8f5cf;
+  background: rgba(40, 94, 51, 0.28);
+}
+
+.cinex-auth-divider {
+  width: 100%;
+  margin: 28px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--cinex-muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.cinex-auth-divider::before,
+.cinex-auth-divider::after {
+  height: 1px;
+  flex: 1;
+  content: '';
+  background: rgba(255, 218, 149, 0.27);
+}
+
+.cinex-auth-form {
+  width: 100%;
+  margin-top: 18px;
+  display: grid;
+  gap: 14px;
+  text-align: left;
+}
+
+.cinex-auth-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--cinex-gold-light);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.cinex-auth-form input {
+  width: 100%;
+  border: 1px solid rgba(239, 204, 130, 0.42);
+  border-radius: 6px;
+  padding: 12px 13px;
+  color: var(--cinex-text);
+  background: rgba(7, 10, 16, 0.86);
+  font: inherit;
+}
+
+.cinex-auth-form input:focus {
+  border-color: var(--cinex-gold);
+  outline: 3px solid rgba(246, 181, 75, 0.25);
+  outline-offset: 2px;
+}
+
+.cinex-auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.cinex-auth-actions .cinex-route-primary {
+  margin-top: 0;
+}
+
+.cinex-auth-secondary {
+  cursor: pointer;
+  pointer-events: auto;
+  border: 1px solid rgba(239, 204, 130, 0.5);
+  border-radius: 7px;
+  padding: 12px 16px;
+  color: var(--cinex-gold-light);
+  background: rgba(7, 10, 16, 0.72);
+  font: inherit;
+  font-weight: 700;
+}
+
+.cinex-auth-secondary:hover,
+.cinex-auth-secondary:focus-visible {
+  border-color: var(--cinex-gold);
+  color: #fff;
+}
+
+.cinex-auth-session {
+  width: 100%;
+  margin-top: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--cinex-muted);
+  font-size: 0.88rem;
+}
+
+.cinex-template-grid {
+  width: 100%;
+  margin-top: 34px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  text-align: left;
+}
+
+.cinex-template-card {
+  min-height: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid rgba(239, 204, 130, 0.42);
+  border-radius: 8px;
+  color: var(--cinex-text);
+  background: rgba(7, 10, 16, 0.8);
+  pointer-events: auto;
+  text-decoration: none;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.cinex-template-card:hover,
+.cinex-template-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--cinex-gold);
+  background: rgba(58, 44, 23, 0.88);
+}
+
+.cinex-template-card span {
+  color: var(--cinex-gold-light);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cinex-template-card strong {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 1.45rem;
+  text-transform: uppercase;
+}
+
+.cinex-template-card small {
+  color: var(--cinex-muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.cinex-template-card em {
+  margin-top: auto;
+  color: var(--cinex-gold-light);
+  font-size: 0.8rem;
+  font-style: normal;
+  font-weight: 700;
 }
 
 @media (max-width: 760px) {
@@ -518,10 +809,6 @@ button {
 
   .cinex-nav {
     gap: 12px;
-  }
-
-  .cinex-nav a:not(:last-child) {
-    display: none;
   }
 
   .cinex-hero {
@@ -554,6 +841,11 @@ button {
 
   .cinex-trust-item {
     font-size: 0.74rem;
+  }
+
+  .cinex-form-grid,
+  .cinex-template-grid {
+    grid-template-columns: 1fr;
   }
 
   .cinex-footer-line {

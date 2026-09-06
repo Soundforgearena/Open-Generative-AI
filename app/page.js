@@ -36,8 +36,11 @@ export default function HomePage() {
   return (
     <main className="cinex-page">
       <header className="cinex-header cinex-container">
+        <Link href="/" className="cinex-home-mark" aria-label="CineXVideo home">
+          <img src="/favicon.jpg" alt="" aria-hidden="true" />
+        </Link>
         <nav className="cinex-nav" aria-label="Primary navigation">
-          <a href="#create">Create</a>
+          <Link href="/create">Create</Link>
           <a href="#features">Features</a>
           <Link href="/auth">Sign in</Link>
         </nav>

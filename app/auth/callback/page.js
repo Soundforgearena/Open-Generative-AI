@@ -3,7 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { storeSession } from '../../../lib/cinexvideo-client';
-import { getSupabaseBrowserClient } from '../../../lib/supabase-browser';
+import {
+  consumeAuthNextPath,
+  getSafeNextPath,
+  getSupabaseBrowserClient,
+} from '../../../lib/supabase-browser';
 
 /**
  * Supabase sends the browser here after Google sign-in with a PKCE code. The
@@ -31,14 +35,15 @@ export default function AuthCallback() {
         if (!data.session?.access_token) throw new Error('Supabase returned no active session.');
 
         storeSession(data.session);
-        if (!cancelled) router.replace('/');
+        const nextPath = getSafeNextPath(consumeAuthNextPath());
+        if (!cancelled) router.replace(nextPath);
       } catch (callbackFailure) {
         console.error('CineXVideo OAuth callback failed', callbackFailure);
         if (cancelled) return;
-        const detail = process.env.NODE_ENV === 'development'
-          ? ` ${callbackFailure.message}`
-          : '';
-        setMessage(`We could not complete that sign-in. Please try again.${detail}`);
+        const code = callbackFailure.message === 'Supabase browser authentication is not configured.'
+          ? 'not_configured'
+          : 'oauth_failed';
+        router.replace(`/auth?error=${code}`);
       }
     }
 
