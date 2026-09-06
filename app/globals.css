@@ -1238,6 +1238,79 @@ button {
   font-size: 0.8rem;
 }
 
+.cinex-review-layout {
+  width: 100%;
+  margin-top: 28px;
+  display: grid;
+  grid-template-columns: minmax(240px, 0.75fr) minmax(0, 1.25fr);
+  gap: 18px;
+  text-align: left;
+}
+
+.cinex-review-summary {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(239, 204, 130, 0.3);
+  border-radius: 8px;
+  background: rgba(7, 10, 16, 0.76);
+}
+
+.cinex-review-summary label {
+  display: grid;
+  gap: 8px;
+  color: var(--cinex-gold-light);
+  font-weight: 700;
+}
+
+.cinex-review-summary input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid rgba(239, 204, 130, 0.42);
+  border-radius: 6px;
+  padding: 12px;
+  color: var(--cinex-text);
+  background: rgba(7, 10, 16, 0.86);
+  font: inherit;
+  font-size: 16px;
+}
+
+.cinex-review-summary dl {
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.cinex-review-summary dl div {
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 218, 149, 0.17);
+}
+
+.cinex-review-summary dt {
+  color: var(--cinex-gold-light);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.cinex-review-summary dd {
+  margin: 5px 0 0;
+  color: var(--cinex-muted);
+  line-height: 1.45;
+}
+
+.cinex-scene-card p {
+  margin: 0;
+  color: var(--cinex-muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.cinex-scene-card p strong {
+  color: var(--cinex-gold-light);
+}
+
 .cinex-status-badge {
   display: inline-flex;
   padding: 5px 9px;
@@ -1339,6 +1412,10 @@ button {
   }
 
   .cinex-create-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .cinex-review-layout {
     grid-template-columns: 1fr;
   }
 

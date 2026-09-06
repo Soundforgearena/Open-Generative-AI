@@ -1,0 +1,218 @@
+'use client';
+
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import CinexRoutePage from '@/components/CinexRoutePage';
+import { demoModeEnabled } from '@/lib/demo-mode';
+import { getDemoProject, saveDemoProject } from '@/lib/demo-project-store';
+import { getProject, updateProject, updateScene } from '@/lib/cinexvideo-client';
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DEMO_ID_PATTERN = /^demo-project-[a-z0-9-]+$/i;
+
+function validProjectId(value) {
+  return UUID_PATTERN.test(value || '') || (demoModeEnabled && DEMO_ID_PATTERN.test(value || ''));
+}
+
+function MissingDraft() {
+  return (
+    <div className="cinex-missing-draft">
+      <p className="cinex-form-error">We couldn&apos;t find that draft.</p>
+      <div className="cinex-dashboard-actions">
+        <Link href="/create" className="cinex-route-primary">Back to Create</Link>
+        <Link href="/dashboard" className="cinex-route-secondary-link">Go to Dashboard</Link>
+      </div>
+    </div>
+  );
+}
+
+function ReviewContent() {
+  const searchParams = useSearchParams();
+  const projectId = useMemo(() => searchParams.get('project') || '', [searchParams]);
+  const [project, setProject] = useState(null);
+  const [state, setState] = useState('loading');
+  const [message, setMessage] = useState('Loading your storyboard...');
+
+  useEffect(() => {
+    if (!validProjectId(projectId)) {
+      setState('missing');
+      return;
+    }
+
+    async function loadProject() {
+      try {
+        if (demoModeEnabled) {
+          const localProject = getDemoProject(projectId);
+          if (!localProject) {
+            setState('missing');
+            return;
+          }
+          setProject(localProject);
+          setState('ready');
+          return;
+        }
+
+        const result = await getProject(projectId);
+        if (!result?.project) {
+          setState('missing');
+          return;
+        }
+        setProject({
+          ...result.project,
+          sourceText: result.project.logline || '',
+          style: result.project.visual_identity?.style || 'Cinematic',
+          aspectRatio: result.project.visual_identity?.aspect_ratio || '16:9',
+          duration: result.scenes?.reduce((total, scene) => total + Number(scene.duration_seconds || 0), 0) || 0,
+          scenes: (result.scenes || []).map((scene) => ({
+            id: scene.id,
+            sceneNumber: scene.position,
+            title: scene.title,
+            summary: scene.purpose || '',
+            visualPrompt: scene.prompt || scene.shot_direction || '',
+            narration: scene.narration || '',
+            estimatedDuration: scene.duration_seconds,
+            status: scene.status || 'Draft',
+          })),
+        });
+        setState('ready');
+      } catch (loadError) {
+        setMessage(loadError.message || 'This draft could not be loaded.');
+        setState('error');
+      }
+    }
+
+    loadProject();
+  }, [projectId]);
+
+  function updateLocalProject(next) {
+    setProject(next);
+    if (demoModeEnabled) saveDemoProject(next);
+  }
+
+  async function updateSceneValue(index, patch) {
+    const scene = project.scenes[index];
+    const scenes = project.scenes.map((item, sceneIndex) => sceneIndex === index ? { ...item, ...patch } : item);
+    updateLocalProject({ ...project, scenes });
+    if (!demoModeEnabled && scene.id) {
+      try {
+        await updateScene(scene.id, {
+          title: patch.title,
+          prompt: patch.visualPrompt,
+          duration_seconds: patch.estimatedDuration,
+        });
+      } catch {
+        setMessage('Scene changed locally but could not be saved to the server.');
+        setState('error');
+      }
+    }
+  }
+
+  function reorderScene(index, direction) {
+    const target = index + direction;
+    if (target < 0 || target >= project.scenes.length) return;
+    const scenes = [...project.scenes];
+    [scenes[index], scenes[target]] = [scenes[target], scenes[index]];
+    updateLocalProject({ ...project, scenes: scenes.map((scene, sceneIndex) => ({ ...scene, sceneNumber: sceneIndex + 1 })) });
+  }
+
+  function addScene() {
+    const scenes = [...project.scenes, {
+      id: `demo-scene-${Date.now()}`,
+      sceneNumber: project.scenes.length + 1,
+      title: 'New scene',
+      summary: 'Add a new story beat.',
+      visualPrompt: project.style || 'Cinematic frame',
+      narration: '',
+      estimatedDuration: 5,
+      status: 'Draft',
+    }];
+    updateLocalProject({ ...project, scenes });
+  }
+
+  function deleteScene(index) {
+    const scenes = project.scenes.filter((_, sceneIndex) => sceneIndex !== index).map((scene, sceneIndex) => ({ ...scene, sceneNumber: sceneIndex + 1 }));
+    updateLocalProject({ ...project, scenes });
+  }
+
+  async function saveChanges() {
+    if (demoModeEnabled) {
+      saveDemoProject(project);
+      setMessage('Saved locally.');
+      return;
+    }
+    try {
+      await updateProject(project.id, { title: project.title });
+      setMessage('Saved to your project.');
+    } catch {
+      setMessage('The project could not be saved. Please try again.');
+    }
+  }
+
+  function continueToGeneration() {
+    if (demoModeEnabled) {
+      setMessage('Generation preview is ready. No video was generated and no credits were used.');
+      return;
+    }
+    setMessage('Video generation will be available after your account is connected.');
+  }
+
+  return (
+    <CinexRoutePage
+      eyebrow="Storyboard review"
+      title="Review shot plan"
+      description="Edit the draft and scenes before any generation step."
+    >
+      {demoModeEnabled && <p className="cinex-demo-indicator">Demo mode — local data only</p>}
+      {state === 'loading' && <p className="cinex-form-success" role="status">{message}</p>}
+      {state === 'error' && <p className="cinex-form-error" role="alert">{message}</p>}
+      {state === 'missing' && <MissingDraft />}
+      {state === 'ready' && project && (
+        <div className="cinex-review-layout">
+          <section className="cinex-review-summary" aria-labelledby="review-project-title">
+            <label>
+              Project title
+              <input value={project.title || ''} onChange={(event) => updateLocalProject({ ...project, title: event.target.value })} />
+            </label>
+            <dl>
+              <div><dt>Source idea</dt><dd>{project.sourceText || project.logline || 'Not specified'}</dd></div>
+              <div><dt>Style</dt><dd>{project.style || 'Cinematic'}</dd></div>
+              <div><dt>Duration</dt><dd>{project.duration || 'Not specified'} seconds</dd></div>
+              <div><dt>Visual notes</dt><dd>{project.notes || 'No visual notes added.'}</dd></div>
+            </dl>
+            <div className="cinex-dashboard-actions">
+              <button type="button" className="cinex-route-primary" onClick={continueToGeneration}>Continue to Generation</button>
+              <button type="button" className="cinex-auth-secondary" onClick={saveChanges}>Save changes</button>
+            </div>
+            {message && <p className="cinex-form-success" role="status">{message}</p>}
+          </section>
+          <section className="cinex-shot-plan" aria-labelledby="review-project-title">
+            <p className="cinex-shot-plan-eyebrow">Storyboard preview</p>
+            <h2 id="review-project-title">{project.title}</h2>
+            <div className="cinex-scene-list">
+              {project.scenes.map((scene, index) => (
+                <article className="cinex-scene-card" key={scene.id || index}>
+                  <div className="cinex-scene-card-header"><strong>Scene {scene.sceneNumber}</strong><span>{scene.estimatedDuration}s · {scene.status}</span></div>
+                  <input value={scene.title || ''} aria-label={`Scene ${scene.sceneNumber} title`} onChange={(event) => updateSceneValue(index, { title: event.target.value })} />
+                  <textarea value={scene.summary || ''} aria-label={`Scene ${scene.sceneNumber} summary`} onChange={(event) => updateSceneValue(index, { summary: event.target.value })} rows={2} />
+                  <p><strong>Visual prompt:</strong> {scene.visualPrompt || 'Not specified'}</p>
+                  <p><strong>Narration/dialogue:</strong> {scene.narration || 'None'}</p>
+                  <div className="cinex-scene-actions">
+                    <button type="button" className="cinex-auth-secondary" onClick={() => reorderScene(index, -1)}>Move up</button>
+                    <button type="button" className="cinex-auth-secondary" onClick={() => reorderScene(index, 1)}>Move down</button>
+                    <button type="button" className="cinex-auth-secondary" onClick={() => deleteScene(index)}>Delete</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <button type="button" className="cinex-route-primary" onClick={addScene}>Add scene</button>
+          </section>
+        </div>
+      )}
+    </CinexRoutePage>
+  );
+}
+
+export default function ReviewPage() {
+  return <Suspense fallback={<main className="cinex-dashboard-loading">Loading draft review...</main>}><ReviewContent /></Suspense>;
+}
