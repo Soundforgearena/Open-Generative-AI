@@ -1,4 +1,5 @@
 import './globals.css';
+import DemoModeBanner from '@/components/DemoModeBanner';
 
 export const metadata = {
   title: 'CineXVideo — Your Story. Now in Motion.',
@@ -20,7 +21,7 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><DemoModeBanner />{children}</body>
     </html>
   );
 }

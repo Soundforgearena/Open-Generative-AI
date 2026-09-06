@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import CinexRoutePage from '@/components/CinexRoutePage';
-import CinexWorkflowForm from '@/components/CinexWorkflowForm';
+import DemoProjectBuilder from '@/components/DemoProjectBuilder';
 
 export default function StoryPage() {
   const [template, setTemplate] = useState('');
@@ -17,7 +17,7 @@ export default function StoryPage() {
       title="Start with a story"
       description="Give your idea a cinematic shape with scenes, mood, and motion ready for the next step."
     >
-      <CinexWorkflowForm mode="story" template={template} />
+      <DemoProjectBuilder sourceType="story" template={template ? { title: template, starterPrompt: '', category: 'Cinematic' } : null} />
     </CinexRoutePage>
   );
 }

@@ -40,6 +40,15 @@ The app provides `/dashboard` for authenticated local drafts and
 only exposes Google sign-in in the web UI. Generation remains disabled until the
 account and generation services are configured.
 
+### Local demo mode
+
+Set `NEXT_PUBLIC_DEMO_MODE=true` only for local development or preview testing.
+Demo mode is forcibly disabled when `NODE_ENV=production`, stores projects and
+storyboards only in browser localStorage, and never calls protected project,
+generation, billing, upload, export, Stripe, or admin APIs. Reset demo data from
+the dashboard; no local demo data is sent to Supabase. OAuth and real generation
+remain separate integrations.
+
 <p align="center"><a href="https://youtu.be/SI1KJ2prGmc"><img src="https://i.ytimg.com/vi/SI1KJ2prGmc/maxresdefault.jpg" width="720"></a></p>
 <p align="center"><a href="https://youtu.be/SI1KJ2prGmc"><b>▶ Watch: Best AI Image Generator (API) in 2026 (Quality, Price, Uncensored, Editing) </b></a></p>
 

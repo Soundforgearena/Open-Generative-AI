@@ -1108,6 +1108,147 @@ button {
   background: var(--cinex-ink);
 }
 
+.cinex-demo-banner,
+.cinex-demo-indicator {
+  width: 100%;
+  padding: 8px 16px;
+  color: #171109;
+  background: var(--cinex-gold);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.cinex-demo-indicator {
+  width: fit-content;
+  margin: 18px 0 0;
+  border-radius: 999px;
+}
+
+.cinex-create-tabs {
+  width: 100%;
+  margin-top: 28px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cinex-create-tabs button,
+.cinex-create-tab-link {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  border: 1px solid rgba(239, 204, 130, 0.42);
+  border-radius: 7px;
+  color: var(--cinex-muted);
+  background: rgba(7, 10, 16, 0.78);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
+.cinex-create-tabs button.is-selected,
+.cinex-create-tabs button:hover,
+.cinex-create-tabs button:focus-visible,
+.cinex-create-tab-link:hover,
+.cinex-create-tab-link:focus-visible {
+  border-color: var(--cinex-gold);
+  color: var(--cinex-gold-light);
+}
+
+.cinex-builder-wrap,
+.cinex-editor-wrap {
+  width: 100%;
+}
+
+.cinex-auth-required {
+  width: 100%;
+  margin-top: 24px;
+  padding: 16px;
+  border-left: 3px solid var(--cinex-gold);
+  color: var(--cinex-muted);
+  background: rgba(7, 10, 16, 0.8);
+  line-height: 1.5;
+}
+
+.cinex-auth-required .cinex-route-secondary-link {
+  display: inline-block;
+}
+
+.cinex-editor-title {
+  display: grid;
+  gap: 8px;
+  margin-top: 28px;
+  color: var(--cinex-gold-light);
+  font-weight: 700;
+  text-align: left;
+}
+
+.cinex-editor-title input,
+.cinex-scene-card input,
+.cinex-scene-card textarea {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid rgba(239, 204, 130, 0.42);
+  border-radius: 6px;
+  padding: 12px;
+  color: var(--cinex-text);
+  background: rgba(7, 10, 16, 0.86);
+  font: inherit;
+  font-size: 16px;
+}
+
+.cinex-scene-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.cinex-scene-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(239, 204, 130, 0.28);
+  border-radius: 7px;
+  background: rgba(5, 8, 14, 0.72);
+}
+
+.cinex-scene-card-header,
+.cinex-scene-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cinex-scene-card-header {
+  justify-content: space-between;
+  color: var(--cinex-gold-light);
+}
+
+.cinex-scene-card-header span {
+  color: var(--cinex-muted);
+  font-size: 0.8rem;
+}
+
+.cinex-status-badge {
+  display: inline-flex;
+  padding: 5px 9px;
+  border: 1px solid rgba(239, 204, 130, 0.5);
+  border-radius: 999px;
+  color: var(--cinex-gold-light);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 @media (max-width: 1023px) {
   .cinex-header {
     flex-wrap: wrap;
@@ -1195,6 +1336,19 @@ button {
   .cinex-form-grid,
   .cinex-template-grid {
     grid-template-columns: 1fr;
+  }
+
+  .cinex-create-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .cinex-scene-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .cinex-scene-actions button {
+    width: 100%;
   }
 
   .cinex-action-card {

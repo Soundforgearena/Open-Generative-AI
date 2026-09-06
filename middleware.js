@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { getLocaleFromPathname } from './lib/locales';
+import { isDemoModeEnabled } from './lib/demo-mode';
 
 // Supabase Auth, REST and Storage are called directly from the browser, so the
 // project origin must be allow-listed in connect-src or every sign-in, upload
@@ -86,7 +87,9 @@ export async function middleware(request) {
         }
     }
 
-    if (url.pathname.startsWith('/dashboard') && !user) {
+        const demoMode = isDemoModeEnabled();
+        const protectedAppPath = url.pathname.startsWith('/dashboard') || url.pathname.startsWith('/create');
+        if (protectedAppPath && !user && !demoMode) {
         return addSecurityHeaders(NextResponse.redirect(new URL('/auth?next=/dashboard', request.url)));
     }
 
