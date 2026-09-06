@@ -6,6 +6,7 @@ import CinexRoutePage from '@/components/CinexRoutePage';
 import { getStoredSession, requestPasswordReset, signIn, signOut, signUp } from '@/lib/cinexvideo-client';
 import {
   getSafeNextPath,
+  getAuthErrorCategory,
   getOAuthRedirectUrl,
   getSupabaseBrowserClient,
   rememberAuthNextPath,
@@ -14,6 +15,7 @@ import {
 export default function AuthPage() {
   const router = useRouter();
   const [error, setError] = useState('');
+  const [errorCategory, setErrorCategory] = useState('');
   const [status, setStatus] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,7 +28,15 @@ export default function AuthPage() {
   const errorCode = query?.get('error');
   const nextPath = getSafeNextPath(query?.get('next'));
 
-  const errorMessage = errorCode === 'not_configured'
+  const errorMessage = errorCode === 'configuration'
+    ? 'Sign-in is not configured on this deployment yet.'
+    : errorCode === 'credentials'
+      ? 'Invalid credentials. Check your email and password.'
+      : errorCode === 'oauth'
+        ? 'The Google sign-in provider returned an error.'
+        : errorCode === 'network'
+          ? 'The sign-in service could not be reached. Please try again.'
+          : errorCode === 'not_configured'
     ? 'Sign-in is not configured on this deployment yet.'
     : errorCode
       ? 'We could not complete that sign-in. Please try again.'
@@ -38,6 +48,7 @@ export default function AuthPage() {
 
   async function startGoogleSignIn() {
     setError('');
+    setErrorCategory('');
     try {
       rememberAuthNextPath(nextPath);
       const supabase = getSupabaseBrowserClient();
@@ -47,18 +58,23 @@ export default function AuthPage() {
       });
       if (signInError) throw signInError;
     } catch (signInError) {
-      console.error('CineXVideo Google sign-in failed', signInError);
-      setError(
-        process.env.NODE_ENV === 'development'
-          ? signInError.message
-          : 'Sign-in is temporarily unavailable. Please try again.'
-      );
+      const category = getAuthErrorCategory(signInError, 'oauth');
+      if (process.env.NODE_ENV === 'development') console.error('CineXVideo Google sign-in failed', category, signInError.message);
+      setErrorCategory(category);
+      setError(process.env.NODE_ENV === 'development' && category === 'configuration'
+        ? signInError.message
+        : category === 'configuration'
+          ? 'Sign-in is not configured on this deployment.'
+        : category === 'oauth'
+          ? 'The Google sign-in provider returned an error.'
+          : 'The sign-in service could not be reached. Please try again.');
     }
   }
 
   async function handlePasswordAuth(event, intent) {
     event.preventDefault();
     setError('');
+    setErrorCategory('');
     setStatus('');
     try {
       const session = intent === 'signup'
@@ -71,10 +87,16 @@ export default function AuthPage() {
       setAccount(session);
       router.replace(nextPath);
     } catch (authError) {
-      console.error(`CineXVideo ${intent} failed`, authError);
-      setError(process.env.NODE_ENV === 'development'
+      const category = getAuthErrorCategory(authError);
+      if (process.env.NODE_ENV === 'development') console.error(`CineXVideo ${intent} failed`, category, authError.message);
+      setErrorCategory(category);
+      setError(process.env.NODE_ENV === 'development' && category === 'configuration'
         ? authError.message
-        : 'We could not complete that request. Check your details and try again.');
+        : category === 'configuration'
+          ? 'Sign-in is not configured on this deployment.'
+        : category === 'credentials'
+          ? 'Invalid email or password. Check your details and try again.'
+          : 'The sign-in service could not be reached. Please try again.');
     }
   }
 
@@ -96,7 +118,7 @@ export default function AuthPage() {
       setResetRequested(true);
       setStatus('If an account exists for that email, a reset link is on its way.');
     } catch (resetError) {
-      console.error('CineXVideo password reset request failed', resetError);
+      if (process.env.NODE_ENV === 'development') console.error('CineXVideo password reset request failed', resetError.message);
       setError(process.env.NODE_ENV === 'development'
         ? resetError.message
         : 'We could not send a reset link. Please try again.');
@@ -142,7 +164,10 @@ export default function AuthPage() {
       </form>
       {status && <p className="cinex-form-success" role="status">{status}</p>}
       {(errorMessage || error) && (
-        <p className="cinex-route-error" role="alert">{error || errorMessage}</p>
+        <p className="cinex-route-error" role="alert">
+          <strong>{errorCategory === 'configuration' ? 'Configuration unavailable' : errorCategory === 'credentials' ? 'Invalid credentials' : errorCategory === 'oauth' ? 'OAuth provider error' : errorCategory === 'network' ? 'Network error' : 'Sign-in error'}:</strong>{' '}
+          {error || errorMessage}
+        </p>
       )}
     </CinexRoutePage>
   );

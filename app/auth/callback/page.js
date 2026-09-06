@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { storeSession } from '../../../lib/cinexvideo-client';
 import {
   consumeAuthNextPath,
+  getAuthErrorCategory,
   getSafeNextPath,
   getSupabaseBrowserClient,
 } from '../../../lib/supabase-browser';
@@ -39,11 +40,10 @@ export default function AuthCallback() {
         const nextPath = getSafeNextPath(consumeAuthNextPath());
         if (!cancelled) router.replace(nextPath);
       } catch (callbackFailure) {
-        console.error('CineXVideo OAuth callback failed', callbackFailure);
         if (cancelled) return;
-        const code = callbackFailure.message === 'Supabase browser authentication is not configured.'
-          ? 'not_configured'
-          : 'oauth_failed';
+        const category = getAuthErrorCategory(callbackFailure, 'oauth');
+        if (process.env.NODE_ENV === 'development') console.error('CineXVideo OAuth callback failed', category, callbackFailure.message);
+        const code = category === 'configuration' ? 'configuration' : category;
         router.replace(`/auth?error=${code}`);
       }
     }
