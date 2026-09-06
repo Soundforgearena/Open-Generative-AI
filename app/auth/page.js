@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import CinexRoutePage from '@/components/CinexRoutePage';
 import {
   createClient,
+  getOAuthRedirectUrl,
   getSupabaseBrowserConfig,
   getAuthErrorCategory,
   getSafeNextPath,
@@ -38,7 +39,7 @@ function AuthContent() {
       const { error: signInError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+          redirectTo: getOAuthRedirectUrl(nextPath),
         },
       });
       if (signInError) throw signInError;

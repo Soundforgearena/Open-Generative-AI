@@ -19,11 +19,18 @@ function safeNextPath(value) {
 export async function GET(request) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
+  const providerError = requestUrl.searchParams.get('error')
+  const providerErrorCode = requestUrl.searchParams.get('error_code')
   const nextPath = safeNextPath(requestUrl.searchParams.get('next'))
   const errorRedirect = new URL('/auth', requestUrl.origin)
-  errorRedirect.searchParams.set('error', 'oauth_callback_failed')
+  errorRedirect.searchParams.set(
+    'error',
+    providerErrorCode === 'otp_expired' || providerError === 'access_denied'
+      ? 'oauth_cancelled'
+      : 'oauth_callback_failed'
+  )
 
-  if (!code) return NextResponse.redirect(errorRedirect)
+  if (providerError || !code) return NextResponse.redirect(errorRedirect)
 
   try {
     const supabase = await createClient()
