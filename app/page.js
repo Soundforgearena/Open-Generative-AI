@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import CinexNavigation from '@/components/CinexNavigation';
 
 const workflowOptions = [
   {
@@ -35,16 +36,7 @@ const trustPoints = [
 export default function HomePage() {
   return (
     <main className="cinex-page">
-      <header className="cinex-header cinex-container">
-        <Link href="/" className="cinex-home-mark" aria-label="CineXVideo home">
-          <img src="/favicon.jpg" alt="" aria-hidden="true" />
-        </Link>
-        <nav className="cinex-nav" aria-label="Primary navigation">
-          <Link href="/create">Create</Link>
-          <a href="#features">Features</a>
-          <Link href="/auth">Sign in</Link>
-        </nav>
-      </header>
+      <CinexNavigation showFeatures />
 
       <section className="cinex-hero cinex-container" aria-labelledby="cinex-title">
         <h1 id="cinex-title" className="cinex-sr-only">CineXVideo</h1>

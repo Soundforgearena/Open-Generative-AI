@@ -18,14 +18,99 @@
 html {
   scroll-behavior: smooth;
   background: var(--cinex-ink);
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   min-width: 320px;
+  max-width: 100%;
+  overflow-x: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
   color: var(--cinex-text);
   background: var(--cinex-ink);
   font-family: 'DM Sans', Arial, sans-serif;
+}
+
+.cinex-maintenance-page {
+  min-height: 100svh;
+  padding: clamp(24px, 6vw, 80px) clamp(16px, 4vw, 48px);
+  display: grid;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  color: var(--cinex-text);
+  background:
+    linear-gradient(135deg, rgba(5, 8, 14, 0.98), rgba(12, 10, 8, 0.96)),
+    var(--cinex-ink);
+}
+
+.cinex-maintenance-glow {
+  position: absolute;
+  inset: 12% 15%;
+  z-index: -1;
+  pointer-events: none;
+  border: 1px solid rgba(246, 181, 75, 0.12);
+  border-radius: 50%;
+  box-shadow: 0 0 140px rgba(246, 181, 75, 0.1);
+}
+
+.cinex-maintenance-panel {
+  width: min(680px, 100%);
+  padding: clamp(34px, 8vw, 72px) clamp(24px, 7vw, 72px);
+  border: 1px solid rgba(255, 205, 113, 0.34);
+  border-radius: 8px;
+  text-align: center;
+  background: rgba(7, 10, 16, 0.78);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.48);
+}
+
+.cinex-maintenance-brand {
+  margin: 0;
+  color: var(--cinex-gold-light);
+  font-family: 'Montserrat', sans-serif;
+  font-size: clamp(1rem, 2vw, 1.3rem);
+  font-weight: 900;
+  letter-spacing: 0.24em;
+}
+
+.cinex-maintenance-rule {
+  width: 72px;
+  height: 2px;
+  margin: 24px auto;
+  background: var(--cinex-gold);
+}
+
+.cinex-maintenance-panel h1 {
+  margin: 0;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: clamp(2.8rem, 8vw, 5.6rem);
+  font-weight: 700;
+  line-height: 0.95;
+  text-transform: uppercase;
+}
+
+.cinex-maintenance-message {
+  margin: 24px auto 0;
+  color: var(--cinex-muted);
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  line-height: 1.7;
+}
+
+.cinex-maintenance-link {
+  display: inline-block;
+  margin-top: 30px;
+  color: var(--cinex-gold-light);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.cinex-maintenance-link:hover,
+.cinex-maintenance-link:focus-visible {
+  color: #fff;
 }
 
 button,
@@ -46,7 +131,7 @@ button {
 }
 
 .cinex-container {
-  width: min(1180px, 100%);
+  width: min(calc(100% - 32px), 1180px);
   margin-inline: auto;
   padding-inline: clamp(16px, 4vw, 48px);
 }
@@ -59,6 +144,26 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.cinex-menu-toggle {
+  display: none;
+  width: 44px;
+  height: 44px;
+  padding: 10px;
+  border: 1px solid rgba(255, 224, 161, 0.55);
+  border-radius: 7px;
+  cursor: pointer;
+  pointer-events: auto;
+  color: var(--cinex-text);
+  background: rgba(7, 10, 16, 0.86);
+}
+
+.cinex-menu-toggle span {
+  display: block;
+  height: 2px;
+  margin: 4px 0;
+  background: currentColor;
 }
 
 .cinex-home-mark {
@@ -87,6 +192,7 @@ button {
   display: flex;
   align-items: center;
   gap: 24px;
+  margin-left: auto;
 }
 
 .cinex-nav a {
@@ -133,6 +239,12 @@ button {
   background: linear-gradient(112deg, transparent 28%, rgba(255, 224, 161, 0.08) 49%, transparent 70%);
   background-size: 220% 100%;
   animation: cinex-hero-light 14s ease-in-out infinite;
+}
+
+.cinex-hero-art,
+.cinex-background,
+.cinex-vignette {
+  pointer-events: none;
 }
 
 @keyframes cinex-hero-drift {
@@ -193,6 +305,7 @@ button {
   text-transform: uppercase;
   transition: transform 160ms ease, filter 160ms ease, box-shadow 160ms ease;
   text-decoration: none;
+  min-height: 48px;
 }
 
 .cinex-primary-cta:hover {
@@ -404,6 +517,10 @@ button {
 }
 
 .cinex-route-home {
+  display: block;
+  width: min(calc(100% - 32px), 1180px);
+  margin: 0 auto;
+  padding-inline: clamp(16px, 4vw, 48px);
   color: var(--cinex-gold-light);
   font-family: 'Montserrat', sans-serif;
   font-size: 0.78rem;
@@ -510,6 +627,10 @@ button {
   background: var(--cinex-gold);
   text-transform: uppercase;
   pointer-events: auto;
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
 }
 
 .cinex-route-error {
@@ -518,6 +639,15 @@ button {
   color: #ffb4a9;
   font-size: 0.9rem;
   line-height: 1.5;
+}
+
+.cinex-auth-dev-marker {
+  margin: 14px 0 0;
+  color: var(--cinex-gold-light);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .cinex-route-back {
@@ -545,7 +675,7 @@ button {
 
 .cinex-selection-note {
   width: 100%;
-  margin: 30px 0 -18px;
+  margin: 30px 0 0;
   padding: 12px 16px;
   border-left: 3px solid var(--cinex-gold);
   color: var(--cinex-muted);
@@ -598,7 +728,13 @@ button {
   color: var(--cinex-text);
   background: rgba(7, 10, 16, 0.86);
   font: inherit;
+  font-size: 16px;
   line-height: 1.45;
+}
+
+.cinex-workflow-form input,
+.cinex-workflow-form select {
+  min-height: 48px;
 }
 
 .cinex-workflow-form textarea {
@@ -782,6 +918,8 @@ button {
   color: var(--cinex-text);
   background: rgba(7, 10, 16, 0.86);
   font: inherit;
+  font-size: 16px;
+  min-height: 48px;
 }
 
 .cinex-auth-form input:focus {
@@ -970,55 +1108,97 @@ button {
   background: var(--cinex-ink);
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1023px) {
   .cinex-header {
-    padding: 16px 0;
+    flex-wrap: wrap;
+    padding-top: max(16px, env(safe-area-inset-top));
+    padding-bottom: 16px;
+  }
+
+  .cinex-menu-toggle {
+    display: block;
+    order: 2;
   }
 
   .cinex-nav {
-    gap: 12px;
+    width: 100%;
+    order: 3;
+    margin: 12px 0 0;
+    padding: 0;
+    display: none;
+    gap: 0;
+    border: 1px solid rgba(255, 205, 113, 0.34);
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(7, 10, 16, 0.98);
+  }
+
+  .cinex-nav.is-open {
+    display: grid;
+  }
+
+  .cinex-nav a {
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 205, 113, 0.18);
+    font-size: 1rem;
+  }
+
+  .cinex-nav a:last-child {
+    border-bottom: 0;
+  }
+
+  .cinex-hero-art {
+    background-position: center, center center;
+  }
+
+  .cinex-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cinex-template-grid {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .cinex-container,
+  .cinex-route-home {
+    width: calc(100% - 32px);
+    padding-inline: 16px;
   }
 
   .cinex-hero {
     min-height: auto;
     padding-top: 16px;
-    padding-bottom: 28px;
+    padding-bottom: clamp(24px, 7vw, 36px);
   }
 
   .cinex-hero-art {
-    min-height: 360px;
-    background-position: center top;
+    min-height: clamp(340px, 92vw, 390px);
+    background-position: center, center top;
   }
 
   .cinex-cta-wrap {
-    margin-top: 22px;
+    width: 100%;
+    margin-top: clamp(18px, 5vw, 26px);
   }
 
-  .cinex-actions {
-    grid-template-columns: 1fr;
-    max-width: 480px;
+  .cinex-primary-cta,
+  .cinex-route-primary {
+    width: 100%;
   }
 
-  .cinex-action-card {
-    min-height: 67px;
-  }
-
-  .cinex-trust-row {
-    gap: 10px 18px;
-  }
-
-  .cinex-trust-item {
-    font-size: 0.74rem;
-  }
-
+  .cinex-actions,
   .cinex-form-grid,
   .cinex-template-grid {
     grid-template-columns: 1fr;
   }
 
-  .cinex-footer-line {
-    font-size: 0.62rem;
-    line-height: 1.6;
+  .cinex-action-card {
+    min-height: 72px;
   }
 
   .cinex-secondary {
@@ -1026,8 +1206,69 @@ button {
     padding-bottom: 28px;
   }
 
-  .cinex-features {
-    padding-bottom: 24px;
+  .cinex-trust-row {
+    gap: 10px 18px;
+  }
+
+  .cinex-trust-item {
+    font-size: clamp(0.72rem, 2.8vw, 0.82rem);
+  }
+
+  .cinex-footer-line {
+    font-size: clamp(0.62rem, 2.5vw, 0.74rem);
+    line-height: 1.6;
+  }
+
+  .cinex-route-content {
+    width: calc(100% - 32px);
+    min-height: auto;
+    padding: clamp(28px, 8vw, 48px) 0 calc(32px + env(safe-area-inset-bottom));
+  }
+
+  .cinex-route-description {
+    font-size: clamp(1rem, 4vw, 1.08rem);
+  }
+
+  .cinex-shot-plan {
+    padding: 16px;
+  }
+
+  .cinex-shot-list li {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .cinex-shot-list li > span:last-child {
+    margin-top: 3px;
+  }
+
+  .cinex-dashboard-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cinex-dashboard-actions .cinex-route-primary,
+  .cinex-dashboard-actions .cinex-route-secondary-link {
+    width: 100%;
+    text-align: center;
+  }
+
+  .cinex-maintenance-page {
+    padding-top: max(24px, env(safe-area-inset-top));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 359px) {
+  .cinex-container,
+  .cinex-route-home,
+  .cinex-route-content {
+    width: calc(100% - 24px);
+    padding-inline: 12px;
+  }
+
+  .cinex-maintenance-panel {
+    padding-inline: 18px;
   }
 }
 
