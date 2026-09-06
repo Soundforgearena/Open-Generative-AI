@@ -11,6 +11,7 @@ create table if not exists public.stripe_events (
   payload jsonb not null,
   status text not null default 'processing' check (status in ('processing','processed','failed','ignored')),
   error_note text,
+  processing_started_at timestamptz,
   received_at timestamptz not null default now()
 );
 alter table public.stripe_events enable row level security;

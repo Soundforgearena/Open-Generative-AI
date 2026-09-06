@@ -73,21 +73,51 @@ export async function POST(req) {
   // detected here instead of silently double-crediting a wallet.
   const { error: insertEventError } = await supabase
     .from('stripe_events')
-    .insert({ event_id: event.id, event_type: event.type, payload: event, status: 'processing' });
+    .insert({
+      event_id: event.id,
+      event_type: event.type,
+      payload: event,
+      status: 'processing',
+      processing_started_at: new Date().toISOString(),
+    });
   if (insertEventError) {
     if (insertEventError.code === '23505') {
       const { data: existingEvent } = await supabase
         .from('stripe_events')
-        .select('status')
+        .select('status,processing_started_at')
         .eq('event_id', event.id)
         .single();
       if (existingEvent?.status === 'failed') {
-        const { error: retryError } = await supabase
+        const { data: retryEvent, error: retryError } = await supabase
           .from('stripe_events')
-          .update({ status: 'processing', error_note: null })
+          .update({
+            status: 'processing',
+            error_note: null,
+            processing_started_at: new Date().toISOString(),
+          })
           .eq('event_id', event.id)
-          .eq('status', 'failed');
-        if (retryError) return NextResponse.json({ error: 'Event is already being retried.' }, { status: 409 });
+          .eq('status', 'failed')
+          .select('event_id')
+          .maybeSingle();
+        if (retryError || !retryEvent) return NextResponse.json({ error: 'Event is already being retried.' }, { status: 409 });
+      } else if (
+        existingEvent?.status === 'processing' &&
+        existingEvent.processing_started_at &&
+        Date.now() - new Date(existingEvent.processing_started_at).getTime() > 10 * 60 * 1000
+      ) {
+        const { data: retryEvent, error: retryError } = await supabase
+          .from('stripe_events')
+          .update({
+            status: 'processing',
+            error_note: null,
+            processing_started_at: new Date().toISOString(),
+          })
+          .eq('event_id', event.id)
+          .eq('status', 'processing')
+          .eq('processing_started_at', existingEvent.processing_started_at)
+          .select('event_id')
+          .maybeSingle();
+        if (retryError || !retryEvent) return NextResponse.json({ error: 'Event is already being retried.' }, { status: 409 });
       } else {
         // Already processed or currently processing this exact event.
         return NextResponse.json({ received: true, duplicate: true });
