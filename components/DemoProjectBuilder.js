@@ -37,7 +37,7 @@ export default function DemoProjectBuilder({ sourceType = 'idea', template, onCr
     }));
   }, [template]);
 
-  const sourceLabel = sourceType === 'script' ? 'Script' : sourceType === 'story' ? 'Story / prompt' : 'Idea';
+  const sourceLabel = sourceType === 'script' ? 'Script' : sourceType === 'story' ? 'Story / prompt' : sourceType === 'template' ? 'Template prompt' : 'Idea';
 
   function updateValue(event) {
     const { name, value } = event.target;

@@ -1182,6 +1182,22 @@ button {
   display: inline-block;
 }
 
+.cinex-recent-demo-projects {
+  width: 100%;
+  margin-top: 32px;
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+
+.cinex-recent-demo-projects h2 {
+  margin: 0 0 2px;
+  color: var(--cinex-gold-light);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 1.35rem;
+  text-transform: uppercase;
+}
+
 .cinex-editor-title {
   display: grid;
   gap: 8px;

@@ -7,13 +7,7 @@ import CinexRoutePage from '@/components/CinexRoutePage';
 import { demoModeEnabled } from '@/lib/demo-mode';
 import { getDemoProject, saveDemoProject } from '@/lib/demo-project-store';
 import { getProject, updateProject, updateScene } from '@/lib/cinexvideo-client';
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const DEMO_ID_PATTERN = /^demo-project-[a-z0-9-]+$/i;
-
-function validProjectId(value) {
-  return UUID_PATTERN.test(value || '') || (demoModeEnabled && DEMO_ID_PATTERN.test(value || ''));
-}
+import { safeProjectId } from '@/lib/safe-navigation';
 
 function MissingDraft() {
   return (
@@ -33,9 +27,11 @@ function ReviewContent() {
   const [project, setProject] = useState(null);
   const [state, setState] = useState('loading');
   const [message, setMessage] = useState('Loading your storyboard...');
+  const [simulating, setSimulating] = useState(false);
+  const [completed, setCompleted] = useState(false);
 
   useEffect(() => {
-    if (!validProjectId(projectId)) {
+    if (!safeProjectId(projectId, demoModeEnabled)) {
       setState('missing');
       return;
     }
@@ -113,7 +109,7 @@ function ReviewContent() {
     if (target < 0 || target >= project.scenes.length) return;
     const scenes = [...project.scenes];
     [scenes[index], scenes[target]] = [scenes[target], scenes[index]];
-    updateLocalProject({ ...project, scenes: scenes.map((scene, sceneIndex) => ({ ...scene, sceneNumber: sceneIndex + 1 })) });
+    updateLocalProject({ ...project, scenes: scenes.map((scene, sceneIndex) => ({ ...scene, order: sceneIndex + 1, sceneNumber: sceneIndex + 1 })) });
   }
 
   function addScene() {
@@ -131,7 +127,7 @@ function ReviewContent() {
   }
 
   function deleteScene(index) {
-    const scenes = project.scenes.filter((_, sceneIndex) => sceneIndex !== index).map((scene, sceneIndex) => ({ ...scene, sceneNumber: sceneIndex + 1 }));
+    const scenes = project.scenes.filter((_, sceneIndex) => sceneIndex !== index).map((scene, sceneIndex) => ({ ...scene, order: sceneIndex + 1, sceneNumber: sceneIndex + 1 }));
     updateLocalProject({ ...project, scenes });
   }
 
@@ -150,11 +146,28 @@ function ReviewContent() {
   }
 
   function continueToGeneration() {
-    if (demoModeEnabled) {
-      setMessage('Generation preview is ready. No video was generated and no credits were used.');
+    if (!demoModeEnabled) {
+      setMessage('Video generation will be available after your account is connected.');
       return;
     }
-    setMessage('Video generation will be available after your account is connected.');
+    if (simulating || completed) return;
+    setSimulating(true);
+    const statuses = ['queued', 'generating', 'completed'];
+    statuses.forEach((status, index) => {
+      window.setTimeout(() => {
+        const nextProject = {
+          ...project,
+          status,
+          scenes: project.scenes.map((scene) => ({ ...scene, status })),
+        };
+        updateLocalProject(nextProject);
+        if (status === 'completed') {
+          setCompleted(true);
+          setSimulating(false);
+          setMessage('Demo preview — no video was generated and no credits were used.');
+        }
+      }, (index + 1) * 600);
+    });
   }
 
   return (
@@ -181,10 +194,11 @@ function ReviewContent() {
               <div><dt>Visual notes</dt><dd>{project.notes || 'No visual notes added.'}</dd></div>
             </dl>
             <div className="cinex-dashboard-actions">
-              <button type="button" className="cinex-route-primary" onClick={continueToGeneration}>Continue to Generation</button>
+              <button type="button" className="cinex-route-primary" onClick={continueToGeneration} disabled={simulating || completed}>{simulating ? 'Simulating generation...' : completed ? 'Generation simulation complete' : demoModeEnabled ? 'Simulate Generation' : 'Continue to Generation'}</button>
               <button type="button" className="cinex-auth-secondary" onClick={saveChanges}>Save changes</button>
             </div>
             {message && <p className="cinex-form-success" role="status">{message}</p>}
+            {completed && <Link href={`/projects/${encodeURIComponent(project.id)}`} className="cinex-route-secondary-link">View completed project</Link>}
           </section>
           <section className="cinex-shot-plan" aria-labelledby="review-project-title">
             <p className="cinex-shot-plan-eyebrow">Storyboard preview</p>

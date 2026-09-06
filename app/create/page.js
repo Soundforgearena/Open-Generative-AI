@@ -5,15 +5,20 @@ import { useEffect, useState } from 'react';
 import CinexRoutePage from '@/components/CinexRoutePage';
 import DemoProjectBuilder from '@/components/DemoProjectBuilder';
 import { demoModeEnabled } from '@/lib/demo-mode';
+import { listDemoProjects } from '@/lib/demo-project-store';
 import { DEMO_TEMPLATES } from '@/lib/demo-templates';
 
 export default function CreatePage() {
   const [template, setTemplate] = useState(null);
   const [sourceType, setSourceType] = useState('idea');
+  const [recentProjects, setRecentProjects] = useState([]);
 
   useEffect(() => {
     const slug = new URLSearchParams(window.location.search).get('template');
-    setTemplate(DEMO_TEMPLATES.find((item) => item.slug === slug) || null);
+    const selectedTemplate = DEMO_TEMPLATES.find((item) => item.slug === slug) || null;
+    setTemplate(selectedTemplate);
+    if (selectedTemplate) setSourceType('template');
+    if (demoModeEnabled) setRecentProjects(listDemoProjects().slice(0, 3));
   }, []);
 
   return (
@@ -35,6 +40,17 @@ export default function CreatePage() {
       </div>
       {template && <p className="cinex-selection-note">Starting from <strong>{template.title}</strong></p>}
       <DemoProjectBuilder sourceType={sourceType} template={template} />
+      {demoModeEnabled && recentProjects.length > 0 && (
+        <section className="cinex-recent-demo-projects" aria-labelledby="recent-demo-title">
+          <h2 id="recent-demo-title">Recent demo projects</h2>
+          {recentProjects.map((project) => (
+            <Link key={project.id} href={`/create/review?project=${encodeURIComponent(project.id)}`} className="cinex-dashboard-draft">
+              <strong>{project.title}</strong>
+              <span>{project.status} · {project.scenes.length} scenes</span>
+            </Link>
+          ))}
+        </section>
+      )}
     </CinexRoutePage>
   );
 }
