@@ -15,6 +15,10 @@ key. Configure these values in Railway without committing their contents:
 - `NEXT_PUBLIC_SUPABASE_URL`: the production Supabase project URL
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: the production browser publishable key
 
+Both variables must be present during the Railway build and at runtime. Because
+`NEXT_PUBLIC_*` values are compiled into the browser bundle, redeploy after any
+Railway variable change.
+
 In Google Cloud Console, create an OAuth client with:
 
 - Application type: `Web application`
