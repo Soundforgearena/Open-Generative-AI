@@ -14,6 +14,15 @@ const SUPABASE_ORIGIN = (() => {
     }
 })();
 
+const MAINTENANCE_PUBLIC_PATHS = new Set(['/under-construction', '/privacy', '/terms', '/refunds', '/health', '/api/health']);
+
+function isMaintenanceAllowed(pathname) {
+    return MAINTENANCE_PUBLIC_PATHS.has(pathname)
+        || pathname.startsWith('/_next/')
+        || pathname.startsWith('/favicon')
+        || pathname.startsWith('/cinexvideo-');
+}
+
 function addSecurityHeaders(response) {
     // Prevent MIME type sniffing (CWE-693)
     response.headers.set('X-Content-Type-Options', 'nosniff');
@@ -44,6 +53,10 @@ function addSecurityHeaders(response) {
 
 export function middleware(request) {
     const url = request.nextUrl;
+
+    if (process.env.CINEXVIDEO_MAINTENANCE_MODE === 'true' && !isMaintenanceAllowed(url.pathname)) {
+        return addSecurityHeaders(NextResponse.redirect(new URL('/under-construction', request.url)));
+    }
 
     // Catch requests to /api/workflow, /api/app, and /api/v1
     const isMuApi = url.pathname.startsWith('/api/workflow') ||

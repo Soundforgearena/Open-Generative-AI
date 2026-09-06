@@ -28,6 +28,86 @@ body {
   font-family: 'DM Sans', Arial, sans-serif;
 }
 
+.cinex-maintenance-page {
+  min-height: 100svh;
+  padding: clamp(24px, 6vw, 80px) clamp(16px, 4vw, 48px);
+  display: grid;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  color: var(--cinex-text);
+  background:
+    linear-gradient(135deg, rgba(5, 8, 14, 0.98), rgba(12, 10, 8, 0.96)),
+    var(--cinex-ink);
+}
+
+.cinex-maintenance-glow {
+  position: absolute;
+  inset: 12% 15%;
+  z-index: -1;
+  pointer-events: none;
+  border: 1px solid rgba(246, 181, 75, 0.12);
+  border-radius: 50%;
+  box-shadow: 0 0 140px rgba(246, 181, 75, 0.1);
+}
+
+.cinex-maintenance-panel {
+  width: min(680px, 100%);
+  padding: clamp(34px, 8vw, 72px) clamp(24px, 7vw, 72px);
+  border: 1px solid rgba(255, 205, 113, 0.34);
+  border-radius: 8px;
+  text-align: center;
+  background: rgba(7, 10, 16, 0.78);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.48);
+}
+
+.cinex-maintenance-brand {
+  margin: 0;
+  color: var(--cinex-gold-light);
+  font-family: 'Montserrat', sans-serif;
+  font-size: clamp(1rem, 2vw, 1.3rem);
+  font-weight: 900;
+  letter-spacing: 0.24em;
+}
+
+.cinex-maintenance-rule {
+  width: 72px;
+  height: 2px;
+  margin: 24px auto;
+  background: var(--cinex-gold);
+}
+
+.cinex-maintenance-panel h1 {
+  margin: 0;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: clamp(2.8rem, 8vw, 5.6rem);
+  font-weight: 700;
+  line-height: 0.95;
+  text-transform: uppercase;
+}
+
+.cinex-maintenance-message {
+  margin: 24px auto 0;
+  color: var(--cinex-muted);
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  line-height: 1.7;
+}
+
+.cinex-maintenance-link {
+  display: inline-block;
+  margin-top: 30px;
+  color: var(--cinex-gold-light);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.cinex-maintenance-link:hover,
+.cinex-maintenance-link:focus-visible {
+  color: #fff;
+}
+
 button,
 a {
   -webkit-tap-highlight-color: transparent;
