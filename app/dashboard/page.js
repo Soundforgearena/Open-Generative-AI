@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import CinexRoutePage from '@/components/CinexRoutePage';
-import { getStoredSession } from '@/lib/cinexvideo-client';
+import { storeSession } from '@/lib/cinexvideo-client';
+import { getSupabaseBrowserClient } from '@/lib/supabase-browser';
 
 const DRAFT_KEYS = ['cinexvideo_draft_story', 'cinexvideo_draft_script'];
 
@@ -14,21 +15,30 @@ export default function DashboardPage() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    if (!getStoredSession()?.access_token) {
-      router.replace('/auth?next=/dashboard');
-      return;
+    async function loadDashboard() {
+      const supabase = getSupabaseBrowserClient();
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) {
+        router.replace('/auth?next=/dashboard');
+        return;
+      }
+      storeSession(data.session);
+
+      const localDrafts = DRAFT_KEYS.flatMap((key) => {
+        try {
+          const draft = JSON.parse(window.localStorage.getItem(key) || 'null');
+          return draft ? [{ ...draft, key }] : [];
+        } catch {
+          return [];
+        }
+      });
+      setDrafts(localDrafts);
+      setChecking(false);
     }
 
-    const localDrafts = DRAFT_KEYS.flatMap((key) => {
-      try {
-        const draft = JSON.parse(window.localStorage.getItem(key) || 'null');
-        return draft ? [{ ...draft, key }] : [];
-      } catch {
-        return [];
-      }
+    loadDashboard().catch(() => {
+      router.replace('/auth?next=/dashboard');
     });
-    setDrafts(localDrafts);
-    setChecking(false);
   }, [router]);
 
   if (checking) {

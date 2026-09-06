@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 import { getLocaleFromPathname } from './lib/locales';
 
 // Supabase Auth, REST and Storage are called directly from the browser, so the
@@ -51,11 +52,42 @@ function addSecurityHeaders(response) {
     return response;
 }
 
-export function middleware(request) {
+export async function middleware(request) {
     const url = request.nextUrl;
 
     if (process.env.CINEXVIDEO_MAINTENANCE_MODE === 'true' && !isMaintenanceAllowed(url.pathname)) {
         return addSecurityHeaders(NextResponse.redirect(new URL('/under-construction', request.url)));
+    }
+
+    let response = NextResponse.next();
+    let user = null;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+    if (supabaseUrl && publishableKey) {
+        try {
+            const supabase = createServerClient(supabaseUrl, publishableKey, {
+                cookies: {
+                    getAll() {
+                        return request.cookies.getAll();
+                    },
+                    setAll(cookiesToSet) {
+                        cookiesToSet.forEach(({ name, value, options }) => {
+                            request.cookies.set(name, value);
+                            response.cookies.set(name, value, options);
+                        });
+                    },
+                },
+            });
+            const result = await supabase.auth.getUser();
+            user = result.data.user;
+        } catch (error) {
+            if (process.env.NODE_ENV === 'development') console.error('CineXVideo middleware auth refresh failed', error.message);
+        }
+    }
+
+    if (url.pathname.startsWith('/dashboard') && !user) {
+        return addSecurityHeaders(NextResponse.redirect(new URL('/auth?next=/dashboard', request.url)));
     }
 
     // Catch requests to /api/workflow, /api/app, and /api/v1
@@ -71,15 +103,14 @@ export function middleware(request) {
 
         if (url.pathname.startsWith('/api/v1') && !isHandledByRoute) {
             const targetUrl = new URL(url.pathname + url.search, 'https://api.muapi.ai');
-            const rewriteResponse = NextResponse.rewrite(targetUrl);
-            return addSecurityHeaders(rewriteResponse);
+            response = NextResponse.rewrite(targetUrl, { request });
+            return addSecurityHeaders(response);
         }
     }
 
     // Plain response header carrying the locale derived from the URL path
     // (same "set in middleware, read via headers() in the root layout"
     // trick the main muapi client uses — see docs/localization.md).
-    const response = NextResponse.next();
     response.headers.set('x-locale', getLocaleFromPathname(url.pathname));
     return addSecurityHeaders(response);
 }

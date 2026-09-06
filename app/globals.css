@@ -641,6 +641,15 @@ button {
   line-height: 1.5;
 }
 
+.cinex-auth-dev-marker {
+  margin: 14px 0 0;
+  color: var(--cinex-gold-light);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .cinex-route-back {
   margin-top: auto;
   padding-top: 54px;

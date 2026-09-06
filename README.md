@@ -15,22 +15,26 @@ key. Configure these values in Railway without committing their contents:
 - `NEXT_PUBLIC_SUPABASE_URL`: the production Supabase project URL
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: the production browser publishable key
 
-In Supabase Dashboard → Authentication → URL Configuration, set:
+In Google Cloud Console, create an OAuth client with:
 
-- Site URL: `https://cinexvideo.app`
-- Redirect URL: `https://cinexvideo.app/auth/callback`
+- Application type: `Web application`
+- Authorized JavaScript origin: `https://cinexvideo.app`
+- Authorized redirect URI: `https://xmdgszvkhzgpketayzns.supabase.co/auth/v1/callback`
 
 In Supabase Dashboard → Authentication → Providers → Google, enable Google and
-configure the provider client ID and client secret. The repository can verify the
-client-side flow and callback exchange, but it cannot verify provider credentials
-configured in the Supabase Dashboard. Never place a service-role key in a
-`NEXT_PUBLIC_*` variable or browser code.
+set the Google Client ID and Client Secret. In Authentication → URL Configuration,
+set:
+
+- Site URL: `https://cinexvideo.app`
+- Additional Redirect URL: `https://cinexvideo.app/auth/callback`
+
+The repository can verify the client-side flow and callback exchange, but it
+cannot verify provider credentials configured in the Supabase Dashboard. Never
+place a service-role key in a `NEXT_PUBLIC_*` variable or browser code.
 
 The app provides `/dashboard` for authenticated local drafts and
-`/password-reset` for password recovery. Enable email/password auth in Supabase
-for those flows; Google OAuth additionally requires the provider setup above.
-Generation remains disabled until the account and generation services are
-configured.
+only exposes Google sign-in in the web UI. Generation remains disabled until the
+account and generation services are configured.
 
 <p align="center"><a href="https://youtu.be/SI1KJ2prGmc"><img src="https://i.ytimg.com/vi/SI1KJ2prGmc/maxresdefault.jpg" width="720"></a></p>
 <p align="center"><a href="https://youtu.be/SI1KJ2prGmc"><b>▶ Watch: Best AI Image Generator (API) in 2026 (Quality, Price, Uncensored, Editing) </b></a></p>

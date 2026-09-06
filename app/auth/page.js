@@ -1,127 +1,48 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import CinexRoutePage from '@/components/CinexRoutePage';
-import { getStoredSession, requestPasswordReset, signIn, signOut, signUp } from '@/lib/cinexvideo-client';
 import {
-  getSafeNextPath,
   getAuthErrorCategory,
   getOAuthRedirectUrl,
+  getSafeNextPath,
   getSupabaseBrowserClient,
-  rememberAuthNextPath,
 } from '@/lib/supabase-browser';
 
-export default function AuthPage() {
-  const router = useRouter();
+const ERROR_MESSAGES = {
+  configuration: 'Google sign-in is not configured yet.',
+  oauth: 'Google sign-in could not be completed. Please try again.',
+  network: 'The sign-in service could not be reached. Please try again.',
+};
+
+function AuthContent() {
+  const searchParams = useSearchParams();
+  const nextPath = getSafeNextPath(searchParams.get('next'));
+  const errorCode = searchParams.get('error');
+  const [isOpening, setIsOpening] = useState(false);
   const [error, setError] = useState('');
-  const [errorCategory, setErrorCategory] = useState('');
-  const [status, setStatus] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [account, setAccount] = useState(null);
-  const [resetRequested, setResetRequested] = useState(false);
-
-  const query = typeof window === 'undefined'
-    ? null
-    : new URLSearchParams(window.location.search);
-  const errorCode = query?.get('error');
-  const nextPath = getSafeNextPath(query?.get('next'));
-
-  const errorMessage = errorCode === 'configuration'
-    ? 'Sign-in is not configured on this deployment yet.'
-    : errorCode === 'credentials'
-      ? 'Invalid credentials. Check your email and password.'
-      : errorCode === 'oauth'
-        ? 'The Google sign-in provider returned an error.'
-        : errorCode === 'network'
-          ? 'The sign-in service could not be reached. Please try again.'
-          : errorCode === 'not_configured'
-    ? 'Sign-in is not configured on this deployment yet.'
-    : errorCode
-      ? 'We could not complete that sign-in. Please try again.'
-      : '';
-
-  useEffect(() => {
-    setAccount(getStoredSession());
-  }, []);
+  const category = error === 'oauth_callback_failed' || errorCode === 'oauth_callback_failed'
+    ? 'oauth'
+    : error || errorCode || '';
 
   async function startGoogleSignIn() {
+    setIsOpening(true);
     setError('');
-    setErrorCategory('');
     try {
-      rememberAuthNextPath(nextPath);
       const supabase = getSupabaseBrowserClient();
       const { error: signInError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: getOAuthRedirectUrl() },
+        options: { redirectTo: getOAuthRedirectUrl(nextPath) },
       });
       if (signInError) throw signInError;
     } catch (signInError) {
-      const category = getAuthErrorCategory(signInError, 'oauth');
-      if (process.env.NODE_ENV === 'development') console.error('CineXVideo Google sign-in failed', category, signInError.message);
-      setErrorCategory(category);
-      setError(process.env.NODE_ENV === 'development' && category === 'configuration'
-        ? signInError.message
-        : category === 'configuration'
-          ? 'Sign-in is not configured on this deployment.'
-        : category === 'oauth'
-          ? 'The Google sign-in provider returned an error.'
-          : 'The sign-in service could not be reached. Please try again.');
-    }
-  }
-
-  async function handlePasswordAuth(event, intent) {
-    event.preventDefault();
-    setError('');
-    setErrorCategory('');
-    setStatus('');
-    try {
-      const session = intent === 'signup'
-        ? await signUp(email, password)
-        : await signIn(email, password);
-      if (session.confirmation_required) {
-        setStatus('Check your email to confirm your account, then sign in.');
-        return;
+      const errorCategory = getAuthErrorCategory(signInError, 'oauth');
+      if (process.env.NODE_ENV === 'development') {
+        console.error('CineXVideo Google sign-in failed', errorCategory, signInError.message);
       }
-      setAccount(session);
-      router.replace(nextPath);
-    } catch (authError) {
-      const category = getAuthErrorCategory(authError);
-      if (process.env.NODE_ENV === 'development') console.error(`CineXVideo ${intent} failed`, category, authError.message);
-      setErrorCategory(category);
-      setError(process.env.NODE_ENV === 'development' && category === 'configuration'
-        ? authError.message
-        : category === 'configuration'
-          ? 'Sign-in is not configured on this deployment.'
-        : category === 'credentials'
-          ? 'Invalid email or password. Check your details and try again.'
-          : 'The sign-in service could not be reached. Please try again.');
-    }
-  }
-
-  async function handleSignOut() {
-    await signOut();
-    setAccount(null);
-    setStatus('You have been signed out.');
-  }
-
-  async function handlePasswordReset() {
-    if (!email.trim()) {
-      setError('Enter your email address first.');
-      return;
-    }
-    setError('');
-    setStatus('');
-    try {
-      await requestPasswordReset(email.trim());
-      setResetRequested(true);
-      setStatus('If an account exists for that email, a reset link is on its way.');
-    } catch (resetError) {
-      if (process.env.NODE_ENV === 'development') console.error('CineXVideo password reset request failed', resetError.message);
-      setError(process.env.NODE_ENV === 'development'
-        ? resetError.message
-        : 'We could not send a reset link. Please try again.');
+      setError(errorCategory);
+      setIsOpening(false);
     }
   }
 
@@ -129,46 +50,39 @@ export default function AuthPage() {
     <CinexRoutePage
       eyebrow="Your CineXVideo workspace"
       title="Sign in"
-      description="Sign in to continue creating and keep your projects together in one place."
+      description="Continue with Google to enter your cinematic AI creation studio."
     >
-      <button type="button" onClick={startGoogleSignIn} className="cinex-route-primary">
-        Continue with Google
+      <button
+        type="button"
+        onClick={startGoogleSignIn}
+        className="cinex-route-primary"
+        disabled={isOpening}
+      >
+        {isOpening ? 'Opening Google sign-in...' : 'Continue with Google'}
       </button>
-      {account && (
-        <div className="cinex-auth-session">
-          You are already signed in.
-          <button type="button" onClick={handleSignOut} className="cinex-auth-secondary">
-            Sign out
-          </button>
-        </div>
+      {process.env.NODE_ENV === 'development' && (
+        <p className="cinex-auth-dev-marker">Google OAuth build: active</p>
       )}
-      <div className="cinex-auth-divider"><span>or use email</span></div>
-      <form className="cinex-auth-form" onSubmit={(event) => handlePasswordAuth(event, 'signin')}>
-        <label>
-          Email
-          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
-        </label>
-        <label>
-          Password
-          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={6} required />
-        </label>
-        <div className="cinex-auth-actions">
-          <button type="submit" className="cinex-route-primary">Sign in</button>
-          <button type="button" className="cinex-auth-secondary" onClick={(event) => handlePasswordAuth(event, 'signup')}>
-            Create account
-          </button>
-        </div>
-        <button type="button" className="cinex-auth-link" onClick={handlePasswordReset} disabled={resetRequested}>
-          Forgot password?
-        </button>
-      </form>
-      {status && <p className="cinex-form-success" role="status">{status}</p>}
-      {(errorMessage || error) && (
+      {category && (
         <p className="cinex-route-error" role="alert">
-          <strong>{errorCategory === 'configuration' ? 'Configuration unavailable' : errorCategory === 'credentials' ? 'Invalid credentials' : errorCategory === 'oauth' ? 'OAuth provider error' : errorCategory === 'network' ? 'Network error' : 'Sign-in error'}:</strong>{' '}
-          {error || errorMessage}
+          <strong>
+            {category === 'configuration'
+              ? 'Configuration unavailable'
+              : category === 'oauth'
+                ? 'OAuth provider error'
+                : 'Network error'}:
+          </strong>{' '}
+          {ERROR_MESSAGES[category] || ERROR_MESSAGES.oauth}
         </p>
       )}
     </CinexRoutePage>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={null}>
+      <AuthContent />
+    </Suspense>
   );
 }
