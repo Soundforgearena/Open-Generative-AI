@@ -7,12 +7,23 @@ import {
   requireSecret,
   safeError,
 } from '../../../../lib/cinexvideo-server';
+import { normalizeMuapiCost } from '../../../../lib/providers/muapi-cost-adapter.js';
 
 function normaliseStatus(raw) {
   const value = String(raw || '').toLowerCase();
   if (['completed', 'succeeded', 'success', 'done'].includes(value)) return 'completed';
   if (['failed', 'error', 'cancelled', 'canceled'].includes(value)) return 'failed';
   return 'running';
+}
+
+/**
+ * True when reservation_reference points at a row in the new
+ * credit_reservations table rather than the legacy free-text reference used
+ * by consume_credits/release_credits.
+ */
+async function findCreditReservation(referenceId) {
+  if (!referenceId) return null;
+  return selectOne('credit_reservations', { id: `eq.${referenceId}` }, 'id,status,max_reservation_credits');
 }
 
 function firstUrl(output) {
@@ -69,6 +80,25 @@ export async function GET(request, { params }) {
     }
 
     if (status === 'completed') {
+      const costNormalized = normalizeMuapiCost({ response: data });
+      const reservation = await findCreditReservation(job.reservation_reference);
+      if (reservation && reservation.status === 'reserved') {
+        await callRpc('settle_reservation_v2', {
+          p_reservation_id: reservation.id,
+          p_settled_credits: job.credits_reserved,
+          p_generation_job_id: job.id,
+        });
+        if (costNormalized.reliable && costNormalized.amountUsdCents != null) {
+          await insertRows('provider_cost_records', {
+            reservation_id: reservation.id,
+            generation_job_id: job.id,
+            provider: 'muapi',
+            provider_request_id: costNormalized.providerRequestId,
+            actual_cost_cents: costNormalized.amountUsdCents,
+            raw_response: data,
+          });
+        }
+      }
       await callRpc('consume_credits', {
         p_user_id: user.id,
         p_credits: job.credits_reserved,
@@ -111,6 +141,13 @@ export async function GET(request, { params }) {
     }
 
     // Failure path — the customer gets their credits back.
+    const reservation = await findCreditReservation(job.reservation_reference);
+    if (reservation && reservation.status === 'reserved') {
+      await callRpc('release_reservation_v2', {
+        p_reservation_id: reservation.id,
+        p_reason: 'provider_failed',
+      });
+    }
     await callRpc('release_credits', {
       p_user_id: user.id,
       p_credits: job.credits_reserved,
