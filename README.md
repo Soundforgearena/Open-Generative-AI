@@ -13,7 +13,7 @@ The CineXVideo web flow uses Supabase Google OAuth with a browser-safe publishab
 key. Configure these values in Railway without committing their contents:
 
 - `NEXT_PUBLIC_SUPABASE_URL`: the production Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: the production browser anon/publishable key
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: the production browser publishable key
 
 In Supabase Dashboard → Authentication → URL Configuration, set:
 
@@ -25,6 +25,12 @@ configure the provider client ID and client secret. The repository can verify th
 client-side flow and callback exchange, but it cannot verify provider credentials
 configured in the Supabase Dashboard. Never place a service-role key in a
 `NEXT_PUBLIC_*` variable or browser code.
+
+The app provides `/dashboard` for authenticated local drafts and
+`/password-reset` for password recovery. Enable email/password auth in Supabase
+for those flows; Google OAuth additionally requires the provider setup above.
+Generation remains disabled until the account and generation services are
+configured.
 
 <p align="center"><a href="https://youtu.be/SI1KJ2prGmc"><img src="https://i.ytimg.com/vi/SI1KJ2prGmc/maxresdefault.jpg" width="720"></a></p>
 <p align="center"><a href="https://youtu.be/SI1KJ2prGmc"><b>▶ Watch: Best AI Image Generator (API) in 2026 (Quality, Price, Uncensored, Editing) </b></a></p>

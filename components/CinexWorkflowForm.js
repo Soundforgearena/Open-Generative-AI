@@ -62,6 +62,14 @@ export default function CinexWorkflowForm({ mode, template }) {
       setError(isStory ? 'Add a story idea before continuing.' : 'Add your script before continuing.');
       return;
     }
+    const visualChoice = isStory ? values.genre : values.style;
+    const customVisualChoice = isStory ? values.customGenre : values.customStyle;
+    if (!visualChoice || (visualChoice === 'Custom' && !customVisualChoice?.trim())) {
+      setError(isStory
+        ? 'Choose a genre or enter a custom genre before continuing.'
+        : 'Choose a visual style or enter a custom style before continuing.');
+      return;
+    }
 
     const draft = {
       ...values,
@@ -187,6 +195,9 @@ export default function CinexWorkflowForm({ mode, template }) {
       {saved && (
         <div className="cinex-form-success" role="status">
           Draft saved. Review the shot plan before generation.
+          <Link href={`/create?draft=${mode}${template ? `&template=${encodeURIComponent(template)}` : ''}`} className="cinex-route-secondary-link">
+            Continue to creation hub
+          </Link>
         </div>
       )}
       {plan?.scenes?.length > 0 && (

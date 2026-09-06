@@ -819,6 +819,23 @@ button {
   color: #fff;
 }
 
+.cinex-auth-link {
+  width: fit-content;
+  border: 0;
+  padding: 0;
+  color: var(--cinex-gold-light);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  text-decoration: underline;
+}
+
+.cinex-auth-link:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .cinex-auth-session {
   width: 100%;
   margin-top: 20px;
@@ -888,6 +905,69 @@ button {
   font-size: 0.8rem;
   font-style: normal;
   font-weight: 700;
+}
+
+.cinex-dashboard-actions {
+  width: 100%;
+  margin-top: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.cinex-dashboard-actions .cinex-route-primary {
+  margin-top: 0;
+}
+
+.cinex-dashboard-projects {
+  width: 100%;
+  margin-top: 42px;
+  text-align: left;
+}
+
+.cinex-dashboard-projects h2 {
+  margin: 0 0 14px;
+  color: var(--cinex-gold-light);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 1.45rem;
+  text-transform: uppercase;
+}
+
+.cinex-dashboard-list {
+  display: grid;
+  gap: 10px;
+}
+
+.cinex-dashboard-draft {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid rgba(239, 204, 130, 0.36);
+  border-radius: 7px;
+  color: var(--cinex-text);
+  background: rgba(7, 10, 16, 0.78);
+  text-decoration: none;
+}
+
+.cinex-dashboard-draft:hover,
+.cinex-dashboard-draft:focus-visible {
+  border-color: var(--cinex-gold);
+}
+
+.cinex-dashboard-draft span,
+.cinex-dashboard-empty {
+  color: var(--cinex-muted);
+  font-size: 0.88rem;
+}
+
+.cinex-dashboard-loading {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  color: var(--cinex-muted);
+  background: var(--cinex-ink);
 }
 
 @media (max-width: 760px) {

@@ -6,10 +6,12 @@ import CinexRoutePage from '@/components/CinexRoutePage';
 
 export default function CreatePage() {
   const [template, setTemplate] = useState('');
+  const [draft, setDraft] = useState('');
 
   useEffect(() => {
     const selected = new URLSearchParams(window.location.search).get('template');
     setTemplate(selected || '');
+    setDraft(new URLSearchParams(window.location.search).get('draft') || '');
   }, []);
 
   const templateQuery = template ? `?template=${encodeURIComponent(template)}` : '';
@@ -23,6 +25,11 @@ export default function CreatePage() {
       {template && (
         <p className="cinex-selection-note">
           Starting with template: <strong>{template}</strong>
+        </p>
+      )}
+      {draft && (
+        <p className="cinex-selection-note">
+          Draft ready to continue: <strong>{draft}</strong>
         </p>
       )}
       <div className="cinex-route-actions">

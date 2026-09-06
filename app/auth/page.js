@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import CinexRoutePage from '@/components/CinexRoutePage';
-import { getStoredSession, signIn, signOut, signUp } from '@/lib/cinexvideo-client';
+import { getStoredSession, requestPasswordReset, signIn, signOut, signUp } from '@/lib/cinexvideo-client';
 import {
   getSafeNextPath,
   getOAuthRedirectUrl,
@@ -18,6 +18,7 @@ export default function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [account, setAccount] = useState(null);
+  const [resetRequested, setResetRequested] = useState(false);
 
   const query = typeof window === 'undefined'
     ? null
@@ -83,6 +84,25 @@ export default function AuthPage() {
     setStatus('You have been signed out.');
   }
 
+  async function handlePasswordReset() {
+    if (!email.trim()) {
+      setError('Enter your email address first.');
+      return;
+    }
+    setError('');
+    setStatus('');
+    try {
+      await requestPasswordReset(email.trim());
+      setResetRequested(true);
+      setStatus('If an account exists for that email, a reset link is on its way.');
+    } catch (resetError) {
+      console.error('CineXVideo password reset request failed', resetError);
+      setError(process.env.NODE_ENV === 'development'
+        ? resetError.message
+        : 'We could not send a reset link. Please try again.');
+    }
+  }
+
   return (
     <CinexRoutePage
       eyebrow="Your CineXVideo workspace"
@@ -116,6 +136,9 @@ export default function AuthPage() {
             Create account
           </button>
         </div>
+        <button type="button" className="cinex-auth-link" onClick={handlePasswordReset} disabled={resetRequested}>
+          Forgot password?
+        </button>
       </form>
       {status && <p className="cinex-form-success" role="status">{status}</p>}
       {(errorMessage || error) && (
