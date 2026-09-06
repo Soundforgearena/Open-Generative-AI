@@ -92,10 +92,46 @@ button {
   overflow: hidden;
   background:
     linear-gradient(180deg, rgba(4, 7, 12, 0.1) 35%, rgba(4, 7, 12, 0.78) 100%),
-    url('/hero.jpg.jpeg') center top / cover no-repeat;
+    url('/HERO.jpeg') center top / cover no-repeat;
+  background-position: center, 48% top;
   border: 1px solid rgba(255, 205, 113, 0.25);
   border-radius: 4px;
   box-shadow: 0 26px 70px rgba(0, 0, 0, 0.48);
+  animation: cinex-hero-drift 18s ease-in-out infinite;
+}
+
+.cinex-hero-art::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  pointer-events: none;
+  background: linear-gradient(112deg, transparent 28%, rgba(255, 224, 161, 0.08) 49%, transparent 70%);
+  background-size: 220% 100%;
+  animation: cinex-hero-light 14s ease-in-out infinite;
+}
+
+@keyframes cinex-hero-drift {
+  0%,
+  100% {
+    background-position: center, 48% top;
+  }
+
+  50% {
+    background-position: center, 52% top;
+  }
+}
+
+@keyframes cinex-hero-light {
+  0%,
+  100% {
+    background-position: 0% 0;
+    opacity: 0.35;
+  }
+
+  50% {
+    background-position: 100% 0;
+    opacity: 0.8;
+  }
 }
 
 .cinex-cta-wrap {
@@ -298,7 +334,7 @@ button {
   position: absolute;
   inset: 0;
   z-index: -3;
-  background: url('/hero.jpg.jpeg') center top / cover no-repeat;
+  background: url('/HERO.jpeg') center top / cover no-repeat;
 }
 
 .cinex-route-page .cinex-vignette {
@@ -532,6 +568,13 @@ button {
 
   .cinex-features {
     padding-bottom: 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cinex-hero-art,
+  .cinex-hero-art::after {
+    animation: none;
   }
 }
 
