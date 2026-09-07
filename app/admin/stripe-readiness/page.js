@@ -131,7 +131,13 @@ export default function StripeReadinessPage() {
                 </div>
                 <div className="cinex-readiness-card">
                   <span>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</span>
-                  <strong>{boolLabel(environment?.publishableKeyConfigured, 'Configured', 'Missing')}</strong>
+                  <strong>
+                    {environment?.publishableKeyState === 'runtime-only'
+                      ? 'Set, but needs a redeploy'
+                      : environment?.publishableKeyState === 'stale'
+                        ? 'Changed since last build'
+                        : boolLabel(environment?.publishableKeyConfigured, 'Configured', 'Missing')}
+                  </strong>
                 </div>
                 <div className="cinex-readiness-card">
                   <span>{environment?.webhookSecretSource || 'STRIPE_WEBHOOK_SECRET'}</span>

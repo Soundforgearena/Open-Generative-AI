@@ -1,8 +1,16 @@
 import { guard, safeError } from '../../../../lib/cinexvideo-server';
 import { getStripe, stripeEnabled } from '../../../../lib/stripe-connect';
-import { resolveStripeEnv } from '../../../../lib/stripe-readiness-env';
+import { resolveStripeEnv, classifyPublishableKey } from '../../../../lib/stripe-readiness-env';
 
 export const dynamic = 'force-dynamic';
+
+// Deliberately written as a literal process.env member expression at module
+// scope so Next substitutes it during the build. This captures what the
+// browser bundle actually shipped with, which is the only value client-side
+// Stripe can use. resolveStripeEnv() reads the live environment dynamically,
+// so comparing the two detects a key that was added to the host after the
+// last build and is therefore missing from the browser.
+const BUILD_TIME_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
 
 function keyMode(key) {
   if (!key) return null;
@@ -38,14 +46,18 @@ export async function GET(request) {
   } = resolveStripeEnv(process.env);
   const liveModeAllowedFlag = process.env.STRIPE_LIVE_MODE?.trim().toLowerCase();
 
+  const publishable = classifyPublishableKey(publishableKey, BUILD_TIME_PUBLISHABLE_KEY);
+
   const secretMode = keyMode(secretKey);
-  const publishableMode = keyMode(publishableKey);
+  const publishableMode = keyMode(publishable.effectiveKey);
   const keyModesMatch = Boolean(secretMode && publishableMode && secretMode === publishableMode);
   const liveModeAllowed = liveModeAllowedFlag === 'true';
 
   const environment = {
     secretKeyConfigured: Boolean(secretKey),
-    publishableKeyConfigured: Boolean(publishableKey),
+    publishableKeyConfigured: Boolean(publishable.effectiveKey),
+    publishableKeyInBrowserBundle: publishable.inBrowserBundle,
+    publishableKeyState: publishable.state,
     webhookSecretConfigured: Boolean(webhookSecret),
     webhookSecretSource,
     appUrlConfigured: Boolean(appUrl),
@@ -110,6 +122,21 @@ export async function GET(request) {
   const warnings = [];
   const nextSteps = [];
 
+  if (publishable.state === 'runtime-only') {
+    warnings.push(
+      'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is set on the host but was not present when this build was compiled, so the browser bundle does not contain it.'
+    );
+    nextSteps.push(
+      'Redeploy so the build picks up NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY. Next inlines NEXT_PUBLIC_* values at build time; changing them at runtime has no effect until a rebuild.'
+    );
+  }
+  if (publishable.state === 'stale') {
+    warnings.push(
+      'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY changed since this build, so the browser is still using the older key.'
+    );
+    nextSteps.push('Redeploy to rebuild the browser bundle with the current publishable key.');
+  }
+
   missingVars.forEach((name) => {
     warnings.push(`${name} is not configured.`);
     nextSteps.push(`Set ${name} in the deployment environment.`);
@@ -141,7 +168,7 @@ export async function GET(request) {
 
   const safeToEnablePayments =
     environment.secretKeyConfigured &&
-    environment.publishableKeyConfigured &&
+    environment.publishableKeyInBrowserBundle &&
     environment.webhookSecretConfigured &&
     environment.appUrlConfigured &&
     environment.keyModesMatch &&
