@@ -134,11 +134,11 @@ export default function StripeReadinessPage() {
                   <strong>{boolLabel(environment?.publishableKeyConfigured, 'Configured', 'Missing')}</strong>
                 </div>
                 <div className="cinex-readiness-card">
-                  <span>STRIPE_WEBHOOK_SECRET</span>
+                  <span>{environment?.webhookSecretSource || 'STRIPE_WEBHOOK_SECRET'}</span>
                   <strong>{boolLabel(environment?.webhookSecretConfigured, 'Configured', 'Missing')}</strong>
                 </div>
                 <div className="cinex-readiness-card">
-                  <span>APP_URL</span>
+                  <span>{environment?.appUrlSource || 'APP_URL'}</span>
                   <strong>{boolLabel(environment?.appUrlConfigured, 'Configured', 'Missing')}</strong>
                 </div>
                 <div className="cinex-readiness-card">

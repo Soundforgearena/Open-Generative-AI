@@ -1,14 +1,8 @@
 import { guard, safeError } from '../../../../lib/cinexvideo-server';
 import { getStripe, stripeEnabled } from '../../../../lib/stripe-connect';
+import { resolveStripeEnv } from '../../../../lib/stripe-readiness-env';
 
 export const dynamic = 'force-dynamic';
-
-const REQUIRED_ENV_VARS = [
-  'STRIPE_SECRET_KEY',
-  'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
-  'STRIPE_WEBHOOK_SECRET',
-  'APP_URL',
-];
 
 function keyMode(key) {
   if (!key) return null;
@@ -29,13 +23,20 @@ export async function GET(request) {
   if (error) return error;
 
   const checkedAt = new Date().toISOString();
-  const secretKey = process.env.STRIPE_SECRET_KEY?.trim() || '';
-  const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() || '';
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim() || '';
-  const appUrl = process.env.APP_URL?.trim() || '';
+  // Resolved through the shared helper so this screen reports the same
+  // variable names the request-time code actually reads. Checking only
+  // STRIPE_WEBHOOK_SECRET and APP_URL used to show "Missing" for deployments
+  // that were correctly configured with the alias or with NEXT_PUBLIC_SITE_URL.
+  const {
+    secretKey,
+    publishableKey,
+    webhookSecret,
+    webhookSecretSource,
+    appUrl,
+    appUrlSource,
+    missing: missingVars,
+  } = resolveStripeEnv(process.env);
   const liveModeAllowedFlag = process.env.STRIPE_LIVE_MODE?.trim().toLowerCase();
-
-  const missingVars = REQUIRED_ENV_VARS.filter((name) => !process.env[name]?.trim());
 
   const secretMode = keyMode(secretKey);
   const publishableMode = keyMode(publishableKey);
@@ -46,7 +47,9 @@ export async function GET(request) {
     secretKeyConfigured: Boolean(secretKey),
     publishableKeyConfigured: Boolean(publishableKey),
     webhookSecretConfigured: Boolean(webhookSecret),
+    webhookSecretSource,
     appUrlConfigured: Boolean(appUrl),
+    appUrlSource,
     keyModesMatch,
     liveModeAllowed,
   };
