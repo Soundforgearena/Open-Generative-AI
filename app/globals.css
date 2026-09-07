@@ -1294,6 +1294,9 @@ button {
   display: grid;
   place-items: center;
   padding: 24px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   background: rgba(3, 5, 10, 0.82);
   backdrop-filter: blur(12px);
 }
@@ -1417,15 +1420,28 @@ button {
   inset: 0;
   z-index: 20;
   display: flex;
+  align-items: flex-start;
   justify-content: flex-end;
   padding: 18px;
+  /* The backdrop scrolls as a last resort. If the panel's own height cap is
+     ever dropped by an older browser, the draft can still be reached instead
+     of being clipped off the bottom of the screen with the apply buttons
+     stranded below the fold. */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   background: rgba(0, 0, 0, 0.62);
 }
 
 .cinex-director-panel {
   width: min(500px, 100%);
+  /* vh first, svh second: Safari before 15.4 drops the svh line and keeps a
+     working cap rather than growing unbounded. */
+  max-height: calc(100vh - 36px);
   max-height: calc(100svh - 36px);
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: 24px;
   border: 1px solid rgba(255, 205, 113, 0.42);
   border-radius: 10px;
@@ -1535,9 +1551,25 @@ button {
 }
 
 .cinex-director-result-actions {
+  /* Pinned to the bottom of the scrolling panel so Replace / Insert / Copy are
+     always reachable, no matter how long the draft is. */
+  position: sticky;
+  bottom: -16px;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin: 16px -16px -16px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid rgba(246, 181, 75, 0.42);
+  border-radius: 0 0 6px 6px;
+  background: rgba(22, 16, 7, 0.98);
+}
+
+@media (max-width: 767px) {
+  .cinex-director-result-actions button {
+    flex: 1 1 calc(50% - 4px);
+  }
 }
 
 .cinex-director-room {
@@ -1636,13 +1668,18 @@ button {
   place-items: center;
   padding: 18px;
   pointer-events: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   background: rgba(2, 4, 8, 0.78);
 }
 
 .cinex-writing-window {
   width: min(920px, 100%);
+  max-height: calc(100vh - 36px);
   max-height: calc(100svh - 36px);
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
   border: 1px solid rgba(255, 205, 113, 0.5);
@@ -2027,6 +2064,7 @@ button {
   }
 
   .cinex-writing-window {
+    max-height: calc(100vh - env(safe-area-inset-top));
     max-height: calc(100svh - env(safe-area-inset-top));
     grid-template-columns: 1fr;
     border-radius: 14px 14px 0 0;
@@ -2740,8 +2778,10 @@ button {
 
 .cinex-credit-store {
   width: min(880px, 100%);
+  max-height: calc(100vh - 32px);
   max-height: calc(100svh - 32px);
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: clamp(20px, 4vw, 34px);
   border: 1px solid var(--cinex-line);
   border-radius: 18px;

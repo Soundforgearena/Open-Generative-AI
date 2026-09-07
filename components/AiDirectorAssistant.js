@@ -17,6 +17,7 @@ const ACTIONS = {
 
 export default function AiDirectorAssistant({ fieldType, value, context, onApply, onClose }) {
   const closeRef = useRef(null);
+  const resultRef = useRef(null);
   const [result, setResult] = useState(null);
   const [instruction, setInstruction] = useState('');
   const [status, setStatus] = useState('');
@@ -34,6 +35,21 @@ export default function AiDirectorAssistant({ fieldType, value, context, onApply
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, [onClose]);
+
+  // Lock the page behind the panel. Without this, a touch drag on a phone
+  // scrolls the create page instead of the draft, which makes a long draft feel
+  // stuck with its apply buttons out of reach.
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, []);
+
+  // Bring a fresh draft into view instead of leaving it below the fold.
+  useEffect(() => {
+    if (!result) return;
+    resultRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [result]);
 
   const completeWriting = useCallback(async () => {
     if (!pendingAction) return;
@@ -132,7 +148,7 @@ export default function AiDirectorAssistant({ fieldType, value, context, onApply
         </label>
         <button type="button" className="cinex-route-primary" onClick={() => runAction('applyDirectorInstruction')} disabled={busy || !instruction.trim()}>Ask Director</button>
         {result && (
-          <article className="cinex-director-result" aria-live="polite">
+          <article className="cinex-director-result" ref={resultRef} aria-live="polite" tabIndex={-1}>
             <p className="cinex-shot-plan-eyebrow">DIRECTOR&apos;S DRAFT</p>
             <p className="cinex-director-suggestion">{result.suggestion}</p>
             <p><strong>What changed:</strong> {result.whatChanged}</p>
