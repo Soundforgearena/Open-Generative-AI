@@ -3,6 +3,8 @@
 import { useParams } from 'next/navigation';
 import CinexRoutePage from '@/components/CinexRoutePage';
 import DemoProjectEditor from '@/components/DemoProjectEditor';
+import ProductionProjectEditor from '@/components/ProductionProjectEditor';
+import { demoModeEnabled } from '@/lib/demo-mode';
 
 export default function ProjectEditorPage() {
   const params = useParams();
@@ -10,9 +12,11 @@ export default function ProjectEditorPage() {
     <CinexRoutePage
       eyebrow="Project editor"
       title="Shape every scene"
-      description="Edit your local storyboard preview before any real generation is connected."
+      description={demoModeEnabled
+        ? 'Edit your local storyboard preview before any real generation is connected.'
+        : 'Edit your saved production storyboard and scene direction.'}
     >
-      <DemoProjectEditor projectId={params.id} />
+      {demoModeEnabled ? <DemoProjectEditor projectId={params.id} /> : <ProductionProjectEditor projectId={params.id} />}
     </CinexRoutePage>
   );
 }
