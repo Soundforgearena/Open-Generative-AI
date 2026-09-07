@@ -1567,8 +1567,39 @@ button {
 }
 
 @media (max-width: 767px) {
+  /* Bigger, easier phone targets: two per row, comfortably above the 44px
+     minimum, with the same treatment for the prompt chips at the top of the
+     panel. */
+  .cinex-director-actions button,
   .cinex-director-result-actions button {
-    flex: 1 1 calc(50% - 4px);
+    /* min-width:0 lets a long label wrap instead of forcing one button per
+       row, which kept the pinned bar from swallowing half the panel. */
+    flex: 1 1 calc(50% - 5px);
+    min-width: 0;
+    min-height: 52px;
+    padding: 11px 10px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    line-height: 1.2;
+  }
+
+  .cinex-director-result-actions {
+    gap: 10px;
+  }
+
+  .cinex-director-actions {
+    gap: 10px;
+  }
+
+  .cinex-ask-director-button {
+    width: 100%;
+    min-height: 50px;
+    font-size: 0.95rem;
+  }
+
+  .cinex-director-close {
+    width: 48px;
+    height: 48px;
   }
 }
 
