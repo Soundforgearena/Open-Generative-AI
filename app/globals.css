@@ -3188,3 +3188,55 @@ button {
   gap: 10px 22px;
   margin-top: 22px;
 }
+
+/* Provider configuration panel (admin cockpit) ------------------------- */
+.cinex-config-note {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.85rem;
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+.cinex-config-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.cinex-config-item {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-left-width: 3px;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.cinex-config-item.is-ok { border-left-color: #4ade80; }
+.cinex-config-item.is-blocking { border-left-color: #f87171; }
+.cinex-config-item.is-optional { border-left-color: #fbbf24; }
+.cinex-config-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.cinex-config-row strong {
+  font-size: 0.95rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cinex-config-row span {
+  font-size: 0.82rem;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.72);
+}
+.cinex-config-item.is-ok .cinex-config-row span { color: #4ade80; }
+.cinex-config-item.is-blocking .cinex-config-row span { color: #f87171; }
+.cinex-config-item small {
+  display: block;
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
