@@ -3,10 +3,12 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getProject, updateProject, updateScene } from '@/lib/cinexvideo-client';
+import ReferenceUploader from '@/components/cinex/ReferenceUploader';
 
 function projectFromResponse(result) {
   return {
     ...result.project,
+    assets: result.library || result.assets || [],
     scenes: (result.scenes || []).map((scene) => ({
       id: scene.id,
       position: scene.position,
@@ -122,6 +124,12 @@ export default function ProductionProjectEditor({ projectId }) {
           <Link href="/account" className="cinex-route-secondary-link">Account and billing</Link>
         </div>
       </section>
+
+      <ReferenceUploader
+        projectId={project.id}
+        assets={project.assets}
+        onAssetsChange={(assets) => setProject((current) => ({ ...current, assets }))}
+      />
 
       <section className="cinex-shot-plan" aria-labelledby="production-scenes-title">
         <p className="cinex-shot-plan-eyebrow">Production storyboard</p>

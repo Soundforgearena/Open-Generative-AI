@@ -2338,3 +2338,393 @@ button {
     width: 100%;
   }
 }
+
+/* ------------------------------------------------- admin, uploads, pricing */
+
+.cinex-nav-admin {
+  color: var(--cinex-gold);
+  font-weight: 600;
+}
+
+.cinex-admin-page {
+  min-height: 100vh;
+}
+
+.cinex-admin-shell {
+  position: relative;
+  z-index: 1;
+  width: min(1120px, 92vw);
+  margin: 0 auto;
+  padding: 2rem 0 4rem;
+}
+
+.cinex-admin-header {
+  margin-bottom: 2rem;
+}
+
+.cinex-admin-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.cinex-admin-nav-link {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--cinex-line);
+  border-radius: 999px;
+  color: var(--cinex-muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.cinex-admin-nav-link:hover,
+.cinex-admin-nav-link:focus-visible {
+  color: var(--cinex-gold-light);
+  border-color: var(--cinex-gold);
+}
+
+.cinex-admin-nav-link.is-current {
+  color: var(--cinex-ink);
+  background: var(--cinex-gold);
+  border-color: var(--cinex-gold);
+  font-weight: 600;
+}
+
+.cinex-admin-overview h2 {
+  margin: 2.25rem 0 0.75rem;
+  color: var(--cinex-gold-light);
+  font-size: 1.15rem;
+}
+
+.cinex-admin-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.cinex-admin-kpi {
+  padding: 1rem;
+  border: 1px solid var(--cinex-line);
+  border-radius: 14px;
+  background: var(--cinex-panel);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.cinex-admin-kpi span {
+  color: var(--cinex-muted);
+  font-size: 0.85rem;
+}
+
+.cinex-admin-kpi strong {
+  font-size: 1.6rem;
+  color: var(--cinex-gold-light);
+  line-height: 1.1;
+}
+
+.cinex-admin-kpi small {
+  color: var(--cinex-muted);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.cinex-admin-table,
+.cinex-pricing-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--cinex-line);
+  border-radius: 12px;
+  overflow: hidden;
+  font-size: 0.92rem;
+}
+
+.cinex-admin-table th,
+.cinex-admin-table td,
+.cinex-pricing-table th,
+.cinex-pricing-table td {
+  padding: 0.65rem 0.8rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 205, 113, 0.16);
+  vertical-align: top;
+}
+
+.cinex-admin-table th,
+.cinex-pricing-table th {
+  color: var(--cinex-gold-light);
+  font-weight: 600;
+  background: rgba(255, 205, 113, 0.06);
+}
+
+.cinex-admin-table tr:last-child td,
+.cinex-pricing-table tr:last-child td {
+  border-bottom: none;
+}
+
+.cinex-admin-table code {
+  font-size: 0.85em;
+  color: var(--cinex-muted);
+  overflow-wrap: anywhere;
+}
+
+.cinex-admin-section-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.cinex-admin-section-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem;
+  border: 1px solid var(--cinex-line);
+  border-radius: 14px;
+  background: var(--cinex-panel);
+  text-decoration: none;
+  color: var(--cinex-text);
+}
+
+.cinex-admin-section-card:hover,
+.cinex-admin-section-card:focus-visible {
+  border-color: var(--cinex-gold);
+}
+
+.cinex-admin-section-card strong {
+  color: var(--cinex-gold-light);
+}
+
+.cinex-admin-section-card span {
+  color: var(--cinex-muted);
+  font-size: 0.88rem;
+}
+
+/* uploads */
+
+.cinex-uploader {
+  margin: 2rem 0;
+  padding: 1.25rem;
+  border: 1px solid var(--cinex-line);
+  border-radius: 16px;
+  background: var(--cinex-panel);
+}
+
+.cinex-uploader h2 {
+  margin: 0 0 0.4rem;
+  color: var(--cinex-gold-light);
+  font-size: 1.1rem;
+}
+
+.cinex-uploader-controls {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) 1fr;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.cinex-uploader-kind,
+.cinex-uploader-file {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--cinex-muted);
+}
+
+.cinex-uploader-file input[type='file'] {
+  color: var(--cinex-text);
+}
+
+.cinex-uploader-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.cinex-uploader-item {
+  display: grid;
+  grid-template-columns: 96px 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.65rem;
+  border: 1px solid rgba(255, 205, 113, 0.2);
+  border-radius: 12px;
+}
+
+.cinex-uploader-preview img {
+  width: 96px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+
+.cinex-uploader-preview audio {
+  width: 100%;
+  max-width: 220px;
+}
+
+.cinex-uploader-placeholder {
+  display: inline-block;
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  background: rgba(255, 205, 113, 0.12);
+  color: var(--cinex-muted);
+  font-size: 0.8rem;
+}
+
+.cinex-uploader-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.cinex-uploader-meta strong {
+  overflow-wrap: anywhere;
+}
+
+.cinex-uploader-meta span {
+  color: var(--cinex-muted);
+  font-size: 0.85rem;
+}
+
+.cinex-music-upload-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+}
+
+.cinex-music-upload-preview audio {
+  width: 100%;
+  max-width: 340px;
+}
+
+/* pricing */
+
+.cinex-pricing-highlight {
+  display: inline-block;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--cinex-gold);
+  border-radius: 999px;
+  color: var(--cinex-gold-light);
+  font-size: 0.92rem;
+}
+
+.cinex-pricing-section {
+  margin: 2.5rem 0;
+}
+
+.cinex-pricing-section h2 {
+  color: var(--cinex-gold-light);
+  font-size: 1.2rem;
+  margin-bottom: 0.4rem;
+}
+
+.cinex-pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.cinex-pricing-card {
+  position: relative;
+  padding: 1.25rem;
+  border: 1px solid var(--cinex-line);
+  border-radius: 16px;
+  background: var(--cinex-panel);
+}
+
+.cinex-pricing-card.is-best {
+  border-color: var(--cinex-gold);
+}
+
+.cinex-pricing-flag {
+  position: absolute;
+  top: -0.7rem;
+  left: 1rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--cinex-gold);
+  color: var(--cinex-ink);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cinex-pricing-card h3 {
+  margin: 0.25rem 0 0.5rem;
+  color: var(--cinex-gold-light);
+}
+
+.cinex-pricing-amount {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.cinex-pricing-credits {
+  margin: 0.2rem 0 0.5rem;
+  color: var(--cinex-gold-light);
+}
+
+.cinex-pricing-facts {
+  margin: 0.9rem 0 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.cinex-pricing-facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.86rem;
+}
+
+.cinex-pricing-facts dt {
+  color: var(--cinex-muted);
+}
+
+.cinex-pricing-facts dd {
+  margin: 0;
+  color: var(--cinex-text);
+}
+
+.cinex-pricing-table-wrap {
+  margin-top: 1rem;
+  overflow-x: auto;
+}
+
+.cinex-pricing-unit {
+  display: block;
+  color: var(--cinex-muted);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 720px) {
+  .cinex-uploader-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .cinex-uploader-item {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .cinex-uploader-preview img {
+    width: 100%;
+    height: auto;
+    max-width: 280px;
+  }
+
+  .cinex-admin-shell {
+    width: 94vw;
+  }
+}
