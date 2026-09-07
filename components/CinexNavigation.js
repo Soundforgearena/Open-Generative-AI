@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { getAccount } from '@/lib/cinexvideo-client';
 
 export default function CinexNavigation({ showFeatures = false }) {
   const router = useRouter();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     if (!isMenuOpen) return undefined;
@@ -40,6 +42,7 @@ export default function CinexNavigation({ showFeatures = false }) {
         if (active) {
           setUser(session?.user || null);
           setAuthReady(true);
+          if (!session) setIsAdmin(false);
         }
       });
       subscription = listener.data.subscription;
@@ -53,6 +56,29 @@ export default function CinexNavigation({ showFeatures = false }) {
     };
   }, []);
 
+  // The admin area is server-authorised on every request; this flag only
+  // decides whether the entry point is shown, so a stale value cannot grant
+  // access to anything.
+  useEffect(() => {
+    if (!user) {
+      setIsAdmin(false);
+      return undefined;
+    }
+
+    let active = true;
+    getAccount()
+      .then((account) => {
+        if (active) setIsAdmin(Boolean(account?.is_admin));
+      })
+      .catch(() => {
+        if (active) setIsAdmin(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
   function closeMenu() {
     setIsMenuOpen(false);
   }
@@ -63,6 +89,7 @@ export default function CinexNavigation({ showFeatures = false }) {
       await createClient().auth.signOut();
     } finally {
       setUser(null);
+      setIsAdmin(false);
       router.replace('/auth');
       router.refresh();
     }
@@ -92,11 +119,13 @@ export default function CinexNavigation({ showFeatures = false }) {
       >
         <Link href="/create" onClick={closeMenu}>Create</Link>
         <Link href="/music-video" onClick={closeMenu}>Music Video</Link>
+        <Link href="/pricing" onClick={closeMenu}>Pricing</Link>
         {showFeatures && <a href="#features" onClick={closeMenu}>Features</a>}
         {authReady && user ? (
           <>
             <Link href="/dashboard" onClick={closeMenu}>Dashboard</Link>
             <Link href="/account" onClick={closeMenu}>Account</Link>
+            {isAdmin && <Link href="/admin" className="cinex-nav-admin" onClick={closeMenu}>Admin</Link>}
             <button type="button" className="cinex-nav-action" onClick={handleSignOut}>Sign out</button>
           </>
         ) : authReady ? (
