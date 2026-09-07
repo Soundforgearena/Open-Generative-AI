@@ -26,6 +26,7 @@ export async function PATCH(request, { params }) {
   const patch = {};
 
   if (typeof body.title === 'string' && body.title.trim()) patch.title = body.title.trim().slice(0, 200);
+  if (typeof body.purpose === 'string') patch.purpose = body.purpose.slice(0, 5000);
   if (typeof body.prompt === 'string') patch.prompt = body.prompt.slice(0, 5000);
   if (typeof body.shot_direction === 'string') patch.shot_direction = body.shot_direction.slice(0, 5000);
   if (Number.isFinite(Number(body.duration_seconds))) {

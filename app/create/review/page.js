@@ -98,6 +98,7 @@ function ReviewContent() {
       try {
         await updateScene(scene.id, {
           title: patch.title,
+          purpose: patch.summary,
           prompt: patch.visualPrompt,
           duration_seconds: patch.estimatedDuration,
         });
@@ -225,14 +226,16 @@ function ReviewContent() {
                   <p><strong>Narration/dialogue:</strong> {scene.narration || 'None'}</p>
                   <AskAiDirectorButton fieldType="scene" value={scene.narration} context={{ sceneContext: scene.summary, style: project.style, duration: scene.estimatedDuration }} onApply={(suggestion) => updateSceneValue(index, { narration: suggestion })} />
                   <div className="cinex-scene-actions">
-                    <button type="button" className="cinex-auth-secondary" onClick={() => reorderScene(index, -1)}>Move up</button>
-                    <button type="button" className="cinex-auth-secondary" onClick={() => reorderScene(index, 1)}>Move down</button>
-                    <button type="button" className="cinex-auth-secondary" onClick={() => deleteScene(index)}>Delete</button>
+                    {demoModeEnabled && <>
+                      <button type="button" className="cinex-auth-secondary" onClick={() => reorderScene(index, -1)}>Move up</button>
+                      <button type="button" className="cinex-auth-secondary" onClick={() => reorderScene(index, 1)}>Move down</button>
+                      <button type="button" className="cinex-auth-secondary" onClick={() => deleteScene(index)}>Delete</button>
+                    </>}
                   </div>
                 </article>
               ))}
             </div>
-            <button type="button" className="cinex-route-primary" onClick={addScene}>Add scene</button>
+            {demoModeEnabled && <button type="button" className="cinex-route-primary" onClick={addScene}>Add scene</button>}
           </section>
         </div>
       )}

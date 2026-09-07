@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { createProject } from '@/lib/cinexvideo-client';
 import { createDemoProject, saveDemoProject } from '@/lib/demo-project-store';
 import { demoModeEnabled } from '@/lib/demo-mode';
@@ -94,8 +94,7 @@ export default function DemoProjectBuilder({ sourceType = 'idea', template, onCr
     <div className="cinex-builder-wrap">
       {!demoModeEnabled && (
         <div className="cinex-auth-required" role="status">
-          Sign in is required for production projects. Enable local demo mode to try the workflow without calling production APIs.
-          <Link href="/auth?next=/create" className="cinex-route-secondary-link">Continue to sign in</Link>
+          Your draft will be saved to your authenticated CineXVideo account.
         </div>
       )}
       {demoModeEnabled && <p className="cinex-demo-indicator">Demo mode — local data only</p>}

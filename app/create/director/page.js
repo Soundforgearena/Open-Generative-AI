@@ -58,7 +58,7 @@ export default function DirectorPage() {
           <AskAiDirectorButton fieldType={open === 'dialogue' ? 'script' : open === 'visual' ? 'visualNotes' : open === 'story' ? 'story' : 'scene'} value={values[open]} context={{ sourceType: 'director-room', style: 'Cinematic' }} onApply={(suggestion) => update(open, suggestion)} />
         </section>
       </div>
-      <Link href="/create/review" className="cinex-route-secondary-link">Back to project review</Link>
+      <Link href="/create" className="cinex-route-secondary-link">Back to project setup</Link>
     </CinexRoutePage>
   );
 }
