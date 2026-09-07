@@ -68,7 +68,7 @@ export default function CinexNavigation({ showFeatures = false }) {
     let active = true;
     getAccount()
       .then((account) => {
-        if (active) setIsAdmin(Boolean(account?.is_admin));
+        if (active) setIsAdmin(Boolean(account?.is_admin || account?.is_super_admin));
       })
       .catch(() => {
         if (active) setIsAdmin(false);
