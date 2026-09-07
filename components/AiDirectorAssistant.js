@@ -16,7 +16,21 @@ const ACTIONS = {
   title: [['applyDirectorInstruction', 'Find a stronger title'], ['generateIdeaDirections', 'Find a stronger hook']],
 };
 
-export default function AiDirectorAssistant({ fieldType, value, context, onApply, onClose }) {
+/**
+ * What the Director offers when the field is still empty. These write the first
+ * draft from the project context rather than asking the writer to produce text
+ * before they can get any help.
+ */
+const BLANK_FIELD_ACTIONS = {
+  idea: [['draftFromScratch', 'Write me an idea'], ['generateIdeaDirections', 'Give me 3 story concepts'], ['createCharacter', 'Start from a character']],
+  story: [['draftFromScratch', 'Write the first draft'], ['buildStoryArc', 'Build a beginning, middle and end'], ['generateIdeaDirections', 'Give me 3 directions']],
+  script: [['draftFromScratch', 'Write the opening scene'], ['createVisualDirection', 'Start from the visuals']],
+  visualNotes: [['draftFromScratch', 'Write the visual direction'], ['createVisualDirection', 'Suggest lighting and lens']],
+  scene: [['draftFromScratch', 'Write this scene for me'], ['createVisualDirection', 'Start from the visuals']],
+  title: [['draftFromScratch', 'Suggest a title'], ['generateIdeaDirections', 'Give me a stronger hook']],
+};
+
+export default function AiDirectorAssistant({ fieldType, fieldLabel, value, context, onApply, onClose }) {
   const closeRef = useRef(null);
   const resultRef = useRef(null);
   const [result, setResult] = useState(null);
@@ -25,7 +39,10 @@ export default function AiDirectorAssistant({ fieldType, value, context, onApply
   const [undoValue, setUndoValue] = useState(null);
   const [isWriting, setIsWriting] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
-  const actions = ACTIONS[fieldType] || ACTIONS.scene;
+  const isEmpty = !value?.trim();
+  const actions = isEmpty
+    ? BLANK_FIELD_ACTIONS[fieldType] || BLANK_FIELD_ACTIONS.scene
+    : ACTIONS[fieldType] || ACTIONS.scene;
   const busy = isWriting || pendingAction !== null;
 
   useEffect(() => {
@@ -72,7 +89,7 @@ export default function AiDirectorAssistant({ fieldType, value, context, onApply
         fieldType,
         value,
         instruction,
-        context,
+        context: { ...context, fieldLabel },
       });
       setResult(next);
       setStatus('Director draft is ready.');
@@ -101,9 +118,11 @@ export default function AiDirectorAssistant({ fieldType, value, context, onApply
     }
     setUndoValue(value);
     onApply?.(next);
-    setStatus(mode === 'replace'
-      ? 'Director draft replaced your text. You can edit it anytime.'
-      : 'Director draft added below your text. You can edit it anytime.');
+    setStatus(!value?.trim()
+      ? 'Director draft added. It is yours now — edit or delete any of it.'
+      : mode === 'replace'
+        ? 'Director draft replaced your text. You can edit it anytime.'
+        : 'Director draft added below your text. You can edit it anytime.');
   }
 
   function undoSuggestion() {
@@ -140,7 +159,11 @@ export default function AiDirectorAssistant({ fieldType, value, context, onApply
           <div>
             <p className="cinex-shot-plan-eyebrow">AI Director</p>
             <h2 id="ai-director-title">Your creative writing partner</h2>
-            <p>For story, script, and screen direction.</p>
+            <p>
+              {isEmpty
+                ? `Nothing written yet${fieldLabel ? ` for ${fieldLabel}` : ''} — the Director can write the first draft, or you can just type it yourself.`
+                : 'For story, script, and screen direction.'}
+            </p>
           </div>
           <button ref={closeRef} type="button" className="cinex-director-close" onClick={onClose} aria-label="Close AI Director">×</button>
         </div>

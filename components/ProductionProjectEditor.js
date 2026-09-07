@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getProject, updateProject, updateScene } from '@/lib/cinexvideo-client';
 import ReferenceUploader from '@/components/cinex/ReferenceUploader';
+import AskAiDirectorButton from '@/components/AskAiDirectorButton';
 
 function projectFromResponse(result) {
   return {
@@ -19,6 +20,26 @@ function projectFromResponse(result) {
       durationSeconds: scene.duration_seconds || 8,
       status: scene.status || 'draft',
     })),
+  };
+}
+
+/**
+ * Everything the Director needs to write a field it has never seen. Without the
+ * surrounding project the Director would be guessing, which is what made
+ * drafting into an empty box useless before.
+ */
+function sceneContextFor(project, scene) {
+  return {
+    projectTitle: project.title,
+    logline: project.logline,
+    duration: scene.durationSeconds,
+    sceneContext: [
+      `Scene ${scene.position} of ${project.scenes.length}.`,
+      scene.title ? `Scene title: ${scene.title}` : null,
+      scene.purpose ? `Scene purpose: ${scene.purpose}` : null,
+      scene.prompt ? `Visual prompt so far: ${scene.prompt}` : null,
+      scene.shotDirection ? `Shot direction so far: ${scene.shotDirection}` : null,
+    ].filter(Boolean).join('\n'),
   };
 }
 
@@ -108,6 +129,15 @@ export default function ProductionProjectEditor({ projectId }) {
             onChange={(event) => setProject((current) => ({ ...current, title: event.target.value }))}
           />
         </label>
+        <div className="cinex-field-assist">
+          <AskAiDirectorButton
+            fieldType="title"
+            label="project title"
+            value={project.title}
+            context={{ projectTitle: project.title, logline: project.logline }}
+            onApply={(next) => setProject((current) => ({ ...current, title: next }))}
+          />
+        </div>
         <p className="cinex-shot-plan-logline">{project.logline || 'No project logline added.'}</p>
         <button
           type="button"
@@ -146,14 +176,41 @@ export default function ProductionProjectEditor({ projectId }) {
                   Scene title
                   <input value={scene.title} onChange={(event) => updateLocalScene(scene.id, { title: event.target.value })} />
                 </label>
+                <div className="cinex-field-assist">
+                  <AskAiDirectorButton
+                    fieldType="title"
+                    label={`scene ${scene.position} title`}
+                    value={scene.title}
+                    context={sceneContextFor(project, scene)}
+                    onApply={(next) => updateLocalScene(scene.id, { title: next })}
+                  />
+                </div>
                 <label>
                   Visual prompt
                   <textarea rows={4} value={scene.prompt} onChange={(event) => updateLocalScene(scene.id, { prompt: event.target.value })} />
                 </label>
+                <div className="cinex-field-assist">
+                  <AskAiDirectorButton
+                    fieldType="scene"
+                    label={`scene ${scene.position} visual prompt`}
+                    value={scene.prompt}
+                    context={sceneContextFor(project, scene)}
+                    onApply={(next) => updateLocalScene(scene.id, { prompt: next })}
+                  />
+                </div>
                 <label>
                   Shot direction
                   <textarea rows={3} value={scene.shotDirection} onChange={(event) => updateLocalScene(scene.id, { shotDirection: event.target.value })} />
                 </label>
+                <div className="cinex-field-assist">
+                  <AskAiDirectorButton
+                    fieldType="visualNotes"
+                    label={`scene ${scene.position} shot direction`}
+                    value={scene.shotDirection}
+                    context={sceneContextFor(project, scene)}
+                    onApply={(next) => updateLocalScene(scene.id, { shotDirection: next })}
+                  />
+                </div>
                 <label>
                   Duration (seconds)
                   <input type="number" min="1" max="600" value={scene.durationSeconds} onChange={(event) => updateLocalScene(scene.id, { durationSeconds: event.target.value })} />
