@@ -86,3 +86,38 @@ test('the missing list names both accepted webhook variables', () => {
     'operators need to know either name is accepted'
   );
 });
+
+const { classifyPublishableKey } = require('../lib/stripe-readiness-env.js');
+
+test('a key present in the build is usable by the browser', () => {
+  const result = classifyPublishableKey('pk_test_1', 'pk_test_1');
+  assert.equal(result.inBrowserBundle, true);
+  assert.equal(result.state, 'ok');
+  assert.equal(result.effectiveKey, 'pk_test_1');
+});
+
+test('a key set only at runtime is not in the browser bundle', () => {
+  // The exact situation when the variable is added to the host after the last
+  // build: server code can read it, the browser cannot.
+  const result = classifyPublishableKey('pk_test_1', '');
+  assert.equal(result.inBrowserBundle, false);
+  assert.equal(result.state, 'runtime-only');
+});
+
+test('a key changed since the build is reported as stale', () => {
+  const result = classifyPublishableKey('pk_live_new', 'pk_test_old');
+  assert.equal(result.state, 'stale');
+  // The browser is still serving the older compiled key.
+  assert.equal(result.effectiveKey, 'pk_test_old');
+});
+
+test('no key anywhere is simply missing', () => {
+  const result = classifyPublishableKey('', '');
+  assert.equal(result.state, 'missing');
+  assert.equal(result.inBrowserBundle, false);
+});
+
+test('classifyPublishableKey ignores surrounding whitespace', () => {
+  assert.equal(classifyPublishableKey('  pk_test_1  ', '  pk_test_1  ').state, 'ok');
+  assert.equal(classifyPublishableKey('pk_test_1', '   ').state, 'runtime-only');
+});
