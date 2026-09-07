@@ -206,6 +206,30 @@ button {
   transition: color 160ms ease;
 }
 
+.cinex-nav-action,
+.cinex-nav-auth-loading {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.cinex-nav-action {
+  cursor: pointer;
+}
+
+.cinex-nav-action:hover,
+.cinex-nav-action:focus-visible {
+  color: var(--cinex-gold-light);
+}
+
+.cinex-nav-auth-loading {
+  opacity: 0.55;
+}
+
 .cinex-nav a:hover,
 .cinex-nav a:focus-visible {
   color: var(--cinex-gold-light);
@@ -1263,6 +1287,30 @@ button {
 .cinex-review-facts dt { color: var(--cinex-gold-light); font-weight: 800; }
 .cinex-review-facts dd { margin: 0; color: var(--cinex-muted); text-align: right; }
 
+.cinex-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 5, 10, 0.82);
+  backdrop-filter: blur(12px);
+}
+
+.cinex-generation-confirm {
+  width: min(560px, 100%);
+  padding: clamp(24px, 5vw, 42px);
+  border: 1px solid rgba(255, 218, 149, 0.24);
+  border-radius: 24px;
+  background: var(--cinex-panel);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.54);
+}
+
+.cinex-generation-confirm h2 {
+  margin: 8px 0 14px;
+}
+
 .cinex-admin-economics { min-height: 100svh; padding: clamp(24px, 5vw, 72px) clamp(16px, 4vw, 48px); color: var(--cinex-text); background: var(--cinex-ink); }
 .cinex-admin-economics > h1, .cinex-admin-economics > p, .cinex-economics-dashboard { width: min(1180px, 100%); margin-inline: auto; }
 .cinex-admin-economics > h1 { font-family: 'Barlow Condensed', sans-serif; font-size: clamp(2.4rem, 5vw, 4.8rem); text-transform: uppercase; }
@@ -1899,16 +1947,19 @@ button {
     display: grid;
   }
 
-  .cinex-nav a {
+  .cinex-nav a,
+  .cinex-nav-action,
+  .cinex-nav-auth-loading {
     min-height: 48px;
     display: flex;
     align-items: center;
     padding: 12px 16px;
     border-bottom: 1px solid rgba(255, 205, 113, 0.18);
     font-size: 1rem;
+    text-align: left;
   }
 
-  .cinex-nav a:last-child {
+  .cinex-nav > :last-child {
     border-bottom: 0;
   }
 

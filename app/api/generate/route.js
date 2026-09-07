@@ -63,6 +63,14 @@ const REFERENCE_FIELDS = [
   'audio_url',
 ];
 
+const PROVIDER_MODEL_ALIASES = Object.freeze({
+  'pixverse-v6': 'pixverse-v6-t2v',
+});
+
+function providerEndpointFor(model) {
+  return PROVIDER_MODEL_ALIASES[model] || model;
+}
+
 function referenceCountFor(input) {
   let count = 0;
   for (const field of REFERENCE_FIELDS) {
@@ -100,13 +108,12 @@ export async function POST(request) {
       operation = 'video',
       duration_seconds: requestedDuration = 1,
       resolution: requestedResolution = null,
+      quote_only: quoteOnly = false,
+      confirmed_max_credits: confirmedMaxCredits = null,
     } = body;
 
     if (!model || !input || typeof input !== 'object' || Array.isArray(input)) {
       return safeError('Generation settings are incomplete.');
-    }
-    if (!request.headers.get('idempotency-key')) {
-      return safeError('An idempotency key is required.', 400);
     }
     const unsupportedFields = Object.keys(input).filter((field) => !SAFE_PROVIDER_FIELDS.has(field));
     if (unsupportedFields.length) {
@@ -177,6 +184,20 @@ export async function POST(request) {
     }
 
     const credits = Number(quoteRow.credits);
+    if (quoteOnly) {
+      return Response.json({
+        credits_required: credits,
+        duration_seconds: durationSeconds,
+        model,
+        operation,
+      });
+    }
+    if (!Number.isInteger(Number(confirmedMaxCredits)) || Number(confirmedMaxCredits) < credits) {
+      return safeError('The generation price changed. Review the updated credit total before continuing.', 409);
+    }
+    if (!request.headers.get('idempotency-key')) {
+      return safeError('An idempotency key is required.', 400);
+    }
     const idempotencyKey = request.headers.get('idempotency-key');
     const reservation = await callRpc('reserve_credits_v2', {
       p_user_id: user.id,
@@ -314,13 +335,27 @@ export async function POST(request) {
         ...(Object.hasOwn(input, 'duration_seconds') ? { duration_seconds: durationSeconds } : {}),
         ...(resolution ? { resolution } : {}),
       };
-      const providerResponse = await fetch(`${base}/api/v1/${model}`, {
+      const providerEndpoint = providerEndpointFor(model);
+      const providerResponse = await fetch(`${base}/api/v1/${providerEndpoint}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
         body: JSON.stringify(canonicalInput),
       });
-      const providerData = await providerResponse.json().catch(() => null);
-      if (!providerResponse.ok) throw new Error('provider rejected the job');
+      const providerText = await providerResponse.text();
+      let providerData = null;
+      try {
+        providerData = providerText ? JSON.parse(providerText) : null;
+      } catch {
+        providerData = null;
+      }
+      if (!providerResponse.ok) {
+        console.error('generate provider rejected', {
+          status: providerResponse.status,
+          model: providerEndpoint,
+          response: providerText.slice(0, 300),
+        });
+        throw new Error(`provider rejected the job (${providerResponse.status})`);
+      }
 
       providerRequestId = providerData?.request_id || providerData?.id;
       if (!providerRequestId) throw new Error('provider returned no job id');
