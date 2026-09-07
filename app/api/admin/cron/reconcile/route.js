@@ -180,7 +180,7 @@ export async function POST(request) {
       try {
         const response = await fetch(
           `${base}/api/v1/predictions/${encodeURIComponent(job.provider_request_id)}/result`,
-          { headers: { Authorization: `Bearer ${apiKey}` }, cache: 'no-store' }
+          { headers: { 'x-api-key': apiKey }, cache: 'no-store' }
         );
         const data = await response.json().catch(() => null);
         if (!response.ok) throw new Error(`provider status ${response.status}`);

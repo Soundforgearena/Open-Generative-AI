@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import CinexRoutePage from '@/components/CinexRoutePage';
@@ -9,6 +9,7 @@ import { getDemoProject, saveDemoProject } from '@/lib/demo-project-store';
 import {
   getCatalog,
   getProject,
+  quoteGeneration,
   startGeneration,
   updateProject,
   updateScene,
@@ -41,6 +42,10 @@ function ReviewContent() {
   const [simulating, setSimulating] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [videoOption, setVideoOption] = useState(null);
+  const [showGenerationConfirm, setShowGenerationConfirm] = useState(false);
+  const [generationQuote, setGenerationQuote] = useState(null);
+  const [quoting, setQuoting] = useState(false);
+  const sceneSaveQueues = useRef(new Map());
 
   useEffect(() => {
     if (!safeProjectId(projectId, demoModeEnabled)) {
@@ -94,27 +99,88 @@ function ReviewContent() {
     loadProject();
   }, [projectId]);
 
+  useEffect(() => {
+    if (!showGenerationConfirm) return undefined;
+    function closeConfirmation(event) {
+      if (event.key === 'Escape') setShowGenerationConfirm(false);
+    }
+    document.addEventListener('keydown', closeConfirmation);
+    return () => document.removeEventListener('keydown', closeConfirmation);
+  }, [showGenerationConfirm]);
+
   function updateLocalProject(next) {
     setProject(next);
     if (demoModeEnabled) saveDemoProject(next);
   }
 
-  async function updateSceneValue(index, patch) {
-    const scene = project.scenes[index];
+  function updateSceneValue(index, patch) {
     const scenes = project.scenes.map((item, sceneIndex) => sceneIndex === index ? { ...item, ...patch } : item);
     updateLocalProject({ ...project, scenes });
-    if (!demoModeEnabled && scene.id) {
-      try {
-        await updateScene(scene.id, {
-          title: patch.title,
-          purpose: patch.summary,
-          prompt: patch.visualPrompt,
-          duration_seconds: patch.estimatedDuration,
-        });
-      } catch {
-        setMessage('Scene changed locally but could not be saved to the server.');
-        setState('error');
-      }
+  }
+
+  async function persistSceneValue(index, patch) {
+    const scene = project.scenes[index];
+    if (demoModeEnabled || !scene?.id) return;
+    if (Object.hasOwn(patch, 'title') && !String(patch.title || '').trim()) return;
+    const previous = sceneSaveQueues.current.get(scene.id) || Promise.resolve();
+    const queued = previous
+      .catch(() => undefined)
+      .then(() => updateScene(scene.id, patch))
+      .then(() => setMessage(`Scene ${scene.sceneNumber} saved.`))
+      .catch((saveError) => {
+        setMessage(saveError.message || 'Scene changed locally but could not be saved to the server.');
+      });
+    sceneSaveQueues.current.set(scene.id, queued);
+    await queued;
+    if (sceneSaveQueues.current.get(scene.id) === queued) {
+      sceneSaveQueues.current.delete(scene.id);
+    }
+  }
+
+  function generationPayload(scene) {
+    const duration = Math.min(
+      Number(scene.estimatedDuration || 5),
+      Number(videoOption?.max_duration_seconds || 10)
+    );
+    return {
+      model: videoOption.model,
+      operation: 'video',
+      project_id: project.id,
+      scene_id: scene.id,
+      duration_seconds: duration,
+      input: {
+        prompt: scene.visualPrompt || scene.summary || scene.title,
+        aspect_ratio: project.aspectRatio || '16:9',
+        duration,
+      },
+    };
+  }
+
+  async function prepareGeneration() {
+    if (demoModeEnabled) {
+      await continueToGeneration();
+      return;
+    }
+    if (quoting || simulating || completed || !videoOption) return;
+    setQuoting(true);
+    setMessage('Calculating the exact generation total...');
+    try {
+      const quotedScenes = await Promise.all(
+        project.scenes.map(async (scene) => {
+          const quote = await quoteGeneration(generationPayload(scene));
+          return { sceneId: scene.id, credits: Number(quote.credits_required) };
+        })
+      );
+      setGenerationQuote({
+        byScene: Object.fromEntries(quotedScenes.map((item) => [item.sceneId, item.credits])),
+        totalCredits: quotedScenes.reduce((total, item) => total + item.credits, 0),
+      });
+      setMessage('');
+      setShowGenerationConfirm(true);
+    } catch (quoteError) {
+      setMessage(quoteError.message || 'The generation price could not be calculated.');
+    } finally {
+      setQuoting(false);
     }
   }
 
@@ -161,27 +227,16 @@ function ReviewContent() {
 
   async function continueToGeneration() {
     if (!demoModeEnabled) {
-      if (simulating || completed || !videoOption) return;
+      if (simulating || completed || !videoOption || !generationQuote) return;
       setSimulating(true);
+      setShowGenerationConfirm(false);
       setMessage('Starting scene generation...');
       try {
         const results = [];
         for (const scene of project.scenes) {
-          const duration = Math.min(
-            Number(scene.estimatedDuration || 5),
-            Number(videoOption.max_duration_seconds || 10)
-          );
           const job = await startGeneration({
-            model: videoOption.model,
-            operation: 'video',
-            project_id: project.id,
-            scene_id: scene.id,
-            duration_seconds: duration,
-            input: {
-              prompt: scene.visualPrompt || scene.summary || scene.title,
-              aspect_ratio: project.aspectRatio || '16:9',
-              duration,
-            },
+            ...generationPayload(scene),
+            confirmed_max_credits: generationQuote.byScene[scene.id],
           });
           setProject((current) => ({
             ...current,
@@ -247,7 +302,7 @@ function ReviewContent() {
       description="Edit the draft and scenes before any generation step."
     >
       {demoModeEnabled && <p className="cinex-demo-indicator">Demo mode — local data only</p>}
-      {state === 'ready' && project && <ContinuityGuardianPanel project={project} onFix={() => window.location.assign('/create/director')} />}
+      {state === 'ready' && project && <ContinuityGuardianPanel project={project} onFix={() => window.location.assign('/create/director')} onGenerate={prepareGeneration} />}
       {state === 'ready' && project && <ContinuityBibleEditor value={project.continuityBible || createContinuityBible()} onChange={(continuityBible) => updateLocalProject({ ...project, continuityBible })} />}
       {state === 'loading' && <p className="cinex-form-success" role="status">{message}</p>}
       {state === 'error' && <p className="cinex-form-error" role="alert">{message}</p>}
@@ -268,7 +323,7 @@ function ReviewContent() {
             </dl>
             <AskAiDirectorButton fieldType="story" value={project.sourceText || project.logline} context={{ sourceType: project.sourceType, style: project.style, duration: project.duration }} onApply={(suggestion) => updateLocalProject({ ...project, sourceText: suggestion })} />
             <div className="cinex-dashboard-actions">
-              <button type="button" className="cinex-route-primary" onClick={continueToGeneration} disabled={simulating || completed || (!demoModeEnabled && !videoOption)}>{simulating ? 'Generating scenes...' : completed ? 'Generation complete' : demoModeEnabled ? 'Simulate Generation' : videoOption ? 'Continue to Generation' : 'No video model available'}</button>
+              <button type="button" className="cinex-route-primary" onClick={prepareGeneration} disabled={quoting || simulating || completed || (!demoModeEnabled && !videoOption)}>{quoting ? 'Calculating total...' : simulating ? 'Generating scenes...' : completed ? 'Generation complete' : demoModeEnabled ? 'Simulate Generation' : videoOption ? 'Review generation' : 'No video model available'}</button>
               <button type="button" className="cinex-auth-secondary" onClick={saveChanges}>Save changes</button>
               {!demoModeEnabled && <Link href="/account" className="cinex-route-secondary-link">Account and billing</Link>}
             </div>
@@ -283,10 +338,10 @@ function ReviewContent() {
               {project.scenes.map((scene, index) => (
                 <article className="cinex-scene-card" key={scene.id || index}>
                   <div className="cinex-scene-card-header"><strong>Scene {scene.sceneNumber}</strong><span>{scene.estimatedDuration}s · {scene.status}</span></div>
-                  <input value={scene.title || ''} aria-label={`Scene ${scene.sceneNumber} title`} onChange={(event) => updateSceneValue(index, { title: event.target.value })} />
-                  <AskAiDirectorButton fieldType="scene" value={scene.title} context={{ sceneContext: scene.summary, style: project.style, duration: scene.estimatedDuration }} onApply={(suggestion) => updateSceneValue(index, { title: suggestion.split('\n')[0] })} />
-                  <textarea value={scene.summary || ''} aria-label={`Scene ${scene.sceneNumber} summary`} onChange={(event) => updateSceneValue(index, { summary: event.target.value })} rows={2} />
-                  <AskAiDirectorButton fieldType="scene" value={scene.summary} context={{ sceneContext: scene.title, style: project.style, duration: scene.estimatedDuration }} onApply={(suggestion) => updateSceneValue(index, { summary: suggestion })} />
+                  <input value={scene.title || ''} aria-label={`Scene ${scene.sceneNumber} title`} onChange={(event) => updateSceneValue(index, { title: event.target.value })} onBlur={() => persistSceneValue(index, { title: project.scenes[index].title })} />
+                  <AskAiDirectorButton fieldType="scene" value={scene.title} context={{ sceneContext: scene.summary, style: project.style, duration: scene.estimatedDuration }} onApply={(suggestion) => { const title = suggestion.split('\n')[0]; updateSceneValue(index, { title }); persistSceneValue(index, { title }); }} />
+                  <textarea value={scene.summary || ''} aria-label={`Scene ${scene.sceneNumber} summary`} onChange={(event) => updateSceneValue(index, { summary: event.target.value })} onBlur={() => persistSceneValue(index, { purpose: project.scenes[index].summary })} rows={2} />
+                  <AskAiDirectorButton fieldType="scene" value={scene.summary} context={{ sceneContext: scene.title, style: project.style, duration: scene.estimatedDuration }} onApply={(suggestion) => { updateSceneValue(index, { summary: suggestion }); persistSceneValue(index, { purpose: suggestion }); }} />
                   <p><strong>Visual prompt:</strong> {scene.visualPrompt || 'Not specified'}</p>
                   <AskAiDirectorButton fieldType="visualNotes" value={scene.visualPrompt} context={{ sceneContext: scene.summary, style: project.style, duration: scene.estimatedDuration }} onApply={(suggestion) => updateSceneValue(index, { visualPrompt: suggestion })} />
                   <p><strong>Narration/dialogue:</strong> {scene.narration || 'None'}</p>
@@ -302,6 +357,27 @@ function ReviewContent() {
               ))}
             </div>
             {demoModeEnabled && <button type="button" className="cinex-route-primary" onClick={addScene}>Add scene</button>}
+          </section>
+        </div>
+      )}
+      {state === 'ready' && project && showGenerationConfirm && !demoModeEnabled && (
+        <div className="cinex-confirm-backdrop" role="presentation">
+          <section className="cinex-generation-confirm" role="dialog" aria-modal="true" aria-labelledby="generation-confirm-title">
+            <p className="cinex-shot-plan-eyebrow">Final confirmation</p>
+            <h2 id="generation-confirm-title">Start paid generation?</h2>
+            <p>
+              This will submit {project.scenes.length} scene{project.scenes.length === 1 ? '' : 's'} to {videoOption?.label || 'the selected video model'}.
+              Credits are reserved separately for each scene and returned automatically if a scene cannot be started.
+            </p>
+            <dl className="cinex-review-facts">
+              <div><dt>Scenes</dt><dd>{project.scenes.length}</dd></div>
+              <div><dt>Total duration</dt><dd>{project.scenes.reduce((total, scene) => total + Number(scene.estimatedDuration || 0), 0)} seconds</dd></div>
+              <div><dt>Maximum debit</dt><dd>{generationQuote?.totalCredits ?? 0} credits</dd></div>
+            </dl>
+            <div className="cinex-dashboard-actions">
+              <button type="button" className="cinex-route-primary" onClick={continueToGeneration}>Start generation</button>
+              <button type="button" className="cinex-auth-secondary" autoFocus onClick={() => setShowGenerationConfirm(false)}>Cancel</button>
+            </div>
           </section>
         </div>
       )}

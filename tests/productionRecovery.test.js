@@ -40,6 +40,52 @@ test('generation uses one v2 reservation and checks ownership', async () => {
   assert.match(route, /audio_url/);
   assert.match(route, /mark_generation_started/);
   assert.match(route, /if \(providerRequestId\)/);
+  assert.match(route, /'pixverse-v6': 'pixverse-v6-t2v'/);
+  assert.match(route, /'x-api-key': apiKey/);
+  assert.doesNotMatch(route, /Authorization: `Bearer \$\{apiKey\}`/);
+  assert.match(route, /quote_only: quoteOnly/);
+  assert.match(route, /confirmed_max_credits: confirmedMaxCredits/);
+  assert.match(route, /The generation price changed/);
+});
+
+test('paid generation requires a distinct confirmation step', async () => {
+  const review = await read('app/create/review/page.js');
+  assert.match(review, /Review generation/);
+  assert.match(review, /Start paid generation\?/);
+  assert.match(review, /Start generation/);
+  assert.match(review, /setShowGenerationConfirm\(true\)/);
+  assert.match(review, /autoFocus/);
+  assert.match(review, /event\.key === 'Escape'/);
+  assert.match(review, /Maximum debit/);
+  assert.match(review, /quoteGeneration/);
+  assert.match(review, /confirmed_max_credits/);
+});
+
+test('scene edits persist on blur instead of every keystroke', async () => {
+  const review = await read('app/create/review/page.js');
+  assert.match(review, /onBlur=\{\(\) => persistSceneValue/);
+  assert.match(review, /!String\(patch\.title \|\| ''\)\.trim\(\)/);
+  assert.doesNotMatch(review, /async function updateSceneValue/);
+  assert.match(review, /sceneSaveQueues/);
+});
+
+test('all MUAPI provider calls use the provider API key header', async () => {
+  const generate = await read('app/api/generate/route.js');
+  const jobs = await read('app/api/jobs/[requestId]/route.js');
+  const reconcile = await read('app/api/admin/cron/reconcile/route.js');
+  for (const route of [generate, jobs, reconcile]) {
+    assert.match(route, /'x-api-key': apiKey/);
+    assert.doesNotMatch(route, /Authorization: `Bearer \$\{apiKey\}`/);
+  }
+});
+
+test('global navigation follows the Supabase auth session', async () => {
+  const navigation = await read('components/CinexNavigation.js');
+  assert.match(navigation, /auth\.getSession\(\)/);
+  assert.match(navigation, /auth\.onAuthStateChange/);
+  assert.match(navigation, />Dashboard</);
+  assert.match(navigation, />Account</);
+  assert.match(navigation, />Sign out</);
 });
 
 test('idempotency keys are bound to the original reservation quote', async () => {

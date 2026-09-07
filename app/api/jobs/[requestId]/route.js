@@ -66,7 +66,7 @@ export async function GET(request, { params }) {
     const base = process.env.MUAPI_BASE_URL || 'https://api.muapi.ai';
     const response = await fetch(
       `${base}/api/v1/predictions/${encodeURIComponent(requestId)}/result`,
-      { headers: { Authorization: `Bearer ${apiKey}` }, cache: 'no-store' }
+      { headers: { 'x-api-key': apiKey }, cache: 'no-store' }
     );
     const data = await response.json().catch(() => null);
     if (!response.ok) return safeError('Generation status is temporarily unavailable.', 502);
