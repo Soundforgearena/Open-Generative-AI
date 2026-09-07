@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { demoModeEnabled } from '@/lib/demo-mode';
 import { generateDirectorSuggestion, applyDirectorInstruction } from '@/lib/ai-director-writing';
 import { requestDirectorAssist } from '@/lib/cinexvideo-client';
+import { buildAppliedValue } from '@/lib/director-apply';
 import AiDirectorWritingWindow from './AiDirectorWritingWindow';
 
 const ACTIONS = {
@@ -93,10 +94,16 @@ export default function AiDirectorAssistant({ fieldType, value, context, onApply
   }
 
   function applySuggestion(mode) {
+    const next = buildAppliedValue(mode, value, result?.suggestion);
+    if (next === null) {
+      setStatus('There is no draft to apply yet.');
+      return;
+    }
     setUndoValue(value);
-    if (mode === 'replace') onApply?.(result.suggestion);
-    if (mode === 'insert') onApply?.(`${value}\n\n${result.suggestion}`);
-    setStatus('Director suggestion applied. You can edit it anytime.');
+    onApply?.(next);
+    setStatus(mode === 'replace'
+      ? 'Director draft replaced your text. You can edit it anytime.'
+      : 'Director draft added below your text. You can edit it anytime.');
   }
 
   function undoSuggestion() {
