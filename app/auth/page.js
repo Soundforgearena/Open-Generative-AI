@@ -1,7 +1,7 @@
 'use client';
 
-import { Suspense, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import CinexRoutePage from '@/components/CinexRoutePage';
 import {
   createClient,
@@ -18,6 +18,7 @@ const ERROR_MESSAGES = {
 };
 
 function AuthContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = useMemo(() => getSafeNextPath(searchParams.get('next')), [searchParams]);
   const errorCode = searchParams.get('error');
@@ -25,6 +26,28 @@ function AuthContent() {
   const [error, setError] = useState('');
   const config = useMemo(() => getSupabaseBrowserConfig(), []);
   const category = error || errorCode || '';
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function continueExistingSession() {
+      if (!config.isConfigured) return;
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.auth.getSession();
+        if (!cancelled && data.session) {
+          router.replace(nextPath);
+        }
+      } catch {
+        // Keep the sign-in control available when session lookup is offline.
+      }
+    }
+
+    continueExistingSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [config.isConfigured, nextPath, router]);
 
   async function startGoogleSignIn() {
     setIsOpening(true);
