@@ -2,13 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-
-export const ADMIN_SECTIONS = [
-  { href: '/admin', label: 'Overview', blurb: 'Live platform, credit and generation health.' },
-  { href: '/admin/cockpit', label: 'Economics cockpit', blurb: 'Margin, liability and data-source status.' },
-  { href: '/admin/connect', label: 'Revenue partners', blurb: 'Partner onboarding and payout accounts.' },
-  { href: '/admin/stripe-readiness', label: 'Stripe readiness', blurb: 'Checkout and webhook configuration checks.' },
-];
+import { ADMIN_SECTIONS } from '@/lib/admin/sections';
 
 export default function AdminSectionNav() {
   const pathname = usePathname();

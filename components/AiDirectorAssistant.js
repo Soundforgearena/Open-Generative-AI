@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { demoModeEnabled } from '@/lib/demo-mode';
 import { generateDirectorSuggestion, applyDirectorInstruction } from '@/lib/ai-director-writing';
+import { requestDirectorAssist } from '@/lib/cinexvideo-client';
 import AiDirectorWritingWindow from './AiDirectorWritingWindow';
 
 const ACTIONS = {
@@ -23,6 +24,7 @@ export default function AiDirectorAssistant({ fieldType, value, context, onApply
   const [isWriting, setIsWriting] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
   const actions = ACTIONS[fieldType] || ACTIONS.scene;
+  const busy = isWriting || pendingAction !== null;
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -33,23 +35,45 @@ export default function AiDirectorAssistant({ fieldType, value, context, onApply
     return () => document.removeEventListener('keydown', handleKey);
   }, [onClose]);
 
-  const completeWriting = useCallback(() => {
+  const completeWriting = useCallback(async () => {
     if (!pendingAction) return;
-    const next = pendingAction === 'applyDirectorInstruction'
-      ? applyDirectorInstruction({ ...context, value }, instruction)
-      : generateDirectorSuggestion(pendingAction, { ...context, value });
-    setResult(next);
-    setPendingAction(null);
-    setIsWriting(false);
-    setStatus('Director draft is ready.');
-  }, [context, instruction, pendingAction, value]);
+
+    if (demoModeEnabled) {
+      const next = pendingAction === 'applyDirectorInstruction'
+        ? applyDirectorInstruction({ ...context, value }, instruction)
+        : generateDirectorSuggestion(pendingAction, { ...context, value });
+      setResult(next);
+      setPendingAction(null);
+      setIsWriting(false);
+      setStatus('Director draft is ready.');
+      return;
+    }
+
+    try {
+      const next = await requestDirectorAssist({
+        action: pendingAction,
+        fieldType,
+        value,
+        instruction,
+        context,
+      });
+      setResult(next);
+      setStatus('Director draft is ready.');
+    } catch (assistError) {
+      setResult(null);
+      setStatus(assistError.message || 'The Director could not respond just now. Please try again.');
+    } finally {
+      setPendingAction(null);
+      setIsWriting(false);
+    }
+  }, [context, fieldType, instruction, pendingAction, value]);
 
   function runAction(action) {
-    if (!demoModeEnabled) return;
+    if (busy) return;
     setPendingAction(action);
     setIsWriting(true);
     setResult(null);
-    setStatus('');
+    setStatus(demoModeEnabled ? '' : 'Asking the Director...');
   }
 
   function applySuggestion(mode) {
@@ -98,15 +122,15 @@ export default function AiDirectorAssistant({ fieldType, value, context, onApply
           <button ref={closeRef} type="button" className="cinex-director-close" onClick={onClose} aria-label="Close AI Director">×</button>
         </div>
         {demoModeEnabled && <p className="cinex-demo-indicator">Demo Director preview — suggestions are generated locally. No model call, video generation, or credits are used.</p>}
-        {!demoModeEnabled && <p className="cinex-auth-required">Writing assistance is available in local demo mode. Connect the authenticated Director service for live suggestions.</p>}
+        {!demoModeEnabled && <p className="cinex-form-optional">Writing help is free — it never uses credits. Only video and image generation are charged.</p>}
         <div className="cinex-director-actions">
-          {actions.map(([action, label]) => <button type="button" key={`${action}-${label}`} onClick={() => runAction(action)} disabled={!demoModeEnabled}>{label}</button>)}
+          {actions.map(([action, label]) => <button type="button" key={`${action}-${label}`} onClick={() => runAction(action)} disabled={busy}>{label}</button>)}
         </div>
         <label className="cinex-director-prompt">
           Tell the Director what you need
           <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="Example: Make this feel like a tense psychological thriller with a hopeful ending." rows={3} />
         </label>
-        <button type="button" className="cinex-route-primary" onClick={() => runAction('applyDirectorInstruction')} disabled={!demoModeEnabled || !instruction.trim()}>Ask Director</button>
+        <button type="button" className="cinex-route-primary" onClick={() => runAction('applyDirectorInstruction')} disabled={busy || !instruction.trim()}>Ask Director</button>
         {result && (
           <article className="cinex-director-result" aria-live="polite">
             <p className="cinex-shot-plan-eyebrow">DIRECTOR&apos;S DRAFT</p>

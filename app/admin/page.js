@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { requireAdmin } from '@/lib/admin/authorize';
 import { selectRows } from '@/lib/cinexvideo-server';
-import { ADMIN_SECTIONS } from '@/components/admin/AdminSectionNav';
+import { ADMIN_SECTIONS } from '@/lib/admin/sections';
+import SiteVisibilityToggle from '@/components/admin/SiteVisibilityToggle';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,6 +67,8 @@ export default async function AdminOverviewPage() {
       <p className="cinex-route-description">
         Real platform state, read directly from the production records this service owns.
       </p>
+
+      <SiteVisibilityToggle />
 
       {loadError ? <p className="cinex-form-error" role="alert">{loadError}</p> : null}
 

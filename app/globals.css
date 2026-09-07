@@ -1850,7 +1850,10 @@ button {
   padding: 18px;
   border: 1px solid rgba(239, 204, 130, 0.3);
   border-radius: 8px;
-  background: rgba(7, 10, 16, 0.76);
+  /* Nearly opaque: this panel sits on the cinematic hero artwork, and at 0.76
+     the background art showed through and made the text hard to read on a
+     phone. */
+  background: rgba(7, 10, 16, 0.94);
 }
 
 .cinex-review-summary label {
@@ -2727,4 +2730,390 @@ button {
   .cinex-admin-shell {
     width: 94vw;
   }
+}
+
+/* --------------------------------------------------------------- credit store
+   The credit store and the admin control deck were written against class names
+   that never existed in this stylesheet, so they rendered as raw unstyled text
+   straight over the hero artwork and were unreadable on a phone. These rules
+   give them a real opaque surface, spacing and contrast. */
+
+.cinex-credit-store {
+  width: min(880px, 100%);
+  max-height: calc(100svh - 32px);
+  overflow-y: auto;
+  padding: clamp(20px, 4vw, 34px);
+  border: 1px solid var(--cinex-line);
+  border-radius: 18px;
+  color: var(--cinex-text);
+  background: #070a10;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.62);
+}
+
+.cinex-credit-store-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 6px;
+}
+
+.cinex-credit-store-header h2 {
+  margin: 0;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: clamp(1.8rem, 5vw, 2.4rem);
+  text-transform: uppercase;
+}
+
+.cinex-credit-store-close {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--cinex-line);
+  border-radius: 50%;
+  color: var(--cinex-gold-light);
+  font-size: 1.4rem;
+  line-height: 1;
+  background: rgba(255, 205, 113, 0.08);
+  cursor: pointer;
+}
+
+.cinex-credit-store-close:hover {
+  background: rgba(255, 205, 113, 0.18);
+}
+
+.cinex-pack-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cinex-pack-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid rgba(239, 204, 130, 0.3);
+  border-radius: 14px;
+  background: rgba(12, 16, 24, 0.96);
+}
+
+.cinex-pack-card.is-best {
+  border-color: var(--cinex-gold);
+  box-shadow: 0 0 0 1px rgba(246, 181, 75, 0.35);
+}
+
+.cinex-pack-flag {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: #1c1204;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: var(--cinex-gold);
+}
+
+.cinex-pack-name {
+  margin: 0;
+  color: var(--cinex-gold-light);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.cinex-pack-credits {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+}
+
+.cinex-pack-credits strong {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
+.cinex-pack-credits span {
+  color: var(--cinex-muted);
+  font-size: 0.9rem;
+}
+
+.cinex-pack-blurb {
+  flex: 1;
+  margin: 0;
+  color: var(--cinex-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.cinex-pack-buy {
+  width: 100%;
+}
+
+.cinex-credit-store-note {
+  margin: 0;
+  color: var(--cinex-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+/* ----------------------------------------------------------- site visibility */
+
+.cinex-visibility-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 22px 0;
+  padding: 20px;
+  border: 1px solid var(--cinex-line);
+  border-radius: 14px;
+  background: rgba(12, 16, 24, 0.94);
+}
+
+.cinex-visibility-copy {
+  flex: 1 1 260px;
+}
+
+.cinex-visibility-copy h2 {
+  margin: 0 0 6px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 1.6rem;
+  text-transform: uppercase;
+}
+
+.cinex-visibility-copy p {
+  margin: 0;
+  color: var(--cinex-muted);
+  line-height: 1.5;
+}
+
+.cinex-visibility-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.cinex-visibility-state {
+  padding: 6px 12px;
+  border: 1px solid var(--cinex-line);
+  border-radius: 999px;
+  color: var(--cinex-gold-light);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cinex-visibility-state.is-live {
+  border-color: rgba(146, 220, 160, 0.5);
+  color: #c8f5cf;
+}
+
+.cinex-visibility-status {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--cinex-muted);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 600px) {
+  .cinex-credit-store {
+    border-radius: 14px;
+  }
+
+  .cinex-visibility-control {
+    width: 100%;
+  }
+
+  .cinex-visibility-control .cinex-route-primary,
+  .cinex-visibility-control .cinex-route-secondary {
+    flex: 1 1 100%;
+  }
+}
+
+/* ------------------------------------------------------------ admin cockpit
+   Scoped to .cockpit so these deliberately generic class names cannot leak
+   into the customer-facing pages. */
+
+.cockpit {
+  display: grid;
+  gap: 16px;
+  color: var(--cinex-text);
+}
+
+.cockpit .panel {
+  padding: clamp(16px, 3vw, 24px);
+  border: 1px solid rgba(239, 204, 130, 0.3);
+  border-radius: 12px;
+  background: rgba(12, 16, 24, 0.94);
+}
+
+.cockpit .panel-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.cockpit h2,
+.cockpit .panel-heading h2 {
+  margin: 0;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: clamp(1.4rem, 3vw, 1.9rem);
+  text-transform: uppercase;
+}
+
+.cockpit .eyebrow {
+  display: block;
+  color: var(--cinex-gold-light);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.cockpit .metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.cockpit .metric-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid rgba(239, 204, 130, 0.26);
+  border-radius: 10px;
+  background: rgba(7, 10, 16, 0.9);
+}
+
+.cockpit .metric-card strong {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 1.7rem;
+  line-height: 1.1;
+}
+
+.cockpit .status-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--cinex-muted);
+}
+
+.cockpit .admin-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.cockpit .control,
+.cockpit .small-action {
+  padding: 10px 16px;
+  border: 1px solid var(--cinex-line);
+  border-radius: 999px;
+  color: var(--cinex-gold-light);
+  font-weight: 600;
+  background: rgba(255, 205, 113, 0.08);
+  cursor: pointer;
+}
+
+.cockpit .control:hover,
+.cockpit .small-action:hover {
+  background: rgba(255, 205, 113, 0.18);
+}
+
+.cockpit .control:disabled,
+.cockpit .small-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cockpit .control.danger {
+  border-color: rgba(255, 138, 128, 0.55);
+  color: #ffb4ab;
+  background: rgba(255, 138, 128, 0.12);
+}
+
+.cockpit .inline-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--cinex-muted);
+}
+
+.cockpit .inline-field input,
+.cockpit input {
+  padding: 9px 12px;
+  border: 1px solid rgba(239, 204, 130, 0.34);
+  border-radius: 8px;
+  color: var(--cinex-text);
+  background: rgba(5, 8, 14, 0.9);
+}
+
+.cockpit .cockpit-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.cockpit .table-scroll {
+  overflow-x: auto;
+}
+
+.cockpit .admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.cockpit .admin-table th,
+.cockpit .admin-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 218, 149, 0.16);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.cockpit .admin-table th {
+  color: var(--cinex-gold-light);
+  font-size: 0.76rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cockpit .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.cockpit .fine-print {
+  color: var(--cinex-muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.cockpit .auth-error {
+  color: #ffb4ab;
+}
+
+.cinex-maintenance-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 22px;
+  margin-top: 22px;
 }

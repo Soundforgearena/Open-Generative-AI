@@ -16,15 +16,6 @@ const SUPABASE_ORIGIN = (() => {
     }
 })();
 
-const MAINTENANCE_PUBLIC_PATHS = new Set(['/under-construction', '/privacy', '/terms', '/refunds', '/health', '/api/health']);
-
-function isMaintenanceAllowed(pathname) {
-    return MAINTENANCE_PUBLIC_PATHS.has(pathname)
-        || pathname.startsWith('/_next/')
-        || pathname.startsWith('/favicon')
-        || pathname.startsWith('/cinexvideo-');
-}
-
 function addSecurityHeaders(response) {
     // Prevent MIME type sniffing (CWE-693)
     response.headers.set('X-Content-Type-Options', 'nosniff');
@@ -56,11 +47,14 @@ function addSecurityHeaders(response) {
 export async function middleware(request) {
     const url = request.nextUrl;
 
-    if (process.env.CINEXVIDEO_MAINTENANCE_MODE === 'true' && !isMaintenanceAllowed(url.pathname)) {
-        return addSecurityHeaders(NextResponse.redirect(new URL('/under-construction', request.url)));
-    }
+    // The under-construction gate itself lives in the root layout, which can
+    // read app_settings and check admin membership. Middleware only forwards
+    // the path so the layout knows which route is being rendered — an env-only
+    // redirect here used to lock admins out of their own site too.
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set('x-pathname', url.pathname);
 
-    let response = NextResponse.next();
+    let response = NextResponse.next({ request: { headers: requestHeaders } });
     let user = null;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -81,10 +75,14 @@ export async function middleware(request) {
                         return request.cookies.getAll();
                     },
                     setAll(cookiesToSet) {
-                        cookiesToSet.forEach(({ name, value, options }) => {
-                            request.cookies.set(name, value);
-                            response.cookies.set(name, value, options);
-                        });
+                        // Refreshed tokens have to reach both the server render
+                        // (via the forwarded request cookies) and the browser.
+                        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+                        requestHeaders.set('cookie', request.cookies.toString());
+                        response = NextResponse.next({ request: { headers: requestHeaders } });
+                        cookiesToSet.forEach(({ name, value, options }) =>
+                            response.cookies.set(name, value, options)
+                        );
                     },
                 },
             });
