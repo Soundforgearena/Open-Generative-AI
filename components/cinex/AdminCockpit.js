@@ -53,10 +53,43 @@ export default function AdminCockpit({ notify }) {
   if (error) return <div className="cockpit"><div className="panel"><p className="auth-error">{error}</p></div></div>;
   if (!summary) return <div className="cockpit"><div className="panel"><p>Loading cockpit…</p></div></div>;
 
-  const { metrics, controls, health, recent_events: events } = summary;
+  const { metrics, controls, health, recent_events: events, configuration } = summary;
 
   return (
     <div className="cockpit">
+      {Array.isArray(configuration) && configuration.length > 0 && (
+        <div className="panel cinex-config-panel">
+          <h2>Provider configuration</h2>
+          <p className="cinex-config-note">
+            Presence check only — no key values are read or displayed. Values are
+            set on the host, never in the repository.
+          </p>
+          <ul className="cinex-config-list">
+            {configuration.map((provider) => (
+              <li
+                key={provider.key}
+                className={
+                  provider.configured
+                    ? 'cinex-config-item is-ok'
+                    : provider.required
+                      ? 'cinex-config-item is-blocking'
+                      : 'cinex-config-item is-optional'
+                }
+              >
+                <div className="cinex-config-row">
+                  <strong>{provider.label}</strong>
+                  <span>{provider.configured ? 'Configured' : 'Not configured'}</span>
+                </div>
+                {!provider.configured && (
+                  <small>
+                    {provider.impact} Set {provider.missing.join(', ')}.
+                  </small>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="metric-grid">
         {[
           ['Generations 24h', metrics.generations_24h],

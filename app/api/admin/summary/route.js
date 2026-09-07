@@ -1,4 +1,5 @@
 import { guard, selectRows, selectOne, getSetting, safeError } from '../../../../lib/cinexvideo-server';
+import { describeProviderConfiguration } from '../../../../lib/admin/provider-config';
 
 /**
  * Admin cockpit data. Margin, provider cost and revenue are returned here and
@@ -57,6 +58,8 @@ export async function GET(request) {
       },
       health,
       recent_events: recentEvents,
+      // Presence-only provider report. Values are never included.
+      configuration: describeProviderConfiguration(process.env),
     });
   } catch (err) {
     console.error('admin summary', err);
