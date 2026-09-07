@@ -3240,3 +3240,20 @@ button {
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+
+
+/* A field's AI Director row. The Director sits beside the box, never inside it:
+   typing by hand stays the default and nothing is filled in without an apply. */
+.cinex-field-assist {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: -2px 0 14px;
+}
+@media (max-width: 520px) {
+  .cinex-field-assist .cinex-ask-director-button {
+    width: 100%;
+    text-align: center;
+  }
+}

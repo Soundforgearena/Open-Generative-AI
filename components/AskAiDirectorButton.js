@@ -3,10 +3,20 @@
 import { useRef, useState } from 'react';
 import AiDirectorAssistant from './AiDirectorAssistant';
 
-export default function AskAiDirectorButton({ fieldType, value, context = {}, onApply }) {
+/**
+ * Opens the AI Director for a single field.
+ *
+ * This button used to be disabled whenever the field was empty, with a hint
+ * telling the writer to add text first. That inverted the point of having a
+ * director: the blank box is exactly where help is worth most. The Director is
+ * now always available, and offers to write the first draft when there is
+ * nothing to work from. Typing it yourself remains completely optional — the
+ * field is never blocked and nothing is filled in without an explicit apply.
+ */
+export default function AskAiDirectorButton({ fieldType, value, context = {}, onApply, label }) {
   const [open, setOpen] = useState(false);
   const buttonRef = useRef(null);
-  const disabled = !value?.trim();
+  const isEmpty = !value?.trim();
 
   return (
     <>
@@ -15,16 +25,15 @@ export default function AskAiDirectorButton({ fieldType, value, context = {}, on
         ref={buttonRef}
         className="cinex-ask-director-button"
         onClick={() => setOpen(true)}
-        disabled={disabled}
         aria-expanded={open}
-        title={disabled ? 'Add some context before asking the Director' : 'Open AI Director'}
+        title={isEmpty ? 'Let the AI Director write the first draft' : 'Ask the AI Director to develop this'}
       >
-        ✦ Ask AI Director
+        {isEmpty ? '✦ Draft this with AI Director' : '✦ Ask AI Director'}
       </button>
-      {disabled && <span className="cinex-ask-director-hint">Add text to enable Director guidance.</span>}
       {open && (
         <AiDirectorAssistant
           fieldType={fieldType}
+          fieldLabel={label}
           value={value}
           context={context}
           onApply={onApply}

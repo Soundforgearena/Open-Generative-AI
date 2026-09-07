@@ -7,6 +7,7 @@ import { demoModeEnabled } from '@/lib/demo-mode';
 import { getSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { storeSession } from '@/lib/cinexvideo-client';
 import { StoryboardPreview } from './DemoProjectBuilder';
+import AskAiDirectorButton from '@/components/AskAiDirectorButton';
 
 export default function DemoProjectEditor({ projectId }) {
   const [project, setProject] = useState(null);
@@ -62,6 +63,19 @@ export default function DemoProjectEditor({ projectId }) {
           saveDemoProject(next);
         }} />
       </label>
+      <div className="cinex-field-assist">
+        <AskAiDirectorButton
+          fieldType="title"
+          label="project title"
+          value={project.title}
+          context={{ projectTitle: project.title, logline: project.logline }}
+          onApply={(next) => {
+            const updated = { ...project, title: next };
+            setProject(updated);
+            saveDemoProject(updated);
+          }}
+        />
+      </div>
       <StoryboardPreview project={project} onSave={setProject} />
     </div>
   );
