@@ -80,37 +80,54 @@ export async function GET(request, { params }) {
     }
 
     if (status === 'completed') {
-      const costNormalized = normalizeMuapiCost({ response: data });
+      const costNormalized = normalizeMuapiCost({
+        response: data,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
       const reservation = await findCreditReservation(job.reservation_reference);
-      if (reservation && reservation.status === 'reserved') {
-        const actualCredits = Number.isInteger(costNormalized.amountCredits)
-          ? Math.min(Math.max(0, costNormalized.amountCredits), reservation.max_reservation_credits)
-          : costNormalized.amountUsdCents == null
-            ? reservation.max_reservation_credits
-            : Math.min(Math.max(0, costNormalized.amountUsdCents), reservation.max_reservation_credits);
-        await callRpc('settle_reservation_v2', {
-          p_reservation_id: reservation.id,
-          p_settled_credits: actualCredits,
-          p_generation_job_id: job.id,
-        });
-        if (costNormalized.reliable && costNormalized.amountUsdCents != null) {
-          await insertRows('provider_cost_records', {
-            reservation_id: reservation.id,
-            generation_job_id: job.id,
-            provider: 'muapi',
-            provider_request_id: costNormalized.providerRequestId,
-            actual_cost_cents: costNormalized.amountUsdCents,
-            raw_response: data,
+      if (reservation) {
+        if (reservation.status === 'reserved') {
+          const actualCredits = Number.isInteger(costNormalized.amountCredits)
+            ? Math.min(Math.max(0, costNormalized.amountCredits), reservation.max_reservation_credits)
+            : costNormalized.amountUsdCents == null
+              ? reservation.max_reservation_credits
+              : Math.min(Math.max(0, costNormalized.amountUsdCents), reservation.max_reservation_credits);
+          const settlement = await callRpc('settle_reservation_v2', {
+            p_reservation_id: reservation.id,
+            p_settled_credits: actualCredits,
+            p_generation_job_id: job.id,
           });
+          if (!settlement.ok) throw new Error('reservation settlement failed');
         }
       } else {
-        await callRpc('consume_credits', {
+        const consume = await callRpc('consume_credits', {
           p_user_id: user.id,
           p_credits: job.credits_reserved,
           p_reference_id: job.reservation_reference,
         });
+        if (!consume.ok) throw new Error('legacy credit settlement failed');
       }
-      await updateRows('generation_requests', { id: `eq.${job.id}` }, { status: 'completed', output });
+      if (costNormalized.reliable && costNormalized.amountUsdCents != null) {
+        const costRecord = await callRpc('record_provider_cost_once', {
+          p_reservation_id: reservation?.id || null,
+          p_generation_job_id: job.id,
+          p_provider: 'muapi',
+          p_provider_request_id: costNormalized.providerRequestId,
+          p_actual_cost_cents: costNormalized.amountUsdCents,
+          p_raw_response: data,
+        });
+        if (!costRecord.ok) throw new Error('provider cost could not be recorded');
+      }
+      const completedUpdate = await updateRows(
+        'generation_requests',
+        { id: `eq.${job.id}` },
+        {
+          status: 'completed',
+          output,
+          provider_cost_status: costNormalized.reliable ? 'recorded' : 'pending',
+        }
+      );
+      if (!completedUpdate.ok) throw new Error('generation completion could not be recorded');
 
       // Revenue is recognised here, not at purchase: this is the point where
       // the credits are actually spent and the provider cost is incurred.
@@ -148,23 +165,28 @@ export async function GET(request, { params }) {
 
     // Failure path — the customer gets their credits back.
     const reservation = await findCreditReservation(job.reservation_reference);
-    if (reservation && reservation.status === 'reserved') {
-      await callRpc('release_reservation_v2', {
-        p_reservation_id: reservation.id,
-        p_reason: 'provider_failed',
-      });
+    if (reservation) {
+      if (reservation.status === 'reserved') {
+        const release = await callRpc('release_reservation_v2', {
+          p_reservation_id: reservation.id,
+          p_reason: 'provider_failed',
+        });
+        if (!release.ok) throw new Error('reservation release failed');
+      }
     } else {
-      await callRpc('release_credits', {
+      const release = await callRpc('release_credits', {
         p_user_id: user.id,
         p_credits: job.credits_reserved,
         p_reference_id: job.reservation_reference,
       });
+      if (!release.ok) throw new Error('legacy credit release failed');
     }
-    await updateRows(
+    const failedUpdate = await updateRows(
       'generation_requests',
       { id: `eq.${job.id}` },
       { status: 'released', error_note: 'provider_failed' }
     );
+    if (!failedUpdate.ok) throw new Error('generation failure could not be recorded');
     if (job.scene_id) {
       await updateRows('scenes', { id: `eq.${job.scene_id}` }, { status: 'failed' });
       if (job.scene_version) {

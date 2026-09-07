@@ -8,6 +8,7 @@ import {
 } from '../../../../lib/cinexvideo-server';
 
 const BUCKET = 'cinexvideo-references';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 async function ownedProject(id, user, admin) {
   const project = await selectOne('projects', { id: `eq.${id}` });
@@ -21,6 +22,7 @@ export async function GET(request, { params }) {
   const { user, admin, error } = await guard(request);
   if (error) return error;
   const { id } = await params;
+  if (!UUID_RE.test(id || '')) return safeError('Invalid project id.', 400);
 
   const project = await ownedProject(id, user, admin);
   if (!project) return safeError('Project not found.', 404);
@@ -65,6 +67,7 @@ export async function PATCH(request, { params }) {
   const { user, admin, error } = await guard(request);
   if (error) return error;
   const { id } = await params;
+  if (!UUID_RE.test(id || '')) return safeError('Invalid project id.', 400);
   if (!(await ownedProject(id, user, admin))) return safeError('Project not found.', 404);
 
   const body = await request.json();

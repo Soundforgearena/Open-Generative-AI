@@ -65,7 +65,15 @@ export async function middleware(request) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-    if (supabaseUrl && publishableKey) {
+    const demoMode = isDemoModeEnabled();
+    const protectedAppPath =
+        url.pathname.startsWith('/dashboard') ||
+        url.pathname.startsWith('/create') ||
+        url.pathname.startsWith('/account');
+
+    // API routes authenticate their own Bearer tokens. OAuth callback handles
+    // its own cookie exchange. Only refresh browser sessions for protected UI.
+    if (protectedAppPath && !demoMode && supabaseUrl && publishableKey) {
         try {
             const supabase = createServerClient(supabaseUrl, publishableKey, {
                 cookies: {
@@ -83,32 +91,14 @@ export async function middleware(request) {
             const result = await supabase.auth.getUser();
             user = result.data.user;
         } catch (error) {
-            if (process.env.NODE_ENV === 'development') console.error('CineXVideo middleware auth refresh failed', error.message);
+            console.error('CineXVideo middleware auth refresh failed', { message: error.message, path: url.pathname });
         }
     }
 
-        const demoMode = isDemoModeEnabled();
-        const protectedAppPath = url.pathname.startsWith('/dashboard') || url.pathname.startsWith('/create');
-        if (protectedAppPath && !user && !demoMode) {
-        return addSecurityHeaders(NextResponse.redirect(new URL('/auth?next=/dashboard', request.url)));
-    }
-
-    // Catch requests to /api/workflow, /api/app, and /api/v1
-    const isMuApi = url.pathname.startsWith('/api/workflow') ||
-                    url.pathname.startsWith('/api/app') ||
-                    url.pathname.startsWith('/api/v1');
-
-    if (isMuApi) {
-        // Exclude paths that have their own dedicated route handlers with custom logic
-        const isHandledByRoute = url.pathname.startsWith('/api/v1/creative-agent') ||
-                                url.pathname.startsWith('/api/v1/get_upload_url') ||
-                                url.pathname.startsWith('/api/v1/upload-binary');
-
-        if (url.pathname.startsWith('/api/v1') && !isHandledByRoute) {
-            const targetUrl = new URL(url.pathname + url.search, 'https://api.muapi.ai');
-            response = NextResponse.rewrite(targetUrl, { request });
-            return addSecurityHeaders(response);
-        }
+    if (protectedAppPath && !user && !demoMode) {
+        const signInUrl = new URL('/auth', request.url);
+        signInUrl.searchParams.set('next', `${url.pathname}${url.search}`);
+        return addSecurityHeaders(NextResponse.redirect(signInUrl));
     }
 
     // Plain response header carrying the locale derived from the URL path
