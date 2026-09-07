@@ -3,14 +3,14 @@
 # ---------------------------------------------------------------- deps
 # Dependencies are installed in their own stage so this layer is only
 # rebuilt when package.json or the lockfile changes, not on every commit.
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json ./
 RUN npm ci
 
 # ---------------------------------------------------------------- builder
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 COPY --from=deps /app/node_modules ./node_modules
@@ -42,7 +42,7 @@ RUN npm run build
 # next.config.mjs sets output: 'standalone', so the build emits a minimal
 # server bundled with only the modules it actually traced. The runner stage
 # therefore ships no package.json, no npm install and no dev dependencies.
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

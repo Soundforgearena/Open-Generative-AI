@@ -1,6 +1,6 @@
 -- Prepaid credit safety: idempotent Stripe events, reservations, provider cost,
--- and fee/audit tables. Purely additive — does not modify existing tables,
--- functions, or RLS policies from prior migrations.
+-- and fee/audit tables. Safely upgrades the legacy reservation table and
+-- narrows execution privileges on server-only wallet functions.
 
 -- --------------------------------------------------------- stripe_events
 -- Records every verified webhook delivery by Stripe event ID so retried
@@ -20,26 +20,64 @@ alter table public.stripe_events enable row level security;
 -- default-denies when a table has RLS enabled and no matching policy).
 
 -- ---------------------------------------------------- credit_reservations
--- Referenced by consume_credits() in the creative schema migration but never
--- defined in a committed migration until now.
+-- Upgrade both a blank database and the legacy seven-column table already
+-- present in production.
 create table if not exists public.credit_reservations (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   generation_job_id uuid,
-  operation text not null,
-  estimated_credits integer not null check (estimated_credits >= 0),
-  max_reservation_credits integer not null check (max_reservation_credits >= estimated_credits),
+  credits integer not null check (credits > 0),
+  operation text,
+  estimated_credits integer,
+  max_reservation_credits integer,
   settled_credits integer,
   released_credits integer,
-  status text not null default 'reserved' check (status in ('reserved','settled','released','consumed','expired')),
-  pricing_policy_version text not null,
-  idempotency_key text not null unique,
-  expires_at timestamptz not null,
+  status text not null default 'reserved',
+  pricing_policy_version text,
+  idempotency_key text,
+  expires_at timestamptz not null default (now() + interval '2 hours'),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.credit_reservations
+  add column if not exists operation text,
+  add column if not exists estimated_credits integer,
+  add column if not exists max_reservation_credits integer,
+  add column if not exists settled_credits integer,
+  add column if not exists released_credits integer,
+  add column if not exists pricing_policy_version text,
+  add column if not exists idempotency_key text,
+  add column if not exists updated_at timestamptz default now();
+
+update public.credit_reservations
+set operation = coalesce(operation, 'legacy'),
+    estimated_credits = coalesce(estimated_credits, credits),
+    max_reservation_credits = coalesce(max_reservation_credits, credits),
+    pricing_policy_version = coalesce(pricing_policy_version, 'legacy'),
+    idempotency_key = coalesce(idempotency_key, 'legacy:' || id::text),
+    updated_at = coalesce(updated_at, created_at, now());
+
+alter table public.credit_reservations
+  alter column updated_at set default now(),
+  alter column updated_at set not null;
+
+alter table public.credit_reservations drop constraint if exists credit_reservations_status_check;
+alter table public.credit_reservations
+  add constraint credit_reservations_status_check
+  check (status in ('reserved','settled','released','consumed','expired'));
+alter table public.credit_reservations drop constraint if exists credit_reservations_estimated_credits_check;
+alter table public.credit_reservations
+  add constraint credit_reservations_estimated_credits_check check (estimated_credits >= 0);
+alter table public.credit_reservations drop constraint if exists credit_reservations_max_reservation_credits_check;
+alter table public.credit_reservations
+  add constraint credit_reservations_max_reservation_credits_check
+  check (max_reservation_credits >= estimated_credits);
+
 create index if not exists credit_reservations_user_idx on public.credit_reservations(user_id, created_at desc);
 create index if not exists credit_reservations_job_idx on public.credit_reservations(generation_job_id);
+create unique index if not exists credit_reservations_user_idempotency_idx
+  on public.credit_reservations(user_id, idempotency_key);
 
 alter table public.credit_reservations enable row level security;
 drop policy if exists credit_reservations_owner_select on public.credit_reservations;
@@ -139,7 +177,9 @@ declare
   v_balance integer;
   v_row public.credit_reservations;
 begin
-  select * into v_existing from public.credit_reservations where idempotency_key = p_idempotency_key;
+  select * into v_existing
+    from public.credit_reservations
+   where user_id = p_user_id and idempotency_key = p_idempotency_key;
   if found then
     return v_existing;
   end if;
@@ -161,10 +201,10 @@ begin
    where user_id = p_user_id;
 
   insert into public.credit_reservations(
-    user_id, operation, estimated_credits, max_reservation_credits,
+    user_id, credits, operation, estimated_credits, max_reservation_credits,
     status, pricing_policy_version, idempotency_key, expires_at
   ) values (
-    p_user_id, p_operation, p_estimated_credits, p_max_reservation_credits,
+    p_user_id, p_max_reservation_credits, p_operation, p_estimated_credits, p_max_reservation_credits,
     'reserved', p_pricing_policy_version, p_idempotency_key, now() + make_interval(secs => p_ttl_seconds)
   ) returning * into v_row;
 
@@ -175,6 +215,7 @@ begin
 end;
 $$;
 revoke all on function public.reserve_credits_v2(uuid, text, integer, integer, text, text, integer) from public, anon, authenticated;
+grant execute on function public.reserve_credits_v2(uuid, text, integer, integer, text, text, integer) to service_role;
 
 -- ------------------------------------------------------------- settle_reservation_v2
 -- Releases the unused portion of a reservation back to the wallet balance and
@@ -225,6 +266,7 @@ begin
 end;
 $$;
 revoke all on function public.settle_reservation_v2(uuid, integer, uuid) from public, anon, authenticated;
+grant execute on function public.settle_reservation_v2(uuid, integer, uuid) to service_role;
 
 -- ------------------------------------------------------------- release_reservation_v2
 -- Full refund of a reservation (job never ran / failed before any provider cost).
@@ -259,3 +301,55 @@ begin
 end;
 $$;
 revoke all on function public.release_reservation_v2(uuid, text) from public, anon, authenticated;
+grant execute on function public.release_reservation_v2(uuid, text) to service_role;
+
+-- ------------------------------------------------------------- wallet adjustment
+-- Refund/dispute adjustments are service-only and record the actual applied
+-- delta atomically. A clawback never violates the wallet's non-negative check.
+create or replace function public.adjust_credit_wallet(
+  p_user_id uuid,
+  p_credit_delta integer,
+  p_reason text,
+  p_reference_id text default null
+) returns integer
+language plpgsql security definer set search_path = public as $$
+declare
+  v_balance integer;
+  v_applied integer;
+begin
+  select balance into v_balance
+    from public.credit_wallets
+   where user_id = p_user_id
+   for update;
+  if v_balance is null then
+    raise exception 'Credit wallet not found';
+  end if;
+
+  v_applied := greatest(p_credit_delta, -v_balance);
+  update public.credit_wallets
+     set balance = balance + v_applied,
+         updated_at = now()
+   where user_id = p_user_id;
+
+  insert into public.credit_ledger(user_id, amount, entry_type, reference_id, description)
+  values (
+    p_user_id,
+    v_applied,
+    case when v_applied < 0 then 'refund' else 'adjustment' end,
+    p_reference_id,
+    p_reason
+  );
+  return v_applied;
+end;
+$$;
+revoke all on function public.adjust_credit_wallet(uuid, integer, text, text) from public, anon, authenticated;
+grant execute on function public.adjust_credit_wallet(uuid, integer, text, text) to service_role;
+
+-- Legacy wallet mutation functions must never be callable from PostgREST by
+-- anonymous or ordinary authenticated users.
+revoke execute on function public.get_or_create_credit_wallet(uuid) from public, anon, authenticated;
+revoke execute on function public.reserve_credits(uuid, integer, text) from public, anon, authenticated;
+revoke execute on function public.release_credits(uuid, integer, text) from public, anon, authenticated;
+grant execute on function public.get_or_create_credit_wallet(uuid) to service_role;
+grant execute on function public.reserve_credits(uuid, integer, text) to service_role;
+grant execute on function public.release_credits(uuid, integer, text) to service_role;

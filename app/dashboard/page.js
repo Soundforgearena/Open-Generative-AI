@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import CinexRoutePage from '@/components/CinexRoutePage';
-import { listProjects, storeSession } from '@/lib/cinexvideo-client';
+import { listProjects } from '@/lib/cinexvideo-client';
 import { getSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { demoModeEnabled } from '@/lib/demo-mode';
 import { listDemoProjects, resetDemoProjects } from '@/lib/demo-project-store';
@@ -13,6 +13,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [drafts, setDrafts] = useState([]);
   const [checking, setChecking] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     async function loadDashboard() {
@@ -27,22 +28,26 @@ export default function DashboardPage() {
         router.replace('/auth?next=/dashboard');
         return;
       }
-      storeSession(data.session);
-
-      const { projects } = await listProjects();
-      setDrafts(
-        projects.map((project) => ({
-          ...project,
-          sourceType: project.lane === 'music_video' ? 'Music video' : 'Episode',
-          duration: 'Production',
-          production: true,
-        }))
-      );
-      setChecking(false);
+      try {
+        const { projects } = await listProjects();
+        setDrafts(
+          projects.map((project) => ({
+            ...project,
+            sourceType: project.lane === 'music_video' ? 'Music video' : 'Episode',
+            duration: 'Production',
+            production: true,
+          }))
+        );
+      } catch (loadError) {
+        setError(loadError.message || 'Your projects could not be loaded. Please retry.');
+      } finally {
+        setChecking(false);
+      }
     }
 
-    loadDashboard().catch(() => {
-      router.replace('/auth?next=/dashboard');
+    loadDashboard().catch((loadError) => {
+      setError(loadError.message || 'Your account could not be loaded. Please retry.');
+      setChecking(false);
     });
   }, [router]);
 
@@ -67,9 +72,10 @@ export default function DashboardPage() {
       {demoModeEnabled && <p className="cinex-demo-indicator">Demo mode — local data only</p>}
       <div className="cinex-dashboard-actions">
         <Link href="/create" className="cinex-route-primary">Start a project</Link>
-        {!demoModeEnabled && <Link href="/auth?next=/dashboard" className="cinex-route-secondary-link">Account and billing</Link>}
+        {!demoModeEnabled && <Link href="/account" className="cinex-route-secondary-link">Account and billing</Link>}
         {demoModeEnabled && <button type="button" className="cinex-auth-secondary" onClick={resetDemoData}>Reset demo data</button>}
       </div>
+      {error && <p className="cinex-form-error" role="alert">{error}</p>}
 
       <section className="cinex-dashboard-projects" aria-labelledby="recent-projects-title">
         <h2 id="recent-projects-title">{demoModeEnabled ? 'Recent local drafts' : 'Your production projects'}</h2>

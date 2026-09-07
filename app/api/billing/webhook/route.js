@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
 import { stripeEnabled, constructWebhookEvent } from '../../../../lib/stripe-connect';
-import { planChargebackResponse } from '../../../../lib/billing/chargeback-handler.js';
 
 // Webhooks are request-time only; nothing here may run during the build.
 export const dynamic = 'force-dynamic';
@@ -58,6 +57,18 @@ export async function POST(req) {
   const isCinexVideo =
     event.data?.object?.metadata?.product === 'cinexvideo' ||
     event.data?.object?.metadata?.cinexvideo_partner_id;
+
+  // This Stripe account is shared by multiple products. A foreign checkout or
+  // Connect event must be acknowledged before touching CinexVideo storage.
+  if (
+    (event.type === 'checkout.session.completed' ||
+      event.type === 'checkout.session.async_payment_succeeded' ||
+      event.type === 'payment_intent.payment_failed' ||
+      event.type === 'account.updated') &&
+    !isCinexVideo
+  ) {
+    return NextResponse.json({ received: true, ignored: true });
+  }
 
   let supabase;
   try {
@@ -130,7 +141,8 @@ export async function POST(req) {
 
   try {
     switch (event.type) {
-      case 'checkout.session.completed': {
+      case 'checkout.session.completed':
+      case 'checkout.session.async_payment_succeeded': {
         if (!isCinexVideo) break;
         const session = event.data.object;
         const userId = session.metadata?.user_id;
@@ -141,37 +153,24 @@ export async function POST(req) {
           console.warn('Invalid checkout session metadata', session);
           break;
         }
+        if (!['paid', 'no_payment_required'].includes(session.payment_status)) {
+          console.warn('Checkout completed before payment settled', session.id, session.payment_status);
+          break;
+        }
 
-        // Record payment
-        const { data: payment } = await supabase
-          .from('payment_records')
-          .insert({
-            user_id: userId,
-            provider: 'stripe',
-            provider_payment_id: paymentId,
-            amount_cents: session.amount_total,
-            credits,
-            status: 'completed',
-            currency: 'usd',
-          })
-          .select()
-          .single();
-
-        // Update wallet
-        await supabase.rpc('credit_wallets_add_purchase', {
+        // One database RPC records the payment, wallet and ledger atomically.
+        const { error: purchaseError } = await supabase.rpc('fulfil_credit_purchase', {
           p_user_id: userId,
           p_credits: credits,
           p_amount_cents: session.amount_total,
+          p_fee_cents: 0,
+          p_provider: 'stripe',
+          p_provider_payment_id: paymentId,
+          p_currency: session.currency || 'usd',
+          p_settled_amount_cents: session.amount_total,
+          p_settled_currency: session.currency || 'usd',
         });
-
-        // Ledger entry
-        await supabase.from('credit_ledger').insert({
-          user_id: userId,
-          amount: credits,
-          entry_type: 'purchase',
-          reference_id: payment?.id,
-          description: `Stripe checkout: ${credits} credits`,
-        });
+        if (purchaseError) throw purchaseError;
         break;
       }
 
@@ -185,106 +184,41 @@ export async function POST(req) {
       case 'charge.refunded': {
         const charge = event.data.object;
         const paymentId = charge.payment_intent || charge.id;
-        const { data: payment } = await supabase
-          .from('payment_records')
-          .select('id,user_id,credits')
-          .eq('provider_payment_id', paymentId)
-          .single();
-        if (!payment) break;
-
-        const { data: wallet } = await supabase
-          .from('credit_wallets')
-          .select('lifetime_consumed')
-          .eq('user_id', payment.user_id)
-          .single();
-
-        const plan = planChargebackResponse({
-          kind: 'refund',
-          creditsGrantedForPayment: payment.credits,
-          creditsAlreadyConsumed: wallet?.lifetime_consumed || 0,
+        const { error: reversalError } = await supabase.rpc('process_stripe_credit_reversal', {
+          p_event_id: event.id,
+          p_provider_payment_id: paymentId,
+          p_kind: 'refund',
+          p_external_id: event.id,
+          p_amount_cents: charge.amount_refunded || 0,
+          p_dispute_status: null,
+          p_reason: 'Refund issued: proportional unused credits clawed back.',
         });
-
-        if (plan.clawBackCredits > 0) {
-          await supabase.rpc('credit_wallets_add_purchase', {
-            p_user_id: payment.user_id,
-            p_credits: -plan.clawBackCredits,
-            p_amount_cents: 0,
-          });
-          await supabase.from('credit_ledger').insert({
-            user_id: payment.user_id,
-            amount: -plan.clawBackCredits,
-            entry_type: 'refund',
-            reference_id: payment.id,
-            description: plan.note,
-          });
-        }
-        await supabase.from('refund_records').insert({
-          payment_record_id: payment.id,
-          stripe_refund_id: charge.refunds?.data?.[0]?.id || null,
-          user_id: payment.user_id,
-          amount_cents: charge.amount_refunded || 0,
-          kind: 'refund',
-          credits_clawed_back: plan.clawBackCredits,
-        });
-        break;
+        if (reversalError) throw reversalError;
+        return NextResponse.json({ received: true });
       }
 
       case 'charge.dispute.created':
       case 'charge.dispute.closed': {
         const dispute = event.data.object;
         const paymentId = dispute.payment_intent || dispute.charge;
-        const { data: payment } = await supabase
-          .from('payment_records')
-          .select('id,user_id,credits')
-          .eq('provider_payment_id', paymentId)
-          .single();
-        if (!payment) break;
-
-        const { data: wallet } = await supabase
-          .from('credit_wallets')
-          .select('lifetime_consumed')
-          .eq('user_id', payment.user_id)
-          .single();
-
         const kind = event.type === 'charge.dispute.created' ? 'dispute_created' : 'dispute_closed';
-        const plan = planChargebackResponse({
-          kind,
-          disputeStatus: dispute.status,
-          creditsGrantedForPayment: payment.credits,
-          creditsAlreadyConsumed: wallet?.lifetime_consumed || 0,
+        const won = kind === 'dispute_closed' && dispute.status === 'won';
+        const note = won
+          ? 'Dispute won: held credits restored.'
+          : kind === 'dispute_created'
+            ? 'Dispute opened: proportional unused credits held.'
+            : `Dispute closed as ${dispute.status}: existing hold retained.`;
+        const { error: reversalError } = await supabase.rpc('process_stripe_credit_reversal', {
+          p_event_id: event.id,
+          p_provider_payment_id: paymentId,
+          p_kind: kind,
+          p_external_id: dispute.id,
+          p_amount_cents: dispute.amount || 0,
+          p_dispute_status: dispute.status || null,
+          p_reason: note,
         });
-
-        const netCreditDelta = (plan.restoreCredits || 0) - (plan.clawBackCredits || 0);
-        if (netCreditDelta !== 0) {
-          await supabase.rpc('credit_wallets_add_purchase', {
-            p_user_id: payment.user_id,
-            p_credits: netCreditDelta,
-            p_amount_cents: 0,
-          });
-          await supabase.from('credit_ledger').insert({
-            user_id: payment.user_id,
-            amount: netCreditDelta,
-            entry_type: netCreditDelta >= 0 ? 'adjustment' : 'refund',
-            reference_id: payment.id,
-            description: plan.note,
-          });
-        }
-        await supabase.from('refund_records').insert({
-          payment_record_id: payment.id,
-          stripe_dispute_id: dispute.id,
-          user_id: payment.user_id,
-          amount_cents: dispute.amount || 0,
-          kind,
-          credits_clawed_back: plan.clawBackCredits || 0,
-        });
-        if (plan.flagAccount) {
-          await supabase.from('financial_audit_events').insert({
-            user_id: payment.user_id,
-            event_type: 'account_flagged_chargeback',
-            details: { dispute_id: dispute.id, status: dispute.status, note: plan.note },
-          });
-        }
-        break;
+        if (reversalError) throw reversalError;
+        return NextResponse.json({ received: true });
       }
 
       case 'account.updated': {

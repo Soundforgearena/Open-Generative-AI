@@ -6,7 +6,14 @@ import { useSearchParams } from 'next/navigation';
 import CinexRoutePage from '@/components/CinexRoutePage';
 import { demoModeEnabled } from '@/lib/demo-mode';
 import { getDemoProject, saveDemoProject } from '@/lib/demo-project-store';
-import { getProject, updateProject, updateScene } from '@/lib/cinexvideo-client';
+import {
+  getCatalog,
+  getProject,
+  startGeneration,
+  updateProject,
+  updateScene,
+  waitForJob,
+} from '@/lib/cinexvideo-client';
 import { safeProjectId } from '@/lib/safe-navigation';
 import AskAiDirectorButton from '@/components/AskAiDirectorButton';
 import ContinuityGuardianPanel from '@/components/continuity/ContinuityGuardianPanel';
@@ -33,6 +40,7 @@ function ReviewContent() {
   const [message, setMessage] = useState('Loading your storyboard...');
   const [simulating, setSimulating] = useState(false);
   const [completed, setCompleted] = useState(false);
+  const [videoOption, setVideoOption] = useState(null);
 
   useEffect(() => {
     if (!safeProjectId(projectId, demoModeEnabled)) {
@@ -53,7 +61,7 @@ function ReviewContent() {
           return;
         }
 
-        const result = await getProject(projectId);
+        const [result, catalog] = await Promise.all([getProject(projectId), getCatalog()]);
         if (!result?.project) {
           setState('missing');
           return;
@@ -75,6 +83,7 @@ function ReviewContent() {
             status: scene.status || 'Draft',
           })),
         });
+        setVideoOption((catalog.options || []).find((option) => option.operation === 'video') || null);
         setState('ready');
       } catch (loadError) {
         setMessage(loadError.message || 'This draft could not be loaded.');
@@ -150,9 +159,65 @@ function ReviewContent() {
     }
   }
 
-  function continueToGeneration() {
+  async function continueToGeneration() {
     if (!demoModeEnabled) {
-      setMessage('Video generation will be available after your account is connected.');
+      if (simulating || completed || !videoOption) return;
+      setSimulating(true);
+      setMessage('Starting scene generation...');
+      try {
+        const results = [];
+        for (const scene of project.scenes) {
+          const duration = Math.min(
+            Number(scene.estimatedDuration || 5),
+            Number(videoOption.max_duration_seconds || 10)
+          );
+          const job = await startGeneration({
+            model: videoOption.model,
+            operation: 'video',
+            project_id: project.id,
+            scene_id: scene.id,
+            duration_seconds: duration,
+            input: {
+              prompt: scene.visualPrompt || scene.summary || scene.title,
+              aspect_ratio: project.aspectRatio || '16:9',
+              duration,
+            },
+          });
+          setProject((current) => ({
+            ...current,
+            scenes: current.scenes.map((item) =>
+              item.id === scene.id ? { ...item, status: 'running' } : item
+            ),
+          }));
+          setMessage(`Generating scene ${scene.sceneNumber} of ${project.scenes.length}...`);
+          const result = await waitForJob(job.request_id, {
+            onTick: (tick) => setProject((current) => ({
+              ...current,
+              scenes: current.scenes.map((item) =>
+                item.id === scene.id ? { ...item, status: tick.status } : item
+              ),
+            })),
+          });
+          results.push(result);
+        }
+        const failedCount = results.filter((result) => result.status === 'failed').length;
+        if (failedCount > 0) {
+          setMessage(
+            `${failedCount} scene${failedCount === 1 ? '' : 's'} failed to generate. Credits for failed scenes were returned; retry those scenes from the project.`
+          );
+        } else {
+          setCompleted(true);
+          setMessage('Generation complete. Your scene versions are ready for review.');
+        }
+      } catch (generationError) {
+        setMessage(
+          generationError.status === 402
+            ? 'You need more credits to generate these scenes. Open Account and billing to continue.'
+            : generationError.message || 'Generation could not be started.'
+        );
+      } finally {
+        setSimulating(false);
+      }
       return;
     }
     if (simulating || completed) return;
@@ -203,8 +268,9 @@ function ReviewContent() {
             </dl>
             <AskAiDirectorButton fieldType="story" value={project.sourceText || project.logline} context={{ sourceType: project.sourceType, style: project.style, duration: project.duration }} onApply={(suggestion) => updateLocalProject({ ...project, sourceText: suggestion })} />
             <div className="cinex-dashboard-actions">
-              <button type="button" className="cinex-route-primary" onClick={continueToGeneration} disabled={simulating || completed}>{simulating ? 'Simulating generation...' : completed ? 'Generation simulation complete' : demoModeEnabled ? 'Simulate Generation' : 'Continue to Generation'}</button>
+              <button type="button" className="cinex-route-primary" onClick={continueToGeneration} disabled={simulating || completed || (!demoModeEnabled && !videoOption)}>{simulating ? 'Generating scenes...' : completed ? 'Generation complete' : demoModeEnabled ? 'Simulate Generation' : videoOption ? 'Continue to Generation' : 'No video model available'}</button>
               <button type="button" className="cinex-auth-secondary" onClick={saveChanges}>Save changes</button>
+              {!demoModeEnabled && <Link href="/account" className="cinex-route-secondary-link">Account and billing</Link>}
             </div>
             <Link href="/create/director" className="cinex-route-secondary-link">Open AI Director Writing Room</Link>
             {message && <p className="cinex-form-success" role="status">{message}</p>}
