@@ -44,6 +44,7 @@ export default function CinexNavigation({ showFeatures = false }) {
         aria-label="Primary navigation"
       >
         <Link href="/create" onClick={closeMenu}>Create</Link>
+        <Link href="/music-video" onClick={closeMenu}>Music Video</Link>
         {showFeatures && <a href="#features" onClick={closeMenu}>Features</a>}
         <Link href="/auth" onClick={closeMenu}>Sign in</Link>
       </nav>

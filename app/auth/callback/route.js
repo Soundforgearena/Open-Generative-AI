@@ -1,55 +1,76 @@
-import { createServerClient } from '@supabase/ssr';
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/cinexvideo-server'
 
 function safeNextPath(value) {
-  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) {
-    return '/dashboard';
+  if (
+    !value ||
+    typeof value !== 'string' ||
+    !value.startsWith('/') ||
+    value.startsWith('//') ||
+    value.includes('\\') ||
+    /^\/[a-z][a-z\d+.-]*:/i.test(value)
+  ) {
+    return '/dashboard'
   }
-  return value;
+
+  return value
 }
 
-function authErrorRedirect(request, code = 'oauth_callback_failed') {
-  return NextResponse.redirect(new URL(`/auth?error=${code}`, request.url));
+function publicOrigin(request) {
+  const configuredOrigin = process.env.NEXT_PUBLIC_SITE_URL?.trim()
+  if (configuredOrigin) {
+    try {
+      const configuredUrl = new URL(configuredOrigin)
+      if (configuredUrl.protocol === 'https:' || configuredUrl.protocol === 'http:') {
+        return configuredUrl.origin
+      }
+    } catch {
+      // Fall through to the proxy headers below.
+    }
+  }
+
+  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || 'https'
+  if (forwardedHost && (forwardedProto === 'https' || forwardedProto === 'http')) {
+    return `${forwardedProto}://${forwardedHost}`
+  }
+
+  return new URL(request.url).origin
 }
 
 export async function GET(request) {
-  const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get('code');
-  const nextPath = safeNextPath(requestUrl.searchParams.get('next'));
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const requestUrl = new URL(request.url)
+  const code = requestUrl.searchParams.get('code')
+  const providerError = requestUrl.searchParams.get('error')
+  const providerErrorCode = requestUrl.searchParams.get('error_code')
+  const nextPath = safeNextPath(requestUrl.searchParams.get('next'))
+  const origin = publicOrigin(request)
+  const errorRedirect = new URL('/auth', origin)
+  errorRedirect.searchParams.set(
+    'error',
+    providerErrorCode === 'otp_expired' || providerError === 'access_denied'
+      ? 'oauth_cancelled'
+      : 'oauth_callback_failed'
+  )
 
-  if (!code || !supabaseUrl || !publishableKey?.trim()) return authErrorRedirect(request);
+  if (providerError || !code) return NextResponse.redirect(errorRedirect)
+
   try {
-    const parsedUrl = new URL(supabaseUrl);
-    if (parsedUrl.protocol !== 'https:' || !parsedUrl.hostname.endsWith('.supabase.co')) {
-      return authErrorRedirect(request);
+    const supabase = await createClient()
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+
+    if (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('[CinexVideo Auth] OAuth code exchange failed.')
+      }
+      return NextResponse.redirect(errorRedirect)
     }
+
+    return NextResponse.redirect(new URL(nextPath, origin))
   } catch {
-    return authErrorRedirect(request);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('[CinexVideo Auth] OAuth callback failed unexpectedly.')
+    }
+    return NextResponse.redirect(errorRedirect)
   }
-
-  const cookieStore = await cookies();
-  const response = NextResponse.redirect(new URL(nextPath, request.url));
-  const supabase = createServerClient(supabaseUrl, publishableKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll();
-      },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value, options }) => {
-          cookieStore.set(name, value, options);
-          response.cookies.set(name, value, options);
-        });
-      },
-    },
-  });
-
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) {
-    if (process.env.NODE_ENV === 'development') console.error('CineXVideo OAuth callback failed', error.message);
-    return authErrorRedirect(request);
-  }
-  return response;
 }

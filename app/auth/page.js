@@ -1,39 +1,46 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import CinexRoutePage from '@/components/CinexRoutePage';
 import {
-  getAuthErrorCategory,
+  createClient,
   getOAuthRedirectUrl,
+  getSupabaseBrowserConfig,
+  getAuthErrorCategory,
   getSafeNextPath,
-  getSupabaseBrowserClient,
 } from '@/lib/supabase-browser';
 
 const ERROR_MESSAGES = {
-  configuration: 'Google sign-in is not configured yet.',
   oauth: 'Google sign-in could not be completed. Please try again.',
+  oauth_cancelled: 'Google sign-in was cancelled. You can try again when ready.',
   network: 'The sign-in service could not be reached. Please try again.',
 };
 
 function AuthContent() {
   const searchParams = useSearchParams();
-  const nextPath = getSafeNextPath(searchParams.get('next'));
+  const nextPath = useMemo(() => getSafeNextPath(searchParams.get('next')), [searchParams]);
   const errorCode = searchParams.get('error');
   const [isOpening, setIsOpening] = useState(false);
   const [error, setError] = useState('');
-  const category = error === 'oauth_callback_failed' || errorCode === 'oauth_callback_failed'
-    ? 'oauth'
-    : error || errorCode || '';
+  const config = useMemo(() => getSupabaseBrowserConfig(), []);
+  const category = error || errorCode || '';
 
   async function startGoogleSignIn() {
     setIsOpening(true);
     setError('');
+    if (!config.isConfigured) {
+      setError('configuration');
+      setIsOpening(false);
+      return;
+    }
     try {
-      const supabase = getSupabaseBrowserClient();
+      const supabase = createClient();
       const { error: signInError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: getOAuthRedirectUrl(nextPath) },
+        options: {
+          redirectTo: getOAuthRedirectUrl(nextPath),
+        },
       });
       if (signInError) throw signInError;
     } catch (signInError) {
@@ -41,7 +48,7 @@ function AuthContent() {
       if (process.env.NODE_ENV === 'development') {
         console.error('CineXVideo Google sign-in failed', errorCategory, signInError.message);
       }
-      setError(errorCategory);
+      setError(errorCategory === 'configuration' ? 'configuration' : 'oauth_callback_failed');
       setIsOpening(false);
     }
   }
@@ -58,21 +65,16 @@ function AuthContent() {
         className="cinex-route-primary"
         disabled={isOpening}
       >
-        {isOpening ? 'Opening Google sign-in...' : 'Continue with Google'}
+        {isOpening ? 'OPENING GOOGLE SIGN-IN…' : 'CONTINUE WITH GOOGLE'}
       </button>
       {process.env.NODE_ENV === 'development' && (
         <p className="cinex-auth-dev-marker">Google OAuth build: active</p>
       )}
       {category && (
         <p className="cinex-route-error" role="alert">
-          <strong>
-            {category === 'configuration'
-              ? 'Configuration unavailable'
-              : category === 'oauth'
-                ? 'OAuth provider error'
-                : 'Network error'}:
-          </strong>{' '}
-          {ERROR_MESSAGES[category] || ERROR_MESSAGES.oauth}
+          {category === 'configuration'
+            ? 'Google sign-in is not configured yet. Please try again later.'
+            : ERROR_MESSAGES[category] || ERROR_MESSAGES.oauth}
         </p>
       )}
     </CinexRoutePage>

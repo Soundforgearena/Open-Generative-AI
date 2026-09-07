@@ -15,6 +15,10 @@ key. Configure these values in Railway without committing their contents:
 - `NEXT_PUBLIC_SUPABASE_URL`: the production Supabase project URL
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: the production browser publishable key
 
+Both variables must be present during the Railway build and at runtime. Because
+`NEXT_PUBLIC_*` values are compiled into the browser bundle, redeploy after any
+Railway variable change.
+
 In Google Cloud Console, create an OAuth client with:
 
 - Application type: `Web application`
@@ -35,6 +39,42 @@ place a service-role key in a `NEXT_PUBLIC_*` variable or browser code.
 The app provides `/dashboard` for authenticated local drafts and
 only exposes Google sign-in in the web UI. Generation remains disabled until the
 account and generation services are configured.
+
+### Music Video Studio
+
+Music Video Studio is available at `/music-video` and provides local planning
+for demo track profiles, editable lyric timing, Director treatments, and
+beat-aware storyboards. Demo mode never uploads audio, transcribes audio, calls
+providers, or generates video. Users must confirm they own the music or have
+permission to use it; this is a workflow confirmation, not legal advice.
+Lip-sync planning stays blocked until lyrics are reviewed and confirmed, while
+instrumental projects use no lip-sync.
+
+Production integration still requires authenticated audio storage/upload,
+server-side transcription and alignment, an authorized music-platform
+connection if pursued, a video/lip-sync provider, billing/credits, and export
+delivery.
+
+### Continuity Bible and Guardian
+
+Episode and Music Video review surfaces include a Continuity Bible and a local
+Continuity Guardian. The demo validator checks declared identity, wardrobe,
+props, location/light/weather, emotional state, camera direction, lyric/lip-sync
+gating, and timeline handoffs. It produces warnings and blocking issues for
+manual review; it is not vision-model QA and does not claim perfect continuity.
+
+Future production continuity requires private project-owned reference storage,
+server-side vision/clip QA, provider reference-image/end-frame support, and a
+real video generation and assembly pipeline.
+
+### Local demo mode
+
+Set `NEXT_PUBLIC_DEMO_MODE=true` only for local development or preview testing.
+Demo mode is forcibly disabled when `NODE_ENV=production`, stores projects and
+storyboards only in browser localStorage, and never calls protected project,
+generation, billing, upload, export, Stripe, or admin APIs. Reset demo data from
+the dashboard; no local demo data is sent to Supabase. OAuth and real generation
+remain separate integrations.
 
 <p align="center"><a href="https://youtu.be/SI1KJ2prGmc"><img src="https://i.ytimg.com/vi/SI1KJ2prGmc/maxresdefault.jpg" width="720"></a></p>
 <p align="center"><a href="https://youtu.be/SI1KJ2prGmc"><b>▶ Watch: Best AI Image Generator (API) in 2026 (Quality, Price, Uncensored, Editing) </b></a></p>

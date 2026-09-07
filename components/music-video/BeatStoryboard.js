@@ -1,0 +1,5 @@
+'use client';
+
+export default function BeatStoryboard({ storyboard, onEdit, onMove }) {
+  return <section className="cinex-music-timeline" aria-label="Beat-synced storyboard">{storyboard.map((shot, index) => <article className="cinex-music-shot" key={shot.id}><div className="cinex-scene-card-header"><strong>{shot.order}. {shot.section}</strong><span>{shot.startSeconds}s–{shot.endSeconds}s · {shot.lipSyncMode}</span></div><input value={shot.title} aria-label={`Shot ${shot.order} title`} onChange={(event) => onEdit(index, { title: event.target.value })} /><textarea value={shot.purpose} aria-label={`Shot ${shot.order} purpose`} rows={2} onChange={(event) => onEdit(index, { purpose: event.target.value })} /><p><strong>Lyric cue:</strong> {shot.lyricText || 'No lyric cue — do not assume lip-sync.'}</p><p><strong>Visual:</strong> {shot.visualPrompt}</p><div className="cinex-scene-actions"><button type="button" className="cinex-auth-secondary" onClick={() => onMove(index, -1)}>Move earlier</button><button type="button" className="cinex-auth-secondary" onClick={() => onMove(index, 1)}>Move later</button></div></article>)}</section>;
+}

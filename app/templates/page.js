@@ -1,11 +1,6 @@
 import CinexRoutePage from '@/components/CinexRoutePage';
 import Link from 'next/link';
-
-const templates = [
-  ['midnight-signal', 'Midnight Signal', 'Tense sci-fi mystery with cool neon light.', 'Sci-fi mystery'],
-  ['golden-hour', 'Golden Hour', 'Warm, intimate portrait built for emotional stories.', 'Emotional drama'],
-  ['pulse-city', 'Pulse City', 'Rhythm-led urban montage for music and movement.', 'Music video'],
-];
+import { DEMO_TEMPLATES } from '@/lib/demo-templates';
 
 export default function TemplatesPage() {
   return (
@@ -15,15 +10,16 @@ export default function TemplatesPage() {
       description="Browse cinematic starting points for stories, music videos, episodes, and branded scenes."
     >
       <div className="cinex-template-grid">
-        {templates.map(([slug, name, description, category]) => (
+        {DEMO_TEMPLATES.map((template) => (
           <Link
-            key={name}
-            href={`/create?template=${slug}`}
+            key={template.slug}
+            href={`/create?template=${template.slug}`}
             className="cinex-template-card"
           >
-            <span>{category}</span>
-            <strong>{name}</strong>
-            <small>{description}</small>
+            <span>{template.category} · {template.aspectRatio}</span>
+            <strong>{template.title}</strong>
+            <small>{template.description}</small>
+            <small>{template.sceneCount} starter scenes</small>
             <em>Use template</em>
           </Link>
         ))}

@@ -3,46 +3,55 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import CinexRoutePage from '@/components/CinexRoutePage';
+import DemoProjectBuilder from '@/components/DemoProjectBuilder';
+import { demoModeEnabled } from '@/lib/demo-mode';
+import { listDemoProjects } from '@/lib/demo-project-store';
+import { DEMO_TEMPLATES } from '@/lib/demo-templates';
 
 export default function CreatePage() {
-  const [template, setTemplate] = useState('');
-  const [draft, setDraft] = useState('');
+  const [template, setTemplate] = useState(null);
+  const [sourceType, setSourceType] = useState('idea');
+  const [recentProjects, setRecentProjects] = useState([]);
 
   useEffect(() => {
-    const selected = new URLSearchParams(window.location.search).get('template');
-    setTemplate(selected || '');
-    setDraft(new URLSearchParams(window.location.search).get('draft') || '');
+    const slug = new URLSearchParams(window.location.search).get('template');
+    const selectedTemplate = DEMO_TEMPLATES.find((item) => item.slug === slug) || null;
+    setTemplate(selectedTemplate);
+    if (selectedTemplate) setSourceType('template');
+    if (demoModeEnabled) setRecentProjects(listDemoProjects().slice(0, 3));
   }, []);
-
-  const templateQuery = template ? `?template=${encodeURIComponent(template)}` : '';
 
   return (
     <CinexRoutePage
       eyebrow="CineXVideo production desk"
-      title="Create a video"
-      description="Choose the starting point that best fits the story you want to bring to life."
+      title="Start a project"
+      description="Build a local storyboard preview safely while connected generation remains separate."
     >
-      {template && (
-        <p className="cinex-selection-note">
-          Starting with template: <strong>{template}</strong>
-        </p>
-      )}
-      {draft && (
-        <p className="cinex-selection-note">
-          Draft ready to continue: <strong>{draft}</strong>
-        </p>
-      )}
-      <div className="cinex-route-actions">
-        <Link href={`/create/story${templateQuery}`} className="cinex-route-option">
-          <strong>Start with a story</strong>
-          <span>Shape an idea into a cinematic sequence.</span>
-        </Link>
-        <Link href={`/create/script${templateQuery}`} className="cinex-route-option">
-          <strong>Use my script</strong>
-          <span>Build from dialogue, scenes, and direction.</span>
-        </Link>
+      {demoModeEnabled && <p className="cinex-demo-indicator">Demo mode — local data only</p>}
+      <div className="cinex-create-tabs" role="tablist" aria-label="Project source type">
+        {[
+          ['idea', 'Start with an idea'],
+          ['story', 'Start with a story'],
+          ['script', 'Start with a script'],
+        ].map(([value, label]) => (
+          <button key={value} type="button" role="tab" aria-selected={sourceType === value} className={sourceType === value ? 'is-selected' : ''} onClick={() => setSourceType(value)}>{label}</button>
+        ))}
+        <Link href="/templates" className="cinex-create-tab-link">Start from a template</Link>
       </div>
-      <Link href="/templates" className="cinex-route-secondary-link">Choose a different template</Link>
+      <Link href="/create/director" className="cinex-route-secondary-link">Open the AI Director Writing Room</Link>
+      {template && <p className="cinex-selection-note">Starting from <strong>{template.title}</strong></p>}
+      <DemoProjectBuilder sourceType={sourceType} template={template} />
+      {demoModeEnabled && recentProjects.length > 0 && (
+        <section className="cinex-recent-demo-projects" aria-labelledby="recent-demo-title">
+          <h2 id="recent-demo-title">Recent demo projects</h2>
+          {recentProjects.map((project) => (
+            <Link key={project.id} href={`/create/review?project=${encodeURIComponent(project.id)}`} className="cinex-dashboard-draft">
+              <strong>{project.title}</strong>
+              <span>{project.status} · {project.scenes.length} scenes</span>
+            </Link>
+          ))}
+        </section>
+      )}
     </CinexRoutePage>
   );
 }

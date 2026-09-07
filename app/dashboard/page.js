@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import CinexRoutePage from '@/components/CinexRoutePage';
 import { storeSession } from '@/lib/cinexvideo-client';
 import { getSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { demoModeEnabled } from '@/lib/demo-mode';
+import { listDemoProjects, resetDemoProjects } from '@/lib/demo-project-store';
 
 const DRAFT_KEYS = ['cinexvideo_draft_story', 'cinexvideo_draft_script'];
 
@@ -16,6 +18,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function loadDashboard() {
+      if (demoModeEnabled) {
+        setDrafts(listDemoProjects());
+        setChecking(false);
+        return;
+      }
       const supabase = getSupabaseBrowserClient();
       const { data } = await supabase.auth.getSession();
       if (!data.session) {
@@ -45,15 +52,23 @@ export default function DashboardPage() {
     return <main className="cinex-dashboard-loading">Checking your session...</main>;
   }
 
+  function resetDemoData() {
+    if (!window.confirm('Reset all local demo projects and scenes? This cannot be undone.')) return;
+    resetDemoProjects();
+    setDrafts([]);
+  }
+
   return (
     <CinexRoutePage
       eyebrow="Creator dashboard"
       title="Your projects"
       description="Continue a local draft or start a new cinematic project. Generation requires an authenticated, configured account."
     >
+      {demoModeEnabled && <p className="cinex-demo-indicator">Demo mode — local data only</p>}
       <div className="cinex-dashboard-actions">
         <Link href="/create" className="cinex-route-primary">Start a project</Link>
-        <Link href="/auth?next=/dashboard" className="cinex-route-secondary-link">Account and billing</Link>
+        {!demoModeEnabled && <Link href="/auth?next=/dashboard" className="cinex-route-secondary-link">Account and billing</Link>}
+        {demoModeEnabled && <button type="button" className="cinex-auth-secondary" onClick={resetDemoData}>Reset demo data</button>}
       </div>
 
       <section className="cinex-dashboard-projects" aria-labelledby="recent-projects-title">
@@ -61,9 +76,9 @@ export default function DashboardPage() {
         {drafts.length ? (
           <div className="cinex-dashboard-list">
             {drafts.map((draft) => (
-              <Link key={draft.key} href={`/create/${draft.mode}`} className="cinex-dashboard-draft">
-                <strong>{draft.idea || draft.script?.slice(0, 80) || 'Untitled project'}</strong>
-                <span>{draft.mode === 'story' ? 'Story brief' : 'Script draft'} · {draft.duration} seconds</span>
+              <Link key={draft.id || draft.key} href={`/create/project/${draft.id}`} className="cinex-dashboard-draft">
+                <strong>{draft.title || 'Untitled project'}</strong>
+                <span>{draft.status || 'Draft'} · {draft.sourceType || draft.mode} · {draft.duration} seconds</span>
               </Link>
             ))}
           </div>
