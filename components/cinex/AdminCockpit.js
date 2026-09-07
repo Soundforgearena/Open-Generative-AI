@@ -50,8 +50,8 @@ export default function AdminCockpit({ notify }) {
     }
   }
 
-  if (error) return <div className="panel"><p className="auth-error">{error}</p></div>;
-  if (!summary) return <div className="panel"><p>Loading cockpit…</p></div>;
+  if (error) return <div className="cockpit"><div className="panel"><p className="auth-error">{error}</p></div></div>;
+  if (!summary) return <div className="cockpit"><div className="panel"><p>Loading cockpit…</p></div></div>;
 
   const { metrics, controls, health, recent_events: events } = summary;
 

@@ -17,7 +17,10 @@ export default function UnderConstructionPage() {
           We&apos;re building a cinematic AI creation studio.<br />
           Please check back soon.
         </p>
-        <Link href="/privacy" className="cinex-maintenance-link">Privacy</Link>
+        <div className="cinex-maintenance-links">
+          <Link href="/privacy" className="cinex-maintenance-link">Privacy</Link>
+          <Link href="/auth?next=/admin" className="cinex-maintenance-link">Team sign in</Link>
+        </div>
       </section>
     </main>
   );
