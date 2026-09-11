@@ -42,7 +42,7 @@ test('generation uses one v2 reservation and checks ownership', async () => {
   assert.match(route, /if \(providerRequestId\)/);
   assert.match(route, /'pixverse-v6': 'pixverse-v6-t2v'/);
   assert.match(route, /'x-api-key': apiKey/);
-  assert.doesNotMatch(route, /Authorization: `Bearer \$\{apiKey\}`/);
+  assert.doesNotMatch(route, /Authorization: `******/);
   assert.match(route, /quote_only: quoteOnly/);
   assert.match(route, /confirmed_max_credits: confirmedMaxCredits/);
   assert.match(route, /The generation price changed/);
@@ -75,7 +75,7 @@ test('all MUAPI provider calls use the provider API key header', async () => {
   const reconcile = await read('app/api/admin/cron/reconcile/route.js');
   for (const route of [generate, jobs, reconcile]) {
     assert.match(route, /'x-api-key': apiKey/);
-    assert.doesNotMatch(route, /Authorization: `Bearer \$\{apiKey\}`/);
+    assert.doesNotMatch(route, /Authorization: `******/);
   }
 });
 
@@ -150,4 +150,25 @@ test('Stripe reversals are payment-aware and atomic', async () => {
   assert.match(migration, /grant execute on function public\.process_stripe_credit_reversal[\s\S]*to service_role/);
   assert.match(migration, /create or replace function public\.record_provider_cost_once/);
   assert.match(migration, /provider_cost_records_generation_job_idx/);
+});
+
+test('production hardening migration binds admin helper lookups and locks internal tables', async () => {
+  const migration = await read('supabase/migrations/20260911180500_supabase_production_security_hardening.sql');
+  assert.match(migration, /create or replace function public\.is_cinex_admin\(p_user_id uuid\)/);
+  assert.match(migration, /auth\.role\(\) = 'service_role'/);
+  assert.match(migration, /auth\.uid\(\) is not null and p_user_id = auth\.uid\(\)/);
+  assert.match(migration, /create or replace function public\.is_cinex_super_admin\(p_user_id uuid\)/);
+  for (const tableName of [
+    'admin_members',
+    'app_settings',
+    'user_account_status',
+    'credit_wallets',
+    'credit_ledger',
+    'payment_records',
+    'credit_packs',
+    'model_cost_rules',
+  ]) {
+    assert.match(migration, new RegExp(`'${tableName}'`));
+  }
+  assert.match(migration, /revoke all on table public\.\%I from public, anon, authenticated/);
 });
