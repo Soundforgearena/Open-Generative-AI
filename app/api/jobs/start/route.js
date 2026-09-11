@@ -1,6 +1,5 @@
 import {
   guard,
-  callRpc,
   selectOne,
   selectRows,
   insertRows,
@@ -8,6 +7,10 @@ import {
 } from '../../../../lib/cinexvideo-server';
 import { evaluateReservationRisk } from '../../../../lib/billing/risk-policy.js';
 import { evaluateProviderExposure } from '../../../../lib/billing/provider-exposure-guard.js';
+import {
+  loadRuntimeSafetySignals,
+  requestedCreditsToUsdCents,
+} from '../../../../lib/billing/runtime-safety-signals.js';
 
 /**
  * Starts a generation job against an already-confirmed credit reservation.
@@ -51,25 +54,20 @@ export async function POST(request) {
       return safeError('Reservation does not match this operation.', 409);
     }
 
-    const [openReservations, accountStatus] = await Promise.all([
-      selectRows(
-        'credit_reservations',
-        { user_id: `eq.${user.id}`, status: 'eq.reserved' },
-        'id'
-      ),
-      selectOne('user_account_status', { user_id: `eq.${user.id}` }, 'created_at'),
-    ]);
-
-    const accountAgeHours = accountStatus?.created_at
-      ? (Date.now() - new Date(accountStatus.created_at).getTime()) / 3600000
-      : Infinity;
-
+    const runtimeSignals = await loadRuntimeSafetySignals({
+      userId: user.id,
+      requestedCredits: reservation.max_reservation_credits,
+      selectOneFn: selectOne,
+      selectRowsFn: selectRows,
+    });
     const risk = evaluateReservationRisk(
       {
-        accountAgeHours,
-        openReservationsCount: openReservations.length,
-        reservedCreditsLastHour: 0, // not yet tracked; conservative default
-        chargebackCount: 0, // real value wired once refund_records aggregation lands
+        ...runtimeSignals.risk,
+        openReservationsCount: Math.max(0, runtimeSignals.risk.openReservationsCount - 1),
+        reservedCreditsLastHour: Math.max(
+          0,
+          runtimeSignals.risk.reservedCreditsLastHour - Number(reservation.max_reservation_credits || 0)
+        ),
       },
       reservation.max_reservation_credits
     );
@@ -77,15 +75,16 @@ export async function POST(request) {
       return safeError('This request could not be started right now.', 403);
     }
 
-    // Provider exposure is evaluated on a best-effort basis: when trailing
-    // revenue is not yet tracked, this defaults to a conservative cap of $0,
-    // which queues rather than silently allowing unlimited exposure.
     const exposure = evaluateProviderExposure({
-      trailingRevenueCents: 0,
-      outstandingReservedCreditsUsdCents: 0,
+      ...runtimeSignals.exposure,
       requestedCents: 0,
+      outstandingReservedCreditsUsdCents: Math.max(
+        0,
+        runtimeSignals.exposure.outstandingReservedCreditsUsdCents
+          - requestedCreditsToUsdCents(reservation.max_reservation_credits)
+      ),
     });
-    if (exposure.decision === 'blocked') {
+    if (exposure.decision !== 'allowed') {
       return safeError('This creative option is temporarily at capacity.', 503);
     }
 

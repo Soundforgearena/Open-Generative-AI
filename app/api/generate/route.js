@@ -2,11 +2,16 @@ import {
   guard,
   callRpc,
   selectOne,
+  selectRows,
   insertRows,
   updateRows,
   requireSecret,
   safeError,
 } from '../../../lib/cinexvideo-server';
+import { evaluateProviderExposure } from '../../../lib/billing/provider-exposure-guard.js';
+import { evaluateReservationRisk } from '../../../lib/billing/risk-policy.js';
+import { loadRuntimeSafetySignals } from '../../../lib/billing/runtime-safety-signals.js';
+import { normalizeMuapiCost } from '../../../lib/providers/muapi-cost-adapter.js';
 
 const SAFE_PROVIDER_FIELDS = new Set([
   'prompt',
@@ -191,6 +196,20 @@ export async function POST(request) {
         model,
         operation,
       });
+    }
+    const runtimeSignals = await loadRuntimeSafetySignals({
+      userId: user.id,
+      requestedCredits: credits,
+      selectOneFn: selectOne,
+      selectRowsFn: selectRows,
+    });
+    const risk = evaluateReservationRisk(runtimeSignals.risk, credits);
+    if (risk.decision === 'blocked') {
+      return safeError('This request could not be started right now.', 403);
+    }
+    const exposure = evaluateProviderExposure(runtimeSignals.exposure);
+    if (exposure.decision !== 'allowed') {
+      return safeError('This creative option is temporarily at capacity.', 503);
     }
     if (!Number.isInteger(Number(confirmedMaxCredits)) || Number(confirmedMaxCredits) < credits) {
       return safeError('The generation price changed. Review the updated credit total before continuing.', 409);

@@ -122,28 +122,23 @@ export async function GET(request) {
   const warnings = [];
   const nextSteps = [];
 
-  if (publishable.state === 'runtime-only') {
-    warnings.push(
-      'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is set on the host but was not present when this build was compiled, so the browser bundle does not contain it.'
-    );
-    nextSteps.push(
-      'Redeploy so the build picks up NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY. Next inlines NEXT_PUBLIC_* values at build time; changing them at runtime has no effect until a rebuild.'
-    );
-  }
-  if (publishable.state === 'stale') {
-    warnings.push(
-      'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY changed since this build, so the browser is still using the older key.'
-    );
-    nextSteps.push('Redeploy to rebuild the browser bundle with the current publishable key.');
-  }
-
   missingVars.forEach((name) => {
     warnings.push(`${name} is not configured.`);
     nextSteps.push(`Set ${name} in the deployment environment.`);
   });
+  if (publishable.effectiveKey && publishable.state === 'runtime-only') {
+    warnings.push(
+      'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY was added after this build, so browser-only Stripe features would still need a redeploy.'
+    );
+  }
+  if (publishable.effectiveKey && publishable.state === 'stale') {
+    warnings.push(
+      'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY changed since this build, so browser-only Stripe features would still use the older key.'
+    );
+  }
   if (secretMode && publishableMode && !keyModesMatch) {
     warnings.push('STRIPE_SECRET_KEY and NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY are in different modes.');
-    nextSteps.push('Use matching test or live keys for both the secret and publishable key.');
+    nextSteps.push('Use matching test or live keys for both keys if browser-side Stripe features are enabled.');
   }
   if (stripeApi.status === 'BLOCKED') {
     warnings.push(stripeApi.error);
@@ -168,10 +163,9 @@ export async function GET(request) {
 
   const safeToEnablePayments =
     environment.secretKeyConfigured &&
-    environment.publishableKeyInBrowserBundle &&
     environment.webhookSecretConfigured &&
     environment.appUrlConfigured &&
-    environment.keyModesMatch &&
+    (!publishable.effectiveKey || environment.keyModesMatch) &&
     stripeApi.status === 'VERIFIED' &&
     stripeApi.chargesEnabled === true &&
     stripeApi.detailsSubmitted === true;

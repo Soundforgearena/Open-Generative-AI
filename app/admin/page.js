@@ -18,7 +18,7 @@ const number = (value) => Number(value || 0).toLocaleString();
 async function loadOverview() {
   const [wallets, reservations, jobs, packs, rules] = await Promise.all([
     selectRows('credit_wallets', {}, 'user_id,balance,lifetime_purchased,lifetime_consumed'),
-    selectRows('credit_reservations', { status: 'eq.held' }, 'id,credits'),
+    selectRows('credit_reservations', { status: 'eq.reserved' }, 'id,credits'),
     selectRows('generation_requests', { order: 'created_at.desc' }, 'id,status,credits_reserved,created_at'),
     selectRows('credit_packs', { active: 'eq.true', order: 'sort_order.asc' }, 'code,name,credits,price_cents'),
     selectRows(
