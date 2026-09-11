@@ -111,6 +111,16 @@ test('durable reconciliation settles jobs without a browser poll', async () => {
   assert.match(cron, /record_provider_cost_once/);
 });
 
+test('Stripe reconciliation cron is implemented instead of returning a stub', async () => {
+  const cron = await read('app/api/admin/cron/stripe-reconcile/route.js');
+  assert.match(cron, /CRON_SECRET/);
+  assert.match(cron, /stripeEnabled/);
+  assert.match(cron, /getStripe/);
+  assert.match(cron, /payment_fee_records/);
+  assert.match(cron, /balance_transaction/);
+  assert.doesNotMatch(cron, /status: 'unavailable'/);
+});
+
 test('legacy direct provider rewrite is removed', async () => {
   const middleware = await read('middleware.js');
   assert.doesNotMatch(middleware, /NextResponse\.rewrite/);
