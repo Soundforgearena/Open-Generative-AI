@@ -121,6 +121,16 @@ test('Stripe reconciliation cron is implemented instead of returning a stub', as
   assert.doesNotMatch(cron, /status: 'unavailable'/);
 });
 
+test('admin cockpit uses live finance and readiness summaries instead of placeholder unavailable cards', async () => {
+  const cockpit = await read('app/admin/cockpit/page.js');
+  assert.match(cockpit, /buildCockpitMetrics/);
+  assert.match(cockpit, /payoutReadinessStatus/);
+  assert.match(cockpit, /cronSourceStatus/);
+  assert.match(cockpit, /migrationReadinessStatus/);
+  assert.doesNotMatch(cockpit, /contributionMetricUnavailable/);
+  assert.doesNotMatch(cockpit, /operationsHealthUnavailable/);
+});
+
 test('legacy direct provider rewrite is removed', async () => {
   const middleware = await read('middleware.js');
   assert.doesNotMatch(middleware, /NextResponse\.rewrite/);
