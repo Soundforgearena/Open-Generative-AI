@@ -1,4 +1,4 @@
-import { guard, requireSecret, safeError } from '../../../lib/cinexvideo-server';
+import { callRpc, guard, insertRows, requireSecret, safeError } from '../../../lib/cinexvideo-server';
 import {
   DIRECTOR_ACTION_BRIEFS,
   DIRECTOR_FIELD_BRIEFS,
@@ -8,6 +8,8 @@ import {
 } from '../../../lib/director-actions';
 
 const DIRECTOR_MODEL = process.env.OPENAI_DIRECTOR_MODEL || 'gpt-5';
+const DIRECTOR_ASSIST_OPERATION = 'ai-director';
+const DIRECTOR_ASSIST_CREDITS = Math.max(1, Number.parseInt(process.env.DIRECTOR_ASSIST_CREDITS || '1', 10) || 1);
 
 const ASSIST_SCHEMA = {
   type: 'object',
@@ -53,9 +55,24 @@ async function callDirectorModel({ system, user, schemaName, schema }) {
  *
  * The Director panel previously disabled every button outside local demo mode,
  * so signed-in customers had no working assistant at all. This path gives the
- * panel a real server-side Director. It uses no credits: writing help is free.
+ * panel a real server-side Director with authenticated billing.
  */
-async function handleAssist(body) {
+async function logDirectorMetric({ userId, credits, status }) {
+  try {
+    await insertRows('admin_metric_events', {
+      event_type: 'director_assist',
+      operation: DIRECTOR_ASSIST_OPERATION,
+      model: DIRECTOR_MODEL,
+      user_id: userId,
+      credits,
+      status,
+    });
+  } catch (error) {
+    console.error('director metric logging failed', error);
+  }
+}
+
+async function handleAssist(body, user) {
   const { action, field_type: fieldType, value, instruction = '', context = {} } = body;
 
   if (!isDirectorAction(action)) return safeError('That Director action is not available.', 400);
@@ -97,20 +114,67 @@ async function handleAssist(body) {
     .filter(Boolean)
     .join('\n\n');
 
-  const plan = await callDirectorModel({
-    system,
-    user: details,
-    schemaName: 'cinexvideo_director_assist',
-    schema: ASSIST_SCHEMA,
+  const referenceId = crypto.randomUUID();
+  const credits = DIRECTOR_ASSIST_CREDITS;
+  const reserved = await callRpc('reserve_credits', {
+    p_user_id: user.id,
+    p_credits: credits,
+    p_reference_id: referenceId,
   });
-  if (!plan) return safeError('Director service is temporarily unavailable.', 502);
+  if (!reserved.ok || reserved.data !== true) {
+    await logDirectorMetric({ userId: user.id, credits, status: 'insufficient_credits' });
+    return safeError('Insufficient credits for Director assist. Please top up and try again.', 402);
+  }
 
-  return Response.json({
-    suggestion: plan.suggestion,
-    whatChanged: plan.whatChanged,
-    craftNote: plan.craftNote,
-    followUpPrompts: Array.isArray(plan.followUpPrompts) ? plan.followUpPrompts.slice(0, 3) : [],
-  });
+  let consumed = false;
+  try {
+    const plan = await callDirectorModel({
+      system, user: details, schemaName: 'cinexvideo_director_assist', schema: ASSIST_SCHEMA,
+    });
+    if (!plan) {
+      await callRpc('release_credits', {
+        p_user_id: user.id,
+        p_credits: credits,
+        p_reference_id: referenceId,
+      });
+      await logDirectorMetric({ userId: user.id, credits, status: 'failed' });
+      return safeError('Director service is temporarily unavailable.', 502);
+    }
+
+    const consumeResult = await callRpc('consume_credits', {
+      p_user_id: user.id,
+      p_credits: credits,
+      p_reference_id: referenceId,
+    });
+    if (!consumeResult.ok || consumeResult.data !== true) {
+      await callRpc('release_credits', {
+        p_user_id: user.id,
+        p_credits: credits,
+        p_reference_id: referenceId,
+      });
+      await logDirectorMetric({ userId: user.id, credits, status: 'failed' });
+      return safeError('Director billing could not be completed. Your credits were returned.', 502);
+    }
+    consumed = true;
+
+    await logDirectorMetric({ userId: user.id, credits, status: 'completed' });
+    return Response.json({
+      suggestion: plan.suggestion,
+      whatChanged: plan.whatChanged,
+      craftNote: plan.craftNote,
+      followUpPrompts: Array.isArray(plan.followUpPrompts) ? plan.followUpPrompts.slice(0, 3) : [],
+    });
+  } catch (error) {
+    if (!consumed) {
+      await callRpc('release_credits', {
+        p_user_id: user.id,
+        p_credits: credits,
+        p_reference_id: referenceId,
+      });
+    }
+    await logDirectorMetric({ userId: user.id, credits, status: 'failed' });
+    throw error;
+  }
 }
 
 const LANE_BRIEF = {
@@ -121,11 +185,11 @@ const LANE_BRIEF = {
 };
 
 export async function POST(request) {
-  const { error } = await guard(request, { blockOnMaintenance: true });
+  const { user, error } = await guard(request, { blockOnMaintenance: true });
   if (error) return error;
   try {
     const body = await request.json();
-    if (body.action) return await handleAssist(body);
+    if (body.action) return await handleAssist(body, user);
     if (!body.prompt?.trim()) return safeError('Please enter a creative idea.');
     const laneBrief = LANE_BRIEF[body.lane] || LANE_BRIEF.episode;
     const apiKey = requireSecret('OPENAI_API_KEY');
