@@ -1,17 +1,41 @@
 -- Backfill the missing admin audit tables and privileged admin/payout RPCs so
 -- the repository contains the security-critical control-plane logic that the
 -- application already calls in production.
+--
+-- This migration is written to be safe on an existing production database that
+-- already has a `user_admin_actions` table with a simpler legacy schema:
+--   id, admin_user_id, target_user_id, action, credits, note, created_at
+-- It upgrades that table in-place to the richer audit schema.
 
-create table if not exists public.user_admin_actions (
-  id uuid primary key default gen_random_uuid(),
-  admin_user_id uuid references auth.users(id) on delete set null,
-  action_type text not null,
-  target_user_id uuid references auth.users(id) on delete set null,
-  old_value jsonb,
-  new_value jsonb,
-  reason text,
-  created_at timestamptz not null default now()
-);
+-- 1) Ensure the richer user_admin_actions schema exists and migrate legacy rows
+
+alter table public.user_admin_actions
+  add column if not exists action_type text,
+  add column if not exists old_value jsonb,
+  add column if not exists new_value jsonb,
+  add column if not exists reason text;
+
+-- Populate the new columns from the legacy ones where they are still null
+update public.user_admin_actions
+set
+  action_type = action,
+  reason = note,
+  new_value = case
+    when action = 'grant_bonus' and credits is not null
+      then jsonb_build_object('credits', credits)
+    else new_value
+  end
+where action_type is null;
+
+-- Now that we have migrated, enforce not-null on the new schema
+alter table public.user_admin_actions
+  alter column action_type set not null;
+
+-- Drop the legacy columns
+alter table public.user_admin_actions
+  drop column if exists action,
+  drop column if exists credits,
+  drop column if exists note;
 
 create index if not exists user_admin_actions_admin_created_idx
   on public.user_admin_actions(admin_user_id, created_at desc);
@@ -19,6 +43,8 @@ create index if not exists user_admin_actions_admin_created_idx
 alter table public.user_admin_actions enable row level security;
 revoke all on public.user_admin_actions from public, anon, authenticated;
 grant select on public.user_admin_actions to service_role;
+
+-- 2) Revenue split audit table
 
 create table if not exists public.revenue_split_audit (
   id uuid primary key default gen_random_uuid(),
@@ -35,6 +61,8 @@ create index if not exists revenue_split_audit_changed_idx
 alter table public.revenue_split_audit enable row level security;
 revoke all on public.revenue_split_audit from public, anon, authenticated;
 grant select on public.revenue_split_audit to service_role;
+
+-- 3) Admin RPC functions
 
 create or replace function public.admin_grant_bonus(
   p_target_user_id uuid,
