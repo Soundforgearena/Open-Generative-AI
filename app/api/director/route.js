@@ -58,14 +58,18 @@ async function callDirectorModel({ system, user, schemaName, schema }) {
  * panel a real server-side Director with authenticated billing.
  */
 async function logDirectorMetric({ userId, credits, status }) {
-  await insertRows('admin_metric_events', {
-    event_type: 'director_assist',
-    operation: DIRECTOR_ASSIST_OPERATION,
-    model: DIRECTOR_MODEL,
-    user_id: userId,
-    credits,
-    status,
-  });
+  try {
+    await insertRows('admin_metric_events', {
+      event_type: 'director_assist',
+      operation: DIRECTOR_ASSIST_OPERATION,
+      model: DIRECTOR_MODEL,
+      user_id: userId,
+      credits,
+      status,
+    });
+  } catch (error) {
+    console.error('director metric logging failed', error);
+  }
 }
 
 async function handleAssist(body, user) {
@@ -122,6 +126,7 @@ async function handleAssist(body, user) {
     return safeError('Insufficient credits for Director assist. Please top up and try again.', 402);
   }
 
+  let consumed = false;
   try {
     const plan = await callDirectorModel({
       system, user: details, schemaName: 'cinexvideo_director_assist', schema: ASSIST_SCHEMA,
@@ -136,12 +141,12 @@ async function handleAssist(body, user) {
       return safeError('Director service is temporarily unavailable.', 502);
     }
 
-    const consumed = await callRpc('consume_credits', {
+    const consumeResult = await callRpc('consume_credits', {
       p_user_id: user.id,
       p_credits: credits,
       p_reference_id: referenceId,
     });
-    if (!consumed.ok || consumed.data !== true) {
+    if (!consumeResult.ok || consumeResult.data !== true) {
       await callRpc('release_credits', {
         p_user_id: user.id,
         p_credits: credits,
@@ -150,6 +155,7 @@ async function handleAssist(body, user) {
       await logDirectorMetric({ userId: user.id, credits, status: 'failed' });
       return safeError('Director billing could not be completed. Your credits were returned.', 502);
     }
+    consumed = true;
 
     await logDirectorMetric({ userId: user.id, credits, status: 'completed' });
     return Response.json({
@@ -159,11 +165,13 @@ async function handleAssist(body, user) {
       followUpPrompts: Array.isArray(plan.followUpPrompts) ? plan.followUpPrompts.slice(0, 3) : [],
     });
   } catch (error) {
-    await callRpc('release_credits', {
-      p_user_id: user.id,
-      p_credits: credits,
-      p_reference_id: referenceId,
-    });
+    if (!consumed) {
+      await callRpc('release_credits', {
+        p_user_id: user.id,
+        p_credits: credits,
+        p_reference_id: referenceId,
+      });
+    }
     await logDirectorMetric({ userId: user.id, credits, status: 'failed' });
     throw error;
   }
