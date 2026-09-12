@@ -42,7 +42,7 @@ test('generation uses one v2 reservation and checks ownership', async () => {
   assert.match(route, /if \(providerRequestId\)/);
   assert.match(route, /'pixverse-v6': 'pixverse-v6-t2v'/);
   assert.match(route, /'x-api-key': apiKey/);
-  assert.doesNotMatch(route, /Authorization: `Bearer \$\{apiKey\}`/);
+  assert.equal(route.includes('Authorization:'), false);
   assert.match(route, /quote_only: quoteOnly/);
   assert.match(route, /confirmed_max_credits: confirmedMaxCredits/);
   assert.match(route, /The generation price changed/);
@@ -75,7 +75,7 @@ test('all MUAPI provider calls use the provider API key header', async () => {
   const reconcile = await read('app/api/admin/cron/reconcile/route.js');
   for (const route of [generate, jobs, reconcile]) {
     assert.match(route, /'x-api-key': apiKey/);
-    assert.doesNotMatch(route, /Authorization: `Bearer \$\{apiKey\}`/);
+    assert.equal(route.includes('Authorization:'), false);
   }
 });
 
@@ -109,6 +109,26 @@ test('durable reconciliation settles jobs without a browser poll', async () => {
   assert.match(cron, /release_reservation_v2/);
   assert.match(cron, /provider_request_id: 'not\.is\.null'/);
   assert.match(cron, /record_provider_cost_once/);
+});
+
+test('Stripe reconciliation cron is implemented instead of returning a stub', async () => {
+  const cron = await read('app/api/admin/cron/stripe-reconcile/route.js');
+  assert.match(cron, /CRON_SECRET/);
+  assert.match(cron, /stripeEnabled/);
+  assert.match(cron, /getStripe/);
+  assert.match(cron, /payment_fee_records/);
+  assert.match(cron, /balance_transaction/);
+  assert.doesNotMatch(cron, /status: 'unavailable'/);
+});
+
+test('admin cockpit uses live finance and readiness summaries instead of placeholder unavailable cards', async () => {
+  const cockpit = await read('app/admin/cockpit/page.js');
+  assert.match(cockpit, /buildCockpitMetrics/);
+  assert.match(cockpit, /payoutReadinessStatus/);
+  assert.match(cockpit, /cronSourceStatus/);
+  assert.match(cockpit, /migrationReadinessStatus/);
+  assert.doesNotMatch(cockpit, /contributionMetricUnavailable/);
+  assert.doesNotMatch(cockpit, /operationsHealthUnavailable/);
 });
 
 test('legacy direct provider rewrite is removed', async () => {
@@ -150,4 +170,43 @@ test('Stripe reversals are payment-aware and atomic', async () => {
   assert.match(migration, /grant execute on function public\.process_stripe_credit_reversal[\s\S]*to service_role/);
   assert.match(migration, /create or replace function public\.record_provider_cost_once/);
   assert.match(migration, /provider_cost_records_generation_job_idx/);
+});
+
+test('production hardening migration binds admin helper lookups and locks internal tables', async () => {
+  const migration = await read('supabase/migrations/20260911180500_supabase_production_security_hardening.sql');
+  assert.match(migration, /create or replace function public\.is_cinex_admin\(p_user_id uuid\)/);
+  assert.match(migration, /auth\.role\(\) = 'service_role'/);
+  assert.match(migration, /auth\.uid\(\) is not null and p_user_id = auth\.uid\(\)/);
+  assert.match(migration, /create or replace function public\.is_cinex_super_admin\(p_user_id uuid\)/);
+  for (const tableName of [
+    'admin_members',
+    'app_settings',
+    'user_account_status',
+    'credit_wallets',
+    'credit_ledger',
+    'payment_records',
+    'credit_packs',
+    'model_cost_rules',
+  ]) {
+    assert.match(migration, new RegExp(`'${tableName}'`));
+  }
+  assert.match(migration, /revoke all on table public\.\%I from public, anon, authenticated/);
+});
+
+test('admin RPC backfill migration restores audited admin and payout functions', async () => {
+  const migration = await read('supabase/migrations/20260911184500_admin_rpc_audit_backfill.sql');
+  assert.match(migration, /create table if not exists public\.user_admin_actions/);
+  assert.match(migration, /create table if not exists public\.revenue_split_audit/);
+  assert.match(migration, /create or replace function public\.admin_grant_bonus\(/);
+  assert.match(migration, /create or replace function public\.admin_set_user_active\(/);
+  assert.match(migration, /create or replace function public\.admin_set_discount\(/);
+  assert.match(migration, /create or replace function public\.admin_set_maintenance\(/);
+  assert.match(migration, /create or replace function public\.admin_set_revenue_split\(\s*p_platform_percent numeric,\s*p_basis text,/);
+  assert.match(migration, /p_basis not in \('net', 'gross'\)/);
+  assert.match(migration, /create or replace function public\.open_partner_payout\(/);
+  assert.match(migration, /returns uuid/);
+  assert.match(migration, /create or replace function public\.settle_partner_payout\(/);
+  assert.match(migration, /auth\.role\(\) <> 'service_role'/);
+  assert.match(migration, /grant execute on function public\.admin_set_revenue_split\(numeric, text, text\) to authenticated/);
+  assert.match(migration, /grant execute on function public\.settle_partner_payout\(uuid, text, text\) to service_role/);
 });

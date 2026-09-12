@@ -2,19 +2,30 @@ import {
   guard,
   callRpc,
   selectOne,
-  insertRows,
+  selectRows,
+  createSignedUploadUrl,
+  createSignedDownloadUrl,
   updateRows,
   safeError,
 } from '../../../lib/cinexvideo-server';
+import { buildExportArtifact } from '../../../lib/exports/export-artifacts.js';
 
 const EXPORT_TYPES = ['watermarked', 'clean', 'storyboard'];
 
-// Paid exports are switched off until the render worker exists. Nothing
-// currently writes export_jobs.output_path, so charging credits for a clean
-// export or a storyboard pack would take payment for a file we cannot deliver.
-// Flip this to false once the worker ships.
-const PAID_EXPORTS_DISABLED = process.env.ENABLE_PAID_EXPORTS !== 'true';
-const PAID_EXPORT_TYPES = ['clean', 'storyboard'];
+async function uploadArtifact({ userId, exportType, extension, contentType, content }) {
+  const path = `exports/${userId}/${Date.now()}-${crypto.randomUUID()}-${exportType}.${extension}`;
+  const uploadUrl = await createSignedUploadUrl('cinexvideo-references', path);
+  if (!uploadUrl) throw new Error('signed upload failed');
+  const upload = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': contentType },
+    body: content,
+  });
+  if (!upload.ok) throw new Error('artifact upload failed');
+  const downloadUrl = await createSignedDownloadUrl('cinexvideo-references', path, 24 * 60 * 60);
+  if (!downloadUrl) throw new Error('signed download failed');
+  return { path, downloadUrl };
+}
 
 /**
  * Quote an export. Watermarked delivery is included with a paid generation;
@@ -35,15 +46,9 @@ export async function POST(request) {
     } = body;
 
     if (!EXPORT_TYPES.includes(exportType)) return safeError('That export option is not available.');
-    if (PAID_EXPORTS_DISABLED && PAID_EXPORT_TYPES.includes(exportType)) {
-      return safeError(
-        'Final delivery is coming soon. Watermarked exports are available now and your credits stay untouched.',
-        503
-      );
-    }
     if (!projectId) return safeError('Export details are incomplete.');
 
-    const project = await selectOne('projects', { id: `eq.${projectId}` }, 'id,owner_id,title');
+    const project = await selectOne('projects', { id: `eq.${projectId}` }, 'id,owner_id,title,logline');
     if (!project || (project.owner_id !== user.id && !admin)) return safeError('Project not found.', 404);
 
     const quote = await callRpc('customer_export_quote', {
@@ -66,6 +71,32 @@ export async function POST(request) {
     }
 
     const reference = crypto.randomUUID();
+    const scenes = await selectRows(
+      'scenes',
+      { project_id: `eq.${projectId}`, order: 'position.asc' },
+      'id,position,title,purpose,prompt,duration_seconds,status,active_version'
+    );
+    const sceneIds = scenes.map((scene) => scene.id).filter(Boolean);
+    const sceneVersions = sceneIds.length
+      ? await selectRows(
+        'scene_versions',
+        {
+          scene_id: `in.(${sceneIds.join(',')})`,
+          status: 'eq.completed',
+          order: 'scene_id.asc,version.desc',
+        },
+        'scene_id,version,output_url,approved'
+      )
+      : [];
+    const artifact = buildExportArtifact({
+      exportType,
+      project,
+      scenes,
+      sceneVersions: exportType === 'storyboard'
+        ? sceneVersions
+        : sceneVersions.filter((version) => version.approved || exportType === 'watermarked'),
+    });
+    if (!artifact) return safeError('This project has no completed scenes ready for export yet.', 409);
 
     if (credits > 0) {
       const reserved = await callRpc('reserve_credits', {
@@ -78,17 +109,16 @@ export async function POST(request) {
       }
     }
 
-    const job = await insertRows('export_jobs', {
-      user_id: user.id,
-      project_id: projectId,
-      export_type: exportType,
-      resolution,
-      format,
-      status: 'queued',
-      credits_reserved: credits,
-    });
-
-    if (!job.ok) {
+    let uploaded;
+    try {
+      uploaded = await uploadArtifact({
+        userId: user.id,
+        exportType,
+        extension: artifact.extension,
+        contentType: artifact.contentType,
+        content: artifact.content,
+      });
+    } catch (uploadError) {
       if (credits > 0) {
         await callRpc('release_credits', {
           p_user_id: user.id,
@@ -96,6 +126,7 @@ export async function POST(request) {
           p_reference_id: reference,
         });
       }
+      console.error('exports upload', uploadError);
       return safeError('Export could not be queued.', 500);
     }
 
@@ -111,10 +142,14 @@ export async function POST(request) {
 
     return Response.json(
       {
-        export_job_id: job.data?.[0]?.id || null,
+        export_job_id: reference,
         credits_charged: credits,
         watermarked: exportType !== 'clean',
-        status: 'queued',
+        status: 'completed',
+        output_path: uploaded.path,
+        download_url: uploaded.downloadUrl,
+        artifact_format: artifact.extension,
+        ...artifact.summary,
       },
       { status: 202 }
     );

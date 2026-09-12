@@ -1,18 +1,18 @@
-import {
-  guard,
-  safeError,
-} from '../../../../lib/cinexvideo-server';
+import { guard, safeError, selectRows, selectOne } from '../../../../lib/cinexvideo-server';
 import { estimateOperation } from '../../../../lib/billing/estimate-engine.js';
-import { requireFreshMuapiCatalog } from '../../../../lib/providers/muapi-price-catalog.js';
-import { selectOne } from '../../../../lib/cinexvideo-server';
+import {
+  requireFreshMuapiCatalog,
+  setMuapiCatalogSnapshot,
+  snapshotFromModelCostRules,
+} from '../../../../lib/providers/muapi-price-catalog.js';
 
 /**
  * Produces a customer-facing credit estimate for an operation.
  *
  * The provider cost never comes from the request body: it is read from the
- * most recently verified MuAPI price catalog snapshot. If no fresh snapshot
- * exists, the estimate is refused rather than guessed, so a stale or
- * fabricated cost can never under-price a generation.
+ * most recently cached MuAPI price snapshot and falls back to the active
+ * server-side model_cost_rules when the process cache is cold, so a fresh
+ * deploy does not 503 until the cron has warmed the catalog.
  */
 export async function POST(request) {
   const { user, error } = await guard(request, { blockOnMaintenance: true });
@@ -23,14 +23,28 @@ export async function POST(request) {
     const { operation, model, units = 1 } = body;
     if (!operation || !model) return safeError('Estimate request is incomplete.');
 
-    let catalog;
+    let modelPrice;
     try {
-      catalog = requireFreshMuapiCatalog();
+      modelPrice = requireFreshMuapiCatalog().models?.[model];
     } catch {
-      return safeError('Pricing is temporarily unavailable. Please try again shortly.', 503);
+      modelPrice = null;
     }
 
-    const modelPrice = catalog.models?.[model];
+    if (!modelPrice) {
+      const rules = await selectRows(
+        'model_cost_rules',
+        {
+          model: `eq.${model}`,
+          operation: `eq.${operation}`,
+          active: 'eq.true',
+          customer_visible: 'eq.true',
+        },
+        'model,operation,provider_cost_cents,max_duration_seconds,max_resolution,max_references'
+      );
+      const snapshot = setMuapiCatalogSnapshot(snapshotFromModelCostRules(rules));
+      modelPrice = snapshot.models?.[model];
+    }
+
     if (!modelPrice || !Number.isFinite(modelPrice.costCentsPerUnit)) {
       return safeError('That creative option is not available.', 409);
     }

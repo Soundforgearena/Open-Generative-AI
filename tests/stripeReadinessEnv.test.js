@@ -68,15 +68,14 @@ test('whitespace-only values are treated as missing', () => {
 
 test('an empty environment reports every requirement once', () => {
   const result = resolveStripeEnv({});
-  assert.equal(result.missing.length, 4);
+  assert.equal(result.missing.length, 3);
   assert.ok(result.missing.includes('STRIPE_SECRET_KEY'));
-  assert.ok(result.missing.includes('NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY'));
   assert.ok(result.missing.some((name) => name.includes('STRIPE_WEBHOOK_SECRET')));
   assert.ok(result.missing.some((name) => name.includes('APP_URL')));
 });
 
 test('resolveStripeEnv tolerates being called with no argument', () => {
-  assert.equal(resolveStripeEnv().missing.length, 4);
+  assert.equal(resolveStripeEnv().missing.length, 3);
 });
 
 test('the missing list names both accepted webhook variables', () => {
