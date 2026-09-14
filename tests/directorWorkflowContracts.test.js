@@ -77,3 +77,44 @@ test('editor and lane-specific directors share the production workspace', () => 
   assert.match(music, /DirectorWorkspace/);
   assert.match(episode, /initialLane="episode"/);
 });
+
+test('workspace generation controls are guarded against duplicate submissions', () => {
+  const workspace = fs.readFileSync(path.join(process.cwd(), 'components/director/DirectorWorkspace.js'), 'utf8');
+  assert.match(workspace, /const generationInFlight = useRef\(false\)/);
+  assert.match(workspace, /if \(generationInFlight\.current \|\| generationBusy\) return/);
+  assert.match(workspace, /disabled=\{busy \|\| generationBusy \|\| !gate\.allowed\}/);
+  assert.match(workspace, /disabled=\{busy \|\| generationBusy \|\| !quote\}/);
+});
+
+test('scene saves persist director-plan invalidation with scene updates', () => {
+  const workspace = fs.readFileSync(path.join(process.cwd(), 'components/director/DirectorWorkspace.js'), 'utf8');
+  const sceneRoute = fs.readFileSync(path.join(process.cwd(), 'app/api/scenes/[id]/route.js'), 'utf8');
+  assert.match(workspace, /director_plan: directorPlan/);
+  assert.match(sceneRoute, /Director plan could not be updated/);
+  assert.ok(sceneRoute.indexOf("updateRows(\n      'projects'") < sceneRoute.indexOf("updateRows('scenes'"));
+});
+
+test('audio sync is stored as its own scene field', () => {
+  const workspace = fs.readFileSync(path.join(process.cwd(), 'components/director/DirectorWorkspace.js'), 'utf8');
+  const sceneRoute = fs.readFileSync(path.join(process.cwd(), 'app/api/scenes/[id]/route.js'), 'utf8');
+  const migration = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/20260914183000_scene_audio_sync_field.sql'), 'utf8');
+  assert.match(workspace, /selectedScene\?\.audio_sync/);
+  assert.doesNotMatch(workspace, /Audio Sync<textarea rows=\{2\} value=\{selectedScene\?\.purpose/);
+  assert.match(sceneRoute, /if \(typeof body\.audio_sync === 'string'\) patch\.audio_sync/);
+  assert.match(migration, /add column if not exists audio_sync text/);
+});
+
+test('completed generation reloads authoritative project state', () => {
+  const workspace = fs.readFileSync(path.join(process.cwd(), 'components/director/DirectorWorkspace.js'), 'utf8');
+  assert.match(workspace, /async function refreshProjectState/);
+  assert.match(workspace, /setGenerationState\('polling'\)/);
+  assert.match(workspace, /await refreshProjectState\(activeSceneId\)/);
+});
+
+test('scene previews use media elements instead of CSS background URL injection', () => {
+  const workspace = fs.readFileSync(path.join(process.cwd(), 'components/director/DirectorWorkspace.js'), 'utf8');
+  assert.match(workspace, /preview_thumbnail_url/);
+  assert.match(workspace, /function safePreviewUrl/);
+  assert.match(workspace, /<ScenePreview scene=\{scene\}/);
+  assert.doesNotMatch(workspace, /backgroundImage:\s*`linear-gradient/);
+});

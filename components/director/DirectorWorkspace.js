@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -29,15 +29,51 @@ const LANE_LABELS = {
   episode: 'Episode',
 };
 
+const IMAGE_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(\?.*)?$/i;
+const VIDEO_EXT_RE = /\.(m3u8|m4v|mov|mp4|ogv|webm)(\?.*)?$/i;
+
+function safePreviewUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  try {
+    const url = new URL(value.trim());
+    if (!['http:', 'https:'].includes(url.protocol)) return '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+function mediaTypeFor(url) {
+  if (!url) return '';
+  if (IMAGE_EXT_RE.test(url)) return 'image';
+  if (VIDEO_EXT_RE.test(url)) return 'video';
+  return '';
+}
+
+function ScenePreview({ scene, className, alt }) {
+  const thumbnailUrl = scene?.preview_thumbnail_url || '';
+  const outputUrl = scene?.preview_output_url || '';
+  const mediaType = scene?.preview_media_type || '';
+  const src = thumbnailUrl || outputUrl;
+  if (!src) return <span className={className} aria-hidden="true" />;
+  if (thumbnailUrl || mediaType === 'image') {
+    return <img className={className} src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" />;
+  }
+  return <video className={className} src={src} muted playsInline preload="metadata" aria-label={alt} />;
+}
+
 function mapProject(result) {
   const scenes = (result.scenes || []).map((scene) => {
     const versions = scene.versions || [];
     const approved = versions.find((version) => version.approved);
     const latest = versions[0] || null;
+    const previewOutput = safePreviewUrl(approved?.output_url || latest?.output_url || '');
+    const previewThumbnail = safePreviewUrl(approved?.thumbnail_url || latest?.thumbnail_url || '');
     return {
       id: scene.id,
       title: scene.title || '',
       purpose: scene.purpose || '',
+      audio_sync: scene.audio_sync || '',
       prompt: scene.prompt || '',
       shot_direction: scene.shot_direction || '',
       duration_seconds: Number(scene.duration_seconds || 8),
@@ -45,7 +81,10 @@ function mapProject(result) {
       status: scene.status || 'draft',
       position: scene.position || 1,
       active_version: scene.active_version,
-      preview_url: approved?.output_url || latest?.output_url || '',
+      preview_url: previewThumbnail || previewOutput,
+      preview_thumbnail_url: previewThumbnail,
+      preview_output_url: previewOutput,
+      preview_media_type: mediaTypeFor(previewOutput),
       quality: approved ? 'approved' : latest?.status === 'completed' ? 'review' : 'draft',
       warning: scene.continuity_locked ? '' : 'Continuity not locked',
     };
@@ -72,6 +111,8 @@ export default function DirectorWorkspace({ initialLane = 'music_video', allowLa
   const [flightPathTab, setFlightPathTab] = useState('visual');
   const [quote, setQuote] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [generationState, setGenerationState] = useState('idle');
+  const generationInFlight = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,6 +171,7 @@ export default function DirectorWorkspace({ initialLane = 'music_video', allowLa
     [scenes, sceneId]
   );
   const totalSeconds = scenes.reduce((sum, scene) => sum + Number(scene.duration_seconds || 0), 0);
+  const generationBusy = generationState === 'estimating' || generationState === 'submitting' || generationState === 'polling';
 
   const gate = generationGate({
     lane,
@@ -197,14 +239,22 @@ export default function DirectorWorkspace({ initialLane = 'music_video', allowLa
     setBusy(true);
     setStatus(`Saving Scene ${selectedScene.position}...`);
     try {
+      const directorPlan = buildDirectorPlanPatch({
+        lane,
+        workflow,
+        existingPlan: project?.director_plan,
+      });
       await updateScene(selectedScene.id, {
         title: selectedScene.title,
         purpose: selectedScene.purpose,
+        audio_sync: selectedScene.audio_sync,
         prompt: selectedScene.prompt,
         shot_direction: selectedScene.shot_direction,
         duration_seconds: Number(selectedScene.duration_seconds),
         continuity_locked: Boolean(selectedScene.continuity_locked),
+        director_plan: directorPlan,
       });
+      setProject((current) => ({ ...current, director_plan: directorPlan }));
       setStatus(`Scene ${selectedScene.position} saved.`);
     } catch (error) {
       setStatus(error.message || 'Could not save this scene.');
@@ -269,11 +319,13 @@ export default function DirectorWorkspace({ initialLane = 'music_video', allowLa
   }
 
   async function estimateGeneration() {
+    if (generationBusy) return;
     const payload = generationPayload();
     if (!payload || !gate.allowed) {
       setStatus(gate.reason);
       return;
     }
+    setGenerationState('estimating');
     setBusy(true);
     setStatus('Calculating generation estimate...');
     try {
@@ -284,40 +336,60 @@ export default function DirectorWorkspace({ initialLane = 'music_video', allowLa
     } catch (error) {
       setStatus(error.message || 'Estimate unavailable.');
     } finally {
+      setGenerationState('idle');
       setBusy(false);
     }
   }
 
+  async function refreshProjectState(activeSceneId = '') {
+    if (!project?.id) return;
+    const result = await getProject(project.id);
+    const mapped = mapProject(result);
+    setProject(mapped);
+    setWorkflow(normalizeDirectorWorkflow(mapped.lane || lane, mapped.director_plan));
+    setSceneId(activeSceneId || mapped.scenes.find((scene) => scene.id === sceneId)?.id || mapped.scenes[0]?.id || '');
+  }
+
   async function runGeneration() {
+    if (generationInFlight.current || generationBusy) return;
     const payload = generationPayload();
     if (!payload || !quote) return;
+    generationInFlight.current = true;
     setShowConfirm(false);
+    setGenerationState('submitting');
     setBusy(true);
     setStatus('Submitting generation with reserved credits...');
     try {
+      const activeSceneId = selectedScene?.id;
       const started = await startGeneration({ ...payload, confirmed_max_credits: Number(quote.credits_required || 0) });
       setProject((current) => ({
         ...current,
         scenes: current.scenes.map((scene) =>
-          scene.id === selectedScene.id ? { ...scene, status: 'running' } : scene
+          scene.id === activeSceneId ? { ...scene, status: 'running' } : scene
         ),
       }));
+      setGenerationState('polling');
       const result = await waitForJob(started.request_id, {
         onTick: (tick) => {
           setProject((current) => ({
             ...current,
             scenes: current.scenes.map((scene) =>
-              scene.id === selectedScene.id ? { ...scene, status: tick.status } : scene
+              scene.id === activeSceneId ? { ...scene, status: tick.status } : scene
             ),
           }));
         },
       });
-      setStatus(result.status === 'completed'
-        ? 'Generation completed. Review and approve the new take in scene versions.'
-        : 'Generation failed. Reservation was released by the server.');
+      await refreshProjectState(activeSceneId);
+      setStatus(
+        result.status === 'completed'
+          ? 'Generation completed. Review and approve the new take in scene versions.'
+          : 'Generation failed or was cancelled. Check the latest scene status before retrying.'
+      );
     } catch (error) {
       setStatus(error.message || 'Generation could not be started.');
     } finally {
+      generationInFlight.current = false;
+      setGenerationState('idle');
       setBusy(false);
     }
   }
@@ -386,7 +458,9 @@ export default function DirectorWorkspace({ initialLane = 'music_video', allowLa
             <h2>Scene Rail</h2>
             {scenes.map((scene) => (
               <button key={scene.id} type="button" className={scene.id === selectedScene?.id ? styles.sceneActive : styles.sceneCard} onClick={() => setSceneId(scene.id)}>
-                <span className={styles.thumb} style={scene.preview_url ? { backgroundImage: `linear-gradient(rgba(14,14,14,.45),rgba(14,14,14,.7)),url(${scene.preview_url})` } : undefined} />
+                <span className={styles.thumb}>
+                  <ScenePreview scene={scene} className={styles.thumbMedia} alt={`${scene.title || `Scene ${scene.position}`} preview`} />
+                </span>
                 <strong>{scene.position}. {scene.title || `Scene ${scene.position}`}</strong>
                 <small>{scene.duration_seconds}s · {scene.status}</small>
                 {scene.warning && <em>{scene.warning}</em>}
@@ -396,6 +470,7 @@ export default function DirectorWorkspace({ initialLane = 'music_video', allowLa
 
           <section className={styles.monitor}>
             <div className={styles.monitorFrame}>
+              <ScenePreview scene={selectedScene} className={styles.monitorMedia} alt={`${selectedScene?.title || 'Selected scene'} preview`} />
               <div className={styles.overlayText}>
                 <p>{selectedScene?.title || 'Select a scene'}</p>
                 <span>{selectedScene?.purpose || 'No scene purpose yet.'}</span>
@@ -452,7 +527,7 @@ export default function DirectorWorkspace({ initialLane = 'music_video', allowLa
                   </>
                 )}
                 <label>Camera<textarea rows={2} value={selectedScene?.shot_direction || ''} onChange={(event) => updateSceneLocal({ shot_direction: event.target.value })} /></label>
-                <label>Audio Sync<textarea rows={2} value={selectedScene?.purpose || ''} onChange={(event) => updateSceneLocal({ purpose: event.target.value })} /></label>
+                <label>Audio Sync<textarea rows={2} value={selectedScene?.audio_sync || ''} onChange={(event) => updateSceneLocal({ audio_sync: event.target.value })} /></label>
                 <div className={styles.rowActions}>
                   <button type="button" onClick={savePlan} disabled={busy}>Save {lane === 'music_video' ? 'music plan' : 'episode plan'}</button>
                   <button type="button" onClick={approvePlan} disabled={busy}>{lane === 'music_video' ? 'Approve & lock' : 'Greenlight episode'}</button>
@@ -460,7 +535,7 @@ export default function DirectorWorkspace({ initialLane = 'music_video', allowLa
                 <div className={styles.generationBox}>
                   <h3>Generation</h3>
                   <p>{gate.allowed ? 'Ready after estimate confirmation.' : gate.reason}</p>
-                  <button type="button" onClick={estimateGeneration} disabled={busy || !gate.allowed}>Estimate & confirm generate</button>
+                  <button type="button" onClick={estimateGeneration} disabled={busy || generationBusy || !gate.allowed}>Estimate & confirm generate</button>
                   <button type="button" onClick={runStoryboardExport} disabled={busy}>Export storyboard</button>
                 </div>
               </div>
@@ -500,7 +575,7 @@ export default function DirectorWorkspace({ initialLane = 'music_video', allowLa
             <p>Estimated maximum debit: {Number(quote.credits_required || 0)} credits.</p>
             <p>The server reserves credits atomically and settles actual cost on completion.</p>
             <div className={styles.rowActions}>
-              <button type="button" onClick={runGeneration}>Start generation</button>
+              <button type="button" onClick={runGeneration} disabled={busy || generationBusy || !quote}>Start generation</button>
               <button type="button" onClick={() => setShowConfirm(false)}>Cancel</button>
             </div>
           </section>
