@@ -168,7 +168,7 @@ export default function AiDirectorAssistant({ fieldType, fieldLabel, value, cont
           <button ref={closeRef} type="button" className="cinex-director-close" onClick={onClose} aria-label="Close AI Director">×</button>
         </div>
         {demoModeEnabled && <p className="cinex-demo-indicator">Demo Director preview — suggestions are generated locally. No model call, video generation, or credits are used.</p>}
-        {!demoModeEnabled && <p className="cinex-form-optional">Writing help is free — it never uses credits. Only video and image generation are charged.</p>}
+        {!demoModeEnabled && <p className="cinex-form-optional">Director assist uses credits per request.</p>}
         <div className="cinex-director-actions">
           {actions.map(([action, label]) => <button type="button" key={`${action}-${label}`} onClick={() => runAction(action)} disabled={busy}>{label}</button>)}
         </div>
