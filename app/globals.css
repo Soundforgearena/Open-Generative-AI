@@ -1314,6 +1314,26 @@ button {
   margin: 8px 0 14px;
 }
 
+.cinex-generation-progress { display: grid; gap: 12px; margin: 12px 0 22px; }
+.cinex-generation-progress-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.cinex-generation-progress-head strong { color: var(--cinex-gold-light); font-size: clamp(1.2rem, 2vw, 1.5rem); }
+.cinex-generation-progress-head span { color: var(--cinex-muted); font-size: 0.9rem; }
+.cinex-generation-progress-track { width: 100%; height: 10px; border-radius: 999px; overflow: hidden; border: 1px solid rgba(255, 218, 149, 0.24); background: rgba(0, 0, 0, 0.28); }
+.cinex-generation-progress-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, rgba(226, 175, 79, 0.85), rgba(255, 223, 160, 0.95)); transition: width 360ms ease; }
+.cinex-generation-progress-totals { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.cinex-generation-progress-totals div { display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid rgba(255, 218, 149, 0.18); border-radius: 6px; background: rgba(7, 10, 16, 0.65); }
+.cinex-generation-progress-totals dt { color: var(--cinex-gold-light); font-size: 0.8rem; }
+.cinex-generation-progress-totals dd { margin: 0; color: var(--cinex-muted); }
+.cinex-generation-scene-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; max-height: min(40vh, 280px); overflow-y: auto; }
+.cinex-generation-scene-list li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid rgba(255, 218, 149, 0.14); border-radius: 6px; }
+.cinex-generation-scene-list strong { color: var(--cinex-gold-light); font-size: 0.85rem; }
+.cinex-generation-scene-list span { color: var(--cinex-muted); text-transform: capitalize; font-size: 0.85rem; text-align: right; }
+
+@media (max-width: 640px) {
+  .cinex-generation-progress-head strong { width: 100%; }
+  .cinex-generation-progress-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 .cinex-admin-economics { min-height: 100svh; padding: clamp(24px, 5vw, 72px) clamp(16px, 4vw, 48px); color: var(--cinex-text); background: var(--cinex-ink); }
 .cinex-admin-economics > h1, .cinex-admin-economics > p, .cinex-economics-dashboard { width: min(1180px, 100%); margin-inline: auto; }
 .cinex-admin-economics > h1 { font-family: 'Barlow Condensed', sans-serif; font-size: clamp(2.4rem, 5vw, 4.8rem); text-transform: uppercase; }
