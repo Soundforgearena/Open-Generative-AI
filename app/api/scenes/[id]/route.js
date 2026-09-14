@@ -27,6 +27,7 @@ export async function PATCH(request, { params }) {
 
   if (typeof body.title === 'string' && body.title.trim()) patch.title = body.title.trim().slice(0, 200);
   if (typeof body.purpose === 'string') patch.purpose = body.purpose.slice(0, 5000);
+  if (typeof body.audio_sync === 'string') patch.audio_sync = body.audio_sync.slice(0, 5000);
   if (typeof body.prompt === 'string') patch.prompt = body.prompt.slice(0, 5000);
   if (typeof body.shot_direction === 'string') patch.shot_direction = body.shot_direction.slice(0, 5000);
   if (Number.isFinite(Number(body.duration_seconds))) {
@@ -51,7 +52,22 @@ export async function PATCH(request, { params }) {
     patch.status = 'approved';
   }
 
-  if (!Object.keys(patch).length) return safeError('Nothing to update.');
+  if (body.director_plan && (typeof body.director_plan !== 'object' || Array.isArray(body.director_plan))) {
+    return safeError('Director plan is invalid.', 400);
+  }
+
+  if (body.director_plan) {
+    const projectUpdate = await updateRows(
+      'projects',
+      { id: `eq.${scene.project_id}` },
+      { director_plan: body.director_plan }
+    );
+    if (!projectUpdate.ok) return safeError('Director plan could not be updated.', 500);
+  }
+
+  if (!Object.keys(patch).length) {
+    return Response.json({ scene });
+  }
 
   const updated = await updateRows('scenes', { id: `eq.${id}` }, patch);
   if (!updated.ok) return safeError('Scene could not be updated.', 500);
