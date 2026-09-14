@@ -1,0 +1,300 @@
+.shell {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #111110, #060606);
+  color: #f5f2ea;
+  padding: 1rem;
+}
+
+.topBar {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid #2d2921;
+  border-radius: 14px;
+  padding: 0.8rem 1rem;
+  background: #131313;
+}
+
+.brand {
+  margin: 0;
+  color: #dfb869;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.subtle {
+  margin: 0.2rem 0 0;
+  color: #9f9b90;
+  font-size: 0.82rem;
+}
+
+.laneSwitch, .tabRow {
+  display: inline-flex;
+  gap: 0.35rem;
+  background: #0c0c0c;
+  padding: 0.3rem;
+  border-radius: 999px;
+  border: 1px solid #2c2c2c;
+}
+
+.laneSwitch button, .tabRow button, .rowActions button, .rowActions a, .generationBox button {
+  border: 1px solid #3a3428;
+  background: #1a1a19;
+  color: #ece7de;
+  border-radius: 10px;
+  padding: 0.45rem 0.65rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.activeLane {
+  background: #9e7532 !important;
+  color: #111 !important;
+}
+
+.creditsBox {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  color: #d3c6ad;
+  text-align: right;
+}
+
+.layout {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: 260px 1fr 350px;
+  grid-template-rows: minmax(340px, 1fr) auto;
+}
+
+.sceneRail, .monitor, .inspector, .flightPath, .newProject {
+  border: 1px solid #292929;
+  border-radius: 14px;
+  background: #0f0f0f;
+  padding: 0.8rem;
+}
+
+.sceneRail {
+  overflow: auto;
+  max-height: 76vh;
+}
+
+.sceneCard, .sceneActive {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.25rem;
+  margin-bottom: 0.6rem;
+  border-radius: 12px;
+  border: 1px solid #302f2d;
+  background: #171716;
+  color: #f3ede2;
+  padding: 0.45rem;
+  cursor: pointer;
+}
+
+.sceneActive {
+  border-color: #cd9f4a;
+  box-shadow: 0 0 0 1px #cd9f4a55;
+}
+
+.thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  background: linear-gradient(120deg, #2d2d2d, #181818);
+  background-size: cover;
+  background-position: center;
+}
+
+.sceneCard em, .sceneActive em {
+  color: #d59278;
+  font-size: 0.74rem;
+  font-style: normal;
+}
+
+.monitorFrame {
+  position: relative;
+  border: 1px solid #363228;
+  border-radius: 12px;
+  aspect-ratio: 16 / 9;
+  background: radial-gradient(circle at 50% 0%, #5e4822, #0a0a0a 56%);
+}
+
+.overlayText {
+  position: absolute;
+  inset: auto 1rem 1rem;
+}
+
+.overlayText p {
+  margin: 0;
+  font-weight: 700;
+}
+
+.overlayText span {
+  color: #d2c5ac;
+  font-size: 0.9rem;
+}
+
+.transport {
+  margin-top: 0.6rem;
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.transport button {
+  border: 1px solid #413c30;
+  background: #1a1a19;
+  color: #f5ede0;
+  border-radius: 8px;
+  padding: 0.35rem 0.6rem;
+}
+
+.transport span {
+  margin-left: auto;
+  color: #c6baa1;
+  font-size: 0.82rem;
+}
+
+.promptCard textarea,
+.newProject textarea,
+.panelStack textarea,
+.panelStack input {
+  width: 100%;
+  margin-top: 0.35rem;
+  background: #151514;
+  color: #f7f0e4;
+  border: 1px solid #393833;
+  border-radius: 9px;
+  padding: 0.5rem;
+}
+
+.promptCard h3, .panelStack h3, .flightPath h2, .sceneRail h2 {
+  margin: 0 0 0.45rem;
+}
+
+.panelStack {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.panelStack label {
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.82rem;
+}
+
+.assetList {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.assetList li {
+  display: grid;
+  gap: 0.15rem;
+  color: #d7c8ad;
+}
+
+.rowActions {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.generationBox {
+  margin-top: 0.4rem;
+  border-top: 1px solid #2e2d29;
+  padding-top: 0.55rem;
+}
+
+.generationBox p {
+  margin: 0.25rem 0 0.5rem;
+  color: #d6c7ae;
+  font-size: 0.82rem;
+}
+
+.flightPath {
+  grid-column: 2 / 4;
+}
+
+.timeline {
+  margin-top: 0.6rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.5rem;
+}
+
+.clipCard, .clipActive {
+  text-align: left;
+  border: 1px solid #31302d;
+  border-radius: 10px;
+  background: #181817;
+  color: #f2eadb;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.5rem;
+  cursor: pointer;
+}
+
+.clipActive {
+  border-color: #c9983f;
+}
+
+.clipCard small, .clipActive small {
+  color: #bcab90;
+}
+
+.status {
+  margin-top: 0.8rem;
+  color: #d6c088;
+}
+
+.confirmBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.confirmDialog {
+  width: min(460px, 100%);
+  background: #111;
+  border: 1px solid #3a3528;
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+.confirmDialog h2 {
+  margin-top: 0;
+}
+
+@media (max-width: 1180px) {
+  .layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  .flightPath {
+    grid-column: auto;
+  }
+
+  .topBar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .creditsBox {
+    text-align: left;
+  }
+}
