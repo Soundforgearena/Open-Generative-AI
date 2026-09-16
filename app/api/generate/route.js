@@ -11,6 +11,7 @@ import {
 import { evaluateProviderExposure } from '../../../lib/billing/provider-exposure-guard.js';
 import { evaluateReservationRisk } from '../../../lib/billing/risk-policy.js';
 import { loadRuntimeSafetySignals } from '../../../lib/billing/runtime-safety-signals.js';
+import { generationGate, normalizeDirectorWorkflow } from '../../../lib/director-workflow.js';
 import { normalizeMuapiCost } from '../../../lib/providers/muapi-cost-adapter.js';
 
 const SAFE_PROVIDER_FIELDS = new Set([
@@ -127,7 +128,11 @@ export async function POST(request) {
 
     let ownedProject = null;
     if (projectId) {
-      ownedProject = await selectOne('projects', { id: `eq.${projectId}` }, 'id,owner_id');
+      ownedProject = await selectOne(
+        'projects',
+        { id: `eq.${projectId}` },
+        'id,owner_id,lane,director_plan'
+      );
       if (!ownedProject || (ownedProject.owner_id !== user.id && !admin)) {
         return safeError('Project not found.', 404);
       }
@@ -137,13 +142,18 @@ export async function POST(request) {
       if (!ownedScene) return safeError('Scene not found.', 404);
       const sceneProject = ownedProject?.id === ownedScene.project_id
         ? ownedProject
-        : await selectOne('projects', { id: `eq.${ownedScene.project_id}` }, 'id,owner_id');
+        : await selectOne(
+            'projects',
+            { id: `eq.${ownedScene.project_id}` },
+            'id,owner_id,lane,director_plan'
+          );
       if (!sceneProject || (sceneProject.owner_id !== user.id && !admin)) {
         return safeError('Scene not found.', 404);
       }
       if (projectId && ownedScene.project_id !== projectId) {
         return safeError('Scene does not belong to this project.', 400);
       }
+      ownedProject = sceneProject;
     }
 
     // Server-side price rule. Only active, customer-visible models are allowed.
@@ -196,6 +206,14 @@ export async function POST(request) {
         model,
         operation,
       });
+    }
+    if (sceneId && ownedProject) {
+      const gate = generationGate({
+        lane: ownedProject.lane,
+        workflow: normalizeDirectorWorkflow(ownedProject.lane, ownedProject.director_plan),
+        hasScene: true,
+      });
+      if (!gate.allowed) return safeError(gate.reason, 409);
     }
     const runtimeSignals = await loadRuntimeSafetySignals({
       userId: user.id,

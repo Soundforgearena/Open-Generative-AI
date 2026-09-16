@@ -1,4 +1,5 @@
-import { guard, insertRows, selectRows, safeError } from '../../../lib/cinexvideo-server';
+import { deleteRows, guard, insertRows, selectRows, safeError } from '../../../lib/cinexvideo-server';
+import { isMissingAudioSyncColumnResult } from '../../../lib/director-workflow.js';
 
 /** List the signed-in user's projects. */
 export async function GET(request) {
@@ -37,7 +38,7 @@ export async function POST(request) {
     const project = created.data[0];
 
     if (plan?.scenes?.length) {
-      await insertRows(
+      const insertedScenes = await insertRows(
         'scenes',
         plan.scenes.slice(0, 60).map((scene, index) => ({
           project_id: project.id,
@@ -47,8 +48,16 @@ export async function POST(request) {
           duration_seconds: Math.min(Math.max(Number(scene.duration_seconds) || 8, 1), 600),
           shot_direction: scene.shot_direction || null,
           prompt: scene.prompt || null,
+          ...(typeof scene.audio_sync === 'string' ? { audio_sync: scene.audio_sync } : {}),
         }))
       );
+      if (!insertedScenes.ok) {
+        await deleteRows('projects', { id: `eq.${project.id}` });
+        if (isMissingAudioSyncColumnResult(insertedScenes)) {
+          return safeError('Audio Sync will be available after the latest scene schema migration is applied.', 503);
+        }
+        return safeError('Project scenes could not be created.', 500);
+      }
     }
 
     const assets = [

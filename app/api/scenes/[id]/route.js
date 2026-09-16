@@ -1,12 +1,22 @@
 import { guard, selectOne, updateRows, safeError } from '../../../../lib/cinexvideo-server';
+import {
+  buildDirectorPlanPatch,
+  invalidateDirectorWorkflow,
+  isMissingAudioSyncColumnResult,
+  scenePatchTouchesGeneration,
+} from '../../../../lib/director-workflow';
 
 async function ownedScene(id, user, admin) {
   const scene = await selectOne('scenes', { id: `eq.${id}` });
   if (!scene) return null;
-  const project = await selectOne('projects', { id: `eq.${scene.project_id}` }, 'owner_id');
+  const project = await selectOne(
+    'projects',
+    { id: `eq.${scene.project_id}` },
+    'id,owner_id,lane,director_plan,title,logline,visual_identity'
+  );
   if (!project) return null;
   if (project.owner_id !== user.id && !admin) return null;
-  return scene;
+  return { scene, project };
 }
 
 /**
@@ -19,8 +29,9 @@ export async function PATCH(request, { params }) {
   if (error) return error;
   const { id } = await params;
 
-  const scene = await ownedScene(id, user, admin);
-  if (!scene) return safeError('Scene not found.', 404);
+  const owned = await ownedScene(id, user, admin);
+  if (!owned) return safeError('Scene not found.', 404);
+  const { scene, project } = owned;
 
   const body = await request.json();
   const patch = {};
@@ -29,6 +40,7 @@ export async function PATCH(request, { params }) {
   if (typeof body.purpose === 'string') patch.purpose = body.purpose.slice(0, 5000);
   if (typeof body.prompt === 'string') patch.prompt = body.prompt.slice(0, 5000);
   if (typeof body.shot_direction === 'string') patch.shot_direction = body.shot_direction.slice(0, 5000);
+  if (typeof body.audio_sync === 'string') patch.audio_sync = body.audio_sync.slice(0, 5000);
   if (Number.isFinite(Number(body.duration_seconds))) {
     patch.duration_seconds = Math.min(Math.max(Number(body.duration_seconds), 1), 600);
   }
@@ -53,7 +65,35 @@ export async function PATCH(request, { params }) {
 
   if (!Object.keys(patch).length) return safeError('Nothing to update.');
 
+  let nextDirectorPlan = null;
+  if (scenePatchTouchesGeneration(scene, patch)) {
+    const { workflow } = invalidateDirectorWorkflow({
+      lane: project.lane,
+      directorPlan: project.director_plan,
+    });
+    nextDirectorPlan = buildDirectorPlanPatch({
+      lane: project.lane,
+      workflow,
+      existingPlan: project.director_plan,
+      projectMeta: {
+        title: project.title,
+        logline: project.logline,
+        visual_identity: project.visual_identity,
+      },
+    });
+    const invalidated = await updateRows('projects', { id: `eq.${project.id}` }, { director_plan: nextDirectorPlan });
+    if (!invalidated.ok) return safeError('Project approvals could not be updated.', 500);
+  }
+
   const updated = await updateRows('scenes', { id: `eq.${id}` }, patch);
-  if (!updated.ok) return safeError('Scene could not be updated.', 500);
-  return Response.json({ scene: updated.data?.[0] || null });
+  if (!updated.ok) {
+    if (Object.hasOwn(patch, 'audio_sync') && isMissingAudioSyncColumnResult(updated)) {
+      return safeError('Audio Sync will be available after the latest scene schema migration is applied.', 503);
+    }
+    return safeError('Scene could not be updated.', 500);
+  }
+  return Response.json({
+    scene: updated.data?.[0] || null,
+    director_plan: nextDirectorPlan,
+  });
 }
