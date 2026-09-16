@@ -52,6 +52,7 @@ export async function GET(request, { params }) {
       title: project.title,
       logline: project.logline,
       visual_identity: project.visual_identity,
+      director_plan: project.director_plan,
       status: project.status,
     },
     scenes: scenes.map((scene) => ({
@@ -73,6 +74,13 @@ export async function PATCH(request, { params }) {
   const body = await request.json();
   const patch = {};
   if (typeof body.title === 'string' && body.title.trim()) patch.title = body.title.trim().slice(0, 200);
+  if (typeof body.logline === 'string') patch.logline = body.logline.slice(0, 5000);
+  if (body.visual_identity && typeof body.visual_identity === 'object' && !Array.isArray(body.visual_identity)) {
+    patch.visual_identity = body.visual_identity;
+  }
+  if (body.director_plan && typeof body.director_plan === 'object' && !Array.isArray(body.director_plan)) {
+    patch.director_plan = body.director_plan;
+  }
   if (['draft', 'in_production', 'delivered', 'archived'].includes(body.status)) patch.status = body.status;
   if (!Object.keys(patch).length) return safeError('Nothing to update.');
 

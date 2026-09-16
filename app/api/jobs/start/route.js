@@ -11,6 +11,7 @@ import {
   loadRuntimeSafetySignals,
   requestedCreditsToUsdCents,
 } from '../../../../lib/billing/runtime-safety-signals.js';
+import { validateReservationStartPayload } from '../../../../lib/director-workflow.js';
 
 /**
  * Starts a generation job against an already-confirmed credit reservation.
@@ -35,9 +36,8 @@ export async function POST(request) {
       project_id: projectId = null,
     } = body;
 
-    if (!reservationId || !model || !operation || !input) {
-      return safeError('Job request is incomplete.');
-    }
+    const validationError = validateReservationStartPayload(body);
+    if (validationError) return safeError(validationError);
 
     const reservation = await selectOne(
       'credit_reservations',

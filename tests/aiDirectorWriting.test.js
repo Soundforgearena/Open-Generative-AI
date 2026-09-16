@@ -33,7 +33,7 @@ test('required writing surfaces include the reusable Director button', () => {
   const files = [
     'components/DemoProjectBuilder.js',
     'app/create/review/page.js',
-    'app/create/director/page.js',
+    'components/director/DirectorWorkspace.js',
   ];
   for (const file of files) {
     const source = fs.readFileSync(path.join(process.cwd(), file), 'utf8');
