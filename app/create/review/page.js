@@ -8,18 +8,25 @@ import { demoModeEnabled } from '@/lib/demo-mode';
 import { getDemoProject, saveDemoProject } from '@/lib/demo-project-store';
 import {
   getCatalog,
+  checkJob,
   getProject,
   quoteGeneration,
   startGeneration,
   updateProject,
   updateScene,
-  waitForJob,
 } from '@/lib/cinexvideo-client';
 import { safeProjectId } from '@/lib/safe-navigation';
 import AskAiDirectorButton from '@/components/AskAiDirectorButton';
 import ContinuityGuardianPanel from '@/components/continuity/ContinuityGuardianPanel';
 import ContinuityBibleEditor from '@/components/continuity/ContinuityBibleEditor';
 import { createContinuityBible } from '@/lib/continuity/continuity-bible';
+import {
+  ACTIVE_SCENE_STATUSES,
+  calculateProgressPercentage,
+  hasAnyGenerationJobsInFlight,
+  normalizeSceneStatus,
+  summarizeSceneProgress,
+} from '@/lib/review-generation-progress';
 
 function MissingDraft() {
   return (
@@ -45,7 +52,9 @@ function ReviewContent() {
   const [showGenerationConfirm, setShowGenerationConfirm] = useState(false);
   const [generationQuote, setGenerationQuote] = useState(null);
   const [quoting, setQuoting] = useState(false);
+  const [generationState, setGenerationState] = useState(null);
   const sceneSaveQueues = useRef(new Map());
+  const generationStateRef = useRef(null);
 
   useEffect(() => {
     if (!safeProjectId(projectId, demoModeEnabled)) {
@@ -108,6 +117,102 @@ function ReviewContent() {
     return () => document.removeEventListener('keydown', closeConfirmation);
   }, [showGenerationConfirm]);
 
+  useEffect(() => {
+    generationStateRef.current = generationState;
+  }, [generationState]);
+
+  useEffect(() => {
+    if (demoModeEnabled || !generationState?.active) return undefined;
+
+    let cancelled = false;
+    async function refreshGenerationJobs() {
+      const snapshot = generationStateRef.current;
+      if (!snapshot?.active) return;
+      const pollingTargets = snapshot.scenes.filter(
+        (scene) => scene.requestId && ACTIVE_SCENE_STATUSES.has(scene.status)
+      );
+      if (!pollingTargets.length) return;
+
+      await Promise.all(
+        pollingTargets.map(async (scene) => {
+          try {
+            const result = await checkJob(scene.requestId);
+            if (cancelled) return;
+            const status = normalizeSceneStatus(result.status, { creditsReturned: result.credits_returned });
+            setProject((current) => {
+              if (!current) return current;
+              return {
+                ...current,
+                scenes: current.scenes.map((item) =>
+                  item.id === scene.sceneId ? { ...item, status } : item
+                ),
+              };
+            });
+            setGenerationState((current) => {
+              if (!current) return current;
+              return {
+                ...current,
+                scenes: current.scenes.map((item) =>
+                  item.sceneId === scene.sceneId ? { ...item, status } : item
+                ),
+              };
+            });
+          } catch (pollError) {
+            if (cancelled) return;
+            setProject((current) => {
+              if (!current) return current;
+              return {
+                ...current,
+                scenes: current.scenes.map((item) =>
+                  item.id === scene.sceneId ? { ...item, status: 'failed' } : item
+                ),
+              };
+            });
+            setGenerationState((current) => {
+              if (!current) return current;
+              return {
+                ...current,
+                scenes: current.scenes.map((item) =>
+                  item.sceneId === scene.sceneId
+                    ? { ...item, status: 'failed', error: pollError.message || 'Status check failed.' }
+                    : item
+                ),
+              };
+            });
+          }
+        })
+      );
+    }
+
+    refreshGenerationJobs();
+    const pollTimer = window.setInterval(refreshGenerationJobs, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(pollTimer);
+    };
+  }, [generationState?.active]);
+
+  useEffect(() => {
+    if (!generationState?.active || generationState?.isSubmitting) return;
+    if (!sceneProgressSummary.total || sceneProgressSummary.terminal !== sceneProgressSummary.total) return;
+
+    const failures = sceneProgressSummary.failed + sceneProgressSummary.released;
+    if (!failures) {
+      setCompleted(true);
+      setMessage('Generation complete. Your scene versions are ready for review.');
+    } else if (sceneProgressSummary.completed > 0) {
+      setMessage(
+        `${failures} scene${failures === 1 ? '' : 's'} did not complete. Failed or released scenes kept your credits safe.`
+      );
+    } else if (sceneProgressSummary.released > 0) {
+      setMessage('No scenes completed. Reserved credits were released for scenes that could not start or finish.');
+    } else {
+      setMessage('No scenes completed. Please retry the failed scenes from your project.');
+    }
+
+    setGenerationState((current) => (current ? { ...current, active: false } : current));
+  }, [generationState?.active, generationState?.isSubmitting, sceneProgressSummary]);
+
   function updateLocalProject(next) {
     setProject(next);
     if (demoModeEnabled) saveDemoProject(next);
@@ -156,12 +261,37 @@ function ReviewContent() {
     };
   }
 
+  const sceneProgressSummary = useMemo(
+    () => summarizeSceneProgress(generationState?.scenes || []),
+    [generationState]
+  );
+  const generationProgressPercent = useMemo(
+    () => calculateProgressPercentage(sceneProgressSummary),
+    [sceneProgressSummary]
+  );
+  const hasGenerationJobsInFlight = hasAnyGenerationJobsInFlight(
+    sceneProgressSummary,
+    generationState?.isSubmitting
+  );
+
+  function updateGenerationSceneStatus(sceneId, patch) {
+    setGenerationState((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        scenes: current.scenes.map((scene) =>
+          scene.sceneId === sceneId ? { ...scene, ...patch } : scene
+        ),
+      };
+    });
+  }
+
   async function prepareGeneration() {
     if (demoModeEnabled) {
       await continueToGeneration();
       return;
     }
-    if (quoting || simulating || completed || !videoOption) return;
+    if (quoting || simulating || completed || hasGenerationJobsInFlight || !videoOption) return;
     setQuoting(true);
     setMessage('Calculating the exact generation total...');
     try {
@@ -227,42 +357,62 @@ function ReviewContent() {
 
   async function continueToGeneration() {
     if (!demoModeEnabled) {
-      if (simulating || completed || !videoOption || !generationQuote) return;
+      if (simulating || completed || hasGenerationJobsInFlight || !videoOption || !generationQuote) return;
       setSimulating(true);
-      setShowGenerationConfirm(false);
-      setMessage('Starting scene generation...');
+      setShowGenerationConfirm(true);
+      setCompleted(false);
+      setMessage('Submitting generation jobs...');
+      setGenerationState({
+        active: true,
+        isSubmitting: true,
+        scenes: project.scenes.map((scene) => ({
+          sceneId: scene.id,
+          sceneNumber: scene.sceneNumber,
+          title: scene.title,
+          status: 'pending',
+          requestId: null,
+          error: null,
+        })),
+      });
       try {
-        const results = [];
         for (const scene of project.scenes) {
-          const job = await startGeneration({
-            ...generationPayload(scene),
-            confirmed_max_credits: generationQuote.byScene[scene.id],
-          });
-          setProject((current) => ({
-            ...current,
-            scenes: current.scenes.map((item) =>
-              item.id === scene.id ? { ...item, status: 'running' } : item
-            ),
-          }));
-          setMessage(`Generating scene ${scene.sceneNumber} of ${project.scenes.length}...`);
-          const result = await waitForJob(job.request_id, {
-            onTick: (tick) => setProject((current) => ({
+          setMessage(`Submitting scene ${scene.sceneNumber} of ${project.scenes.length}...`);
+          try {
+            const job = await startGeneration({
+              ...generationPayload(scene),
+              confirmed_max_credits: generationQuote.byScene[scene.id],
+            });
+            const status = normalizeSceneStatus(job.status || (job.request_id ? 'queued' : 'failed'));
+            updateGenerationSceneStatus(scene.id, {
+              status,
+              requestId: job.request_id || null,
+              error: null,
+            });
+            setProject((current) => ({
               ...current,
               scenes: current.scenes.map((item) =>
-                item.id === scene.id ? { ...item, status: tick.status } : item
+                item.id === scene.id ? { ...item, status } : item
               ),
-            })),
-          });
-          results.push(result);
-        }
-        const failedCount = results.filter((result) => result.status === 'failed').length;
-        if (failedCount > 0) {
-          setMessage(
-            `${failedCount} scene${failedCount === 1 ? '' : 's'} failed to generate. Credits for failed scenes were returned; retry those scenes from the project.`
-          );
-        } else {
-          setCompleted(true);
-          setMessage('Generation complete. Your scene versions are ready for review.');
+            }));
+          } catch (sceneError) {
+            const released = sceneError.status !== 402 && /credits were returned/i.test(sceneError.message || '');
+            const status = released ? 'released' : 'failed';
+            updateGenerationSceneStatus(scene.id, {
+              status,
+              requestId: null,
+              error: sceneError.message || 'Generation could not be started.',
+            });
+            setProject((current) => ({
+              ...current,
+              scenes: current.scenes.map((item) =>
+                item.id === scene.id ? { ...item, status } : item
+              ),
+            }));
+            if (sceneError.status === 402) {
+              setMessage('You need more credits to generate these scenes. Open Account and billing to continue.');
+              break;
+            }
+          }
         }
       } catch (generationError) {
         setMessage(
@@ -271,6 +421,7 @@ function ReviewContent() {
             : generationError.message || 'Generation could not be started.'
         );
       } finally {
+        setGenerationState((current) => (current ? { ...current, isSubmitting: false } : current));
         setSimulating(false);
       }
       return;
@@ -323,7 +474,7 @@ function ReviewContent() {
             </dl>
             <AskAiDirectorButton fieldType="story" value={project.sourceText || project.logline} context={{ sourceType: project.sourceType, style: project.style, duration: project.duration }} onApply={(suggestion) => updateLocalProject({ ...project, sourceText: suggestion })} />
             <div className="cinex-dashboard-actions">
-              <button type="button" className="cinex-route-primary" onClick={prepareGeneration} disabled={quoting || simulating || completed || (!demoModeEnabled && !videoOption)}>{quoting ? 'Calculating total...' : simulating ? 'Generating scenes...' : completed ? 'Generation complete' : demoModeEnabled ? 'Simulate Generation' : videoOption ? 'Review generation' : 'No video model available'}</button>
+              <button type="button" className="cinex-route-primary" onClick={prepareGeneration} disabled={quoting || simulating || completed || hasGenerationJobsInFlight || (!demoModeEnabled && !videoOption)}>{quoting ? 'Calculating total...' : simulating || hasGenerationJobsInFlight ? 'Generation in progress...' : completed ? 'Generation complete' : demoModeEnabled ? 'Simulate Generation' : videoOption ? 'Review generation' : 'No video model available'}</button>
               <button type="button" className="cinex-auth-secondary" onClick={saveChanges}>Save changes</button>
               {!demoModeEnabled && <Link href="/account" className="cinex-route-secondary-link">Account and billing</Link>}
             </div>
@@ -364,19 +515,51 @@ function ReviewContent() {
         <div className="cinex-confirm-backdrop" role="presentation">
           <section className="cinex-generation-confirm" role="dialog" aria-modal="true" aria-labelledby="generation-confirm-title">
             <p className="cinex-shot-plan-eyebrow">Final confirmation</p>
-            <h2 id="generation-confirm-title">Start paid generation?</h2>
-            <p>
-              This will submit {project.scenes.length} scene{project.scenes.length === 1 ? '' : 's'} to {videoOption?.label || 'the selected video model'}.
-              Credits are reserved separately for each scene and returned automatically if a scene cannot be started.
-            </p>
-            <dl className="cinex-review-facts">
-              <div><dt>Scenes</dt><dd>{project.scenes.length}</dd></div>
-              <div><dt>Total duration</dt><dd>{project.scenes.reduce((total, scene) => total + Number(scene.estimatedDuration || 0), 0)} seconds</dd></div>
-              <div><dt>Maximum debit</dt><dd>{generationQuote?.totalCredits ?? 0} credits</dd></div>
-            </dl>
+            <h2 id="generation-confirm-title">{hasGenerationJobsInFlight || generationState ? 'Generation progress' : 'Start paid generation?'}</h2>
+            {!generationState && (
+              <>
+                <p>
+                  This will submit {project.scenes.length} scene{project.scenes.length === 1 ? '' : 's'} to {videoOption?.label || 'the selected video model'}.
+                  Credits are reserved separately for each scene and returned automatically if a scene cannot be started.
+                </p>
+                <dl className="cinex-review-facts">
+                  <div><dt>Scenes</dt><dd>{project.scenes.length}</dd></div>
+                  <div><dt>Total duration</dt><dd>{project.scenes.reduce((total, scene) => total + Number(scene.estimatedDuration || 0), 0)} seconds</dd></div>
+                  <div><dt>Maximum debit</dt><dd>{generationQuote?.totalCredits ?? 0} credits</dd></div>
+                </dl>
+              </>
+            )}
+            {generationState && (
+              <div className="cinex-generation-progress">
+                <div className="cinex-generation-progress-head">
+                  <strong>{generationProgressPercent}%</strong>
+                  <span>{sceneProgressSummary.started} of {sceneProgressSummary.total} scenes started</span>
+                </div>
+                <div className="cinex-generation-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={generationProgressPercent}>
+                  <span style={{ width: `${generationProgressPercent}%` }} />
+                </div>
+                <dl className="cinex-generation-progress-totals">
+                  <div><dt>Queued</dt><dd>{sceneProgressSummary.queued}</dd></div>
+                  <div><dt>Running</dt><dd>{sceneProgressSummary.running}</dd></div>
+                  <div><dt>Completed</dt><dd>{sceneProgressSummary.completed}</dd></div>
+                  <div><dt>Failed</dt><dd>{sceneProgressSummary.failed}</dd></div>
+                  <div><dt>Released</dt><dd>{sceneProgressSummary.released}</dd></div>
+                </dl>
+                <ul className="cinex-generation-scene-list" aria-live="polite">
+                  {generationState.scenes.map((scene) => (
+                    <li key={scene.sceneId}>
+                      <strong>Scene {scene.sceneNumber}</strong>
+                      <span>{scene.status}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="cinex-dashboard-actions">
-              <button type="button" className="cinex-route-primary" onClick={continueToGeneration}>Start generation</button>
-              <button type="button" className="cinex-auth-secondary" autoFocus onClick={() => setShowGenerationConfirm(false)}>Cancel</button>
+              {!generationState && (
+                <button type="button" className="cinex-route-primary" onClick={continueToGeneration} disabled={hasGenerationJobsInFlight || !generationQuote}>Start generation</button>
+              )}
+              <button type="button" className="cinex-auth-secondary" autoFocus onClick={() => setShowGenerationConfirm(false)}>{hasGenerationJobsInFlight ? 'Hide' : 'Cancel'}</button>
             </div>
           </section>
         </div>
