@@ -1,4 +1,5 @@
 import { guard, callRpc, selectOne, getSetting, safeError } from '../../../lib/cinexvideo-server';
+import { isPlatformFunded } from '../../../lib/billing/platform-funding.js';
 
 /** Session bootstrap: identity, credit balance, admin role, service banner. */
 export async function GET(request) {
@@ -22,6 +23,8 @@ export async function GET(request) {
       role: superAdmin ? 'super_admin' : admin ? 'admin' : 'member',
       partner: partner || null,
       credits: wallet?.balance ?? 0,
+      // Super admins use platform funds (OpenAI + MUAPI paid directly); they can still buy credits.
+      platform_funded: isPlatformFunded({ superAdmin }),
       maintenance: Boolean(maintenance?.enabled),
       // Customers see only that a promotion is running, never the maths behind it.
       promotion_active: Boolean(discount?.enabled),

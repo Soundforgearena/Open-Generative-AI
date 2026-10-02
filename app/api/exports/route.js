@@ -1,3 +1,4 @@
+import { isPlatformFunded } from '../../../lib/billing/platform-funding.js';
 import {
   guard,
   callRpc,
@@ -33,7 +34,7 @@ async function uploadArtifact({ userId, exportType, extension, contentType, cont
  * sees the credit figure — never provider cost, overhead or the margin floor.
  */
 export async function POST(request) {
-  const { user, admin, error } = await guard(request, { blockOnMaintenance: true });
+  const { superAdmin, user, admin, error } = await guard(request, { blockOnMaintenance: true });
   if (error) return error;
   try {
     const body = await request.json();
@@ -59,7 +60,9 @@ export async function POST(request) {
     const row = Array.isArray(quote.data) ? quote.data[0] : quote.data;
     if (!quote.ok || !row) return safeError('This export option is temporarily unavailable.', 409);
 
-    const credits = Number(row.credits ?? row.credits_required ?? 0);
+    // Super admins run on platform funds: exports never debit their credits.
+    const platformFunded = isPlatformFunded({ superAdmin });
+    const credits = platformFunded ? 0 : Number(row.credits ?? row.credits_required ?? 0);
 
     // Quote-only pass so the UI can show the cost before the user commits.
     if (!confirm) {

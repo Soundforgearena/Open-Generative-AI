@@ -7,7 +7,10 @@ import {
   updateRows,
   requireSecret,
   safeError,
+  platformUsageToday,
+  recordPlatformUsage,
 } from '../../../lib/cinexvideo-server';
+import { isPlatformFunded, remainingPlatformAllowanceCents } from '../../../lib/billing/platform-funding.js';
 import { evaluateProviderExposure } from '../../../lib/billing/provider-exposure-guard.js';
 import { evaluateReservationRisk } from '../../../lib/billing/risk-policy.js';
 import { loadRuntimeSafetySignals } from '../../../lib/billing/runtime-safety-signals.js';
@@ -101,7 +104,9 @@ function referenceCountFor(input) {
  * margin floor. The response exposes only the credit figure.
  */
 export async function POST(request) {
-  const { user, admin, error } = await guard(request, { blockOnMaintenance: true });
+  const { user, admin, superAdmin, error } = await guard(request, { blockOnMaintenance: true });
+  // Super admins run on platform funds (the platform pays MUAPI directly).
+  const platformFunded = isPlatformFunded({ superAdmin });
   if (error) return error;
 
   try {
@@ -207,6 +212,17 @@ export async function POST(request) {
     });
     if (preflight === true) {
       const wallet = await selectOne('credit_wallets', { user_id: `eq.${user.id}` }, 'balance');
+      if (platformFunded) {
+        const remaining = remainingPlatformAllowanceCents(await platformUsageToday(user.id));
+        return Response.json(buildPreflightReport({
+          credits,
+          balance: remaining,
+          risk: { decision: 'allowed' },
+          exposure: evaluateProviderExposure(runtimeSignals.exposure),
+          providerKeyPresent: Boolean(process.env.MUAPI_API_KEY),
+          platformFunded: true,
+        }));
+      }
       return Response.json(buildPreflightReport({
         credits,
         balance: wallet?.balance ?? 0,
@@ -215,7 +231,7 @@ export async function POST(request) {
         providerKeyPresent: Boolean(process.env.MUAPI_API_KEY),
       }));
     }
-    const risk = evaluateReservationRisk(runtimeSignals.risk, credits);
+    const risk = platformFunded ? { decision: 'allowed' } : evaluateReservationRisk(runtimeSignals.risk, credits);
     if (risk.decision === 'blocked') {
       return safeError('This request could not be started right now.', 403);
     }
@@ -230,43 +246,64 @@ export async function POST(request) {
       return safeError('An idempotency key is required.', 400);
     }
     const idempotencyKey = request.headers.get('idempotency-key');
-    const reservation = await callRpc('reserve_credits_v2', {
-      p_user_id: user.id,
-      p_operation: operation,
-      p_estimated_credits: credits,
-      p_max_reservation_credits: credits,
-      p_pricing_policy_version: '2026-09-06-v1',
-      p_idempotency_key: idempotencyKey,
-    });
-    const reservationRow = Array.isArray(reservation.data) ? reservation.data[0] : reservation.data;
-    if (!reservation.ok || !reservationRow?.id) {
-      const message = String(reservation.data?.message || '');
-      if (message.includes('INSUFFICIENT_CREDITS')) {
-        return safeError('You need more credits to continue.', 402);
-      }
-      if (message.includes('IDEMPOTENCY_KEY_CONFLICT')) {
-        return safeError('This generation request conflicts with an earlier request.', 409);
-      }
-      return safeError('Could not reserve credits. Please try again.', 409);
-    }
-    const reference = reservationRow.id;
-    if (reservationRow.generation_job_id) {
+    let reference = null;
+    if (platformFunded) {
+      // No wallet debit. Duplicate submits return the original job; a daily cap
+      // keeps platform spend bounded even if an admin account is misused.
       const existingJob = await selectOne(
         'generation_requests',
-        { id: `eq.${reservationRow.generation_job_id}`, user_id: `eq.${user.id}` },
+        { user_id: `eq.${user.id}`, idempotency_key: `eq.${idempotencyKey}` },
         'id,provider_request_id,credits_reserved,scene_version,status'
       );
       if (existingJob) {
         return Response.json(
-          {
-            job_id: existingJob.id,
-            request_id: existingJob.provider_request_id,
-            credits_required: existingJob.credits_reserved,
-            scene_version: existingJob.scene_version,
-            status: existingJob.status,
-          },
+          { job_id: existingJob.id, request_id: existingJob.provider_request_id, credits_required: 0, scene_version: existingJob.scene_version, status: existingJob.status, platform_funded: true },
           { status: 202 }
         );
+      }
+      const remaining = remainingPlatformAllowanceCents(await platformUsageToday(user.id));
+      if (remaining < credits) {
+        return safeError('Today\'s platform-funded allowance is used up. It resets at midnight UTC, or raise PLATFORM_FUNDED_DAILY_CAP_CENTS.', 429);
+      }
+    } else {
+      const reservation = await callRpc('reserve_credits_v2', {
+        p_user_id: user.id,
+        p_operation: operation,
+        p_estimated_credits: credits,
+        p_max_reservation_credits: credits,
+        p_pricing_policy_version: '2026-09-06-v1',
+        p_idempotency_key: idempotencyKey,
+      });
+      const reservationRow = Array.isArray(reservation.data) ? reservation.data[0] : reservation.data;
+      if (!reservation.ok || !reservationRow?.id) {
+        const message = String(reservation.data?.message || '');
+        if (message.includes('INSUFFICIENT_CREDITS')) {
+          return safeError('You need more credits to continue.', 402);
+        }
+        if (message.includes('IDEMPOTENCY_KEY_CONFLICT')) {
+          return safeError('This generation request conflicts with an earlier request.', 409);
+        }
+        return safeError('Could not reserve credits. Please try again.', 409);
+      }
+      reference = reservationRow.id;
+      if (reservationRow.generation_job_id) {
+        const existingJob = await selectOne(
+          'generation_requests',
+          { id: `eq.${reservationRow.generation_job_id}`, user_id: `eq.${user.id}` },
+          'id,provider_request_id,credits_reserved,scene_version,status'
+        );
+        if (existingJob) {
+          return Response.json(
+            {
+              job_id: existingJob.id,
+              request_id: existingJob.provider_request_id,
+              credits_required: existingJob.credits_reserved,
+              scene_version: existingJob.scene_version,
+              status: existingJob.status,
+            },
+            { status: 202 }
+          );
+        }
       }
     }
 
@@ -298,7 +335,8 @@ export async function POST(request) {
       model,
       operation,
       reservation_reference: reference,
-      credits_reserved: credits,
+      credits_reserved: platformFunded ? 0 : credits,
+      funding_source: platformFunded ? 'platform' : 'credits',
       idempotency_key: idempotencyKey,
       status: 'queued',
     });
@@ -310,7 +348,7 @@ export async function POST(request) {
         'id,provider_request_id,credits_reserved,scene_version,status'
       );
       if (!jobRow) {
-        await callRpc('release_reservation_v2', {
+        if (reference) await callRpc('release_reservation_v2', {
           p_reservation_id: reference,
           p_reason: 'job_record_failed',
         });
@@ -329,17 +367,19 @@ export async function POST(request) {
     }
     const jobId = jobRow?.id || null;
     if (!jobId) {
-      await callRpc('release_reservation_v2', {
+      if (reference) await callRpc('release_reservation_v2', {
         p_reservation_id: reference,
         p_reason: 'job_record_failed',
       });
       return safeError('Generation could not be started. Please try again.', 500);
     }
-    await updateRows(
-      'credit_reservations',
-      { id: `eq.${reference}` },
-      { generation_job_id: jobId }
-    );
+    if (reference) {
+      await updateRows(
+        'credit_reservations',
+        { id: `eq.${reference}` },
+        { generation_job_id: jobId }
+      );
+    }
 
     const submissionStarted = await updateRows(
       'generation_requests',
@@ -347,7 +387,7 @@ export async function POST(request) {
       { provider_submission_started_at: new Date().toISOString() }
     );
     if (!submissionStarted.ok) {
-      await callRpc('release_reservation_v2', {
+      if (reference) await callRpc('release_reservation_v2', {
         p_reservation_id: reference,
         p_reason: 'submission_marker_failed',
       });
@@ -412,8 +452,22 @@ export async function POST(request) {
       }
       if (!persisted) throw new Error('provider job accepted but tracking persistence failed');
 
+      if (platformFunded) {
+        // The real MUAPI cost is recorded by the job poller / reconcile cron
+        // (provider_cost_records); this row tracks platform-funded volume.
+        await recordPlatformUsage({
+          user_id: user.id,
+          operation,
+          provider: rule.provider || 'muapi',
+          model,
+          generation_job_id: jobId,
+          estimated_cost_cents: 0,
+          credits_equivalent: credits,
+        });
+      }
+
       return Response.json(
-        { job_id: jobId, request_id: providerRequestId, credits_required: credits, scene_version: sceneVersion },
+        { job_id: jobId, request_id: providerRequestId, credits_required: platformFunded ? 0 : credits, credits_equivalent: credits, platform_funded: platformFunded, scene_version: sceneVersion },
         { status: 202 }
       );
     } catch (providerError) {
@@ -426,7 +480,7 @@ export async function POST(request) {
           503
         );
       }
-      await callRpc('release_reservation_v2', {
+      if (reference) await callRpc('release_reservation_v2', {
         p_reservation_id: reference,
         p_reason: 'provider_error',
       });
