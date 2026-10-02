@@ -11,6 +11,7 @@ import {
 import { evaluateProviderExposure } from '../../../lib/billing/provider-exposure-guard.js';
 import { evaluateReservationRisk } from '../../../lib/billing/risk-policy.js';
 import { loadRuntimeSafetySignals } from '../../../lib/billing/runtime-safety-signals.js';
+import { buildPreflightReport } from '../../../lib/billing/generation-preflight.js';
 import { normalizeMuapiCost } from '../../../lib/providers/muapi-cost-adapter.js';
 
 const SAFE_PROVIDER_FIELDS = new Set([
@@ -114,6 +115,7 @@ export async function POST(request) {
       duration_seconds: requestedDuration = 1,
       resolution: requestedResolution = null,
       quote_only: quoteOnly = false,
+      preflight = false,
       confirmed_max_credits: confirmedMaxCredits = null,
     } = body;
 
@@ -203,6 +205,16 @@ export async function POST(request) {
       selectOneFn: selectOne,
       selectRowsFn: selectRows,
     });
+    if (preflight === true) {
+      const wallet = await selectOne('credit_wallets', { user_id: `eq.${user.id}` }, 'balance');
+      return Response.json(buildPreflightReport({
+        credits,
+        balance: wallet?.balance ?? 0,
+        risk: evaluateReservationRisk(runtimeSignals.risk, credits),
+        exposure: evaluateProviderExposure(runtimeSignals.exposure),
+        providerKeyPresent: Boolean(process.env.MUAPI_API_KEY),
+      }));
+    }
     const risk = evaluateReservationRisk(runtimeSignals.risk, credits);
     if (risk.decision === 'blocked') {
       return safeError('This request could not be started right now.', 403);
