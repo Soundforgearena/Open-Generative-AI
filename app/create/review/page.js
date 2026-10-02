@@ -1,5 +1,6 @@
 'use client';
 
+import { summarizeProjectReadiness } from '../../../lib/billing/generation-preflight.js';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -10,6 +11,7 @@ import {
   getCatalog,
   getProject,
   quoteGeneration,
+  preflightGeneration,
   startGeneration,
   updateProject,
   updateScene,
@@ -45,6 +47,8 @@ function ReviewContent() {
   const [showGenerationConfirm, setShowGenerationConfirm] = useState(false);
   const [generationQuote, setGenerationQuote] = useState(null);
   const [quoting, setQuoting] = useState(false);
+  const [checkingReadiness, setCheckingReadiness] = useState(false);
+  const [readiness, setReadiness] = useState(null);
   const sceneSaveQueues = useRef(new Map());
 
   useEffect(() => {
@@ -211,6 +215,20 @@ function ReviewContent() {
     updateLocalProject({ ...project, scenes });
   }
 
+  async function checkReadiness() {
+    if (checkingReadiness || !videoOption || !project?.scenes?.length) return;
+    setCheckingReadiness(true);
+    setReadiness(null);
+    try {
+      const reports = await Promise.all(project.scenes.map((scene) => preflightGeneration(generationPayload(scene))));
+      setReadiness(summarizeProjectReadiness(reports));
+    } catch (readinessError) {
+      setReadiness({ ready: false, totalCredits: null, balance: null, problems: [readinessError.message || 'Readiness could not be checked.'] });
+    } finally {
+      setCheckingReadiness(false);
+    }
+  }
+
   async function saveChanges() {
     if (demoModeEnabled) {
       saveDemoProject(project);
@@ -324,10 +342,19 @@ function ReviewContent() {
             <AskAiDirectorButton fieldType="story" value={project.sourceText || project.logline} context={{ sourceType: project.sourceType, style: project.style, duration: project.duration }} onApply={(suggestion) => updateLocalProject({ ...project, sourceText: suggestion })} />
             <div className="cinex-dashboard-actions">
               <button type="button" className="cinex-route-primary" onClick={prepareGeneration} disabled={quoting || simulating || completed || (!demoModeEnabled && !videoOption)}>{quoting ? 'Calculating total...' : simulating ? 'Generating scenes...' : completed ? 'Generation complete' : demoModeEnabled ? 'Simulate Generation' : videoOption ? 'Review generation' : 'No video model available'}</button>
+              {!demoModeEnabled && <button type="button" className="cinex-auth-secondary" onClick={checkReadiness} disabled={checkingReadiness || !videoOption} aria-describedby="cinex-readiness-note">{checkingReadiness ? 'Checking...' : 'Check readiness (free)'}</button>}
               <button type="button" className="cinex-auth-secondary" onClick={saveChanges}>Save changes</button>
               {!demoModeEnabled && <Link href="/account" className="cinex-route-secondary-link">Account and billing</Link>}
             </div>
             <Link href="/create/director" className="cinex-route-secondary-link">Open AI Director Writing Room</Link>
+            {!demoModeEnabled && <p id="cinex-readiness-note" className="cinex-readiness-note">Readiness checks are free and never spend credits.</p>}
+            {readiness && (
+              <div className={`cinex-readiness-result ${readiness.ready ? 'is-ready' : 'is-blocked'}`} role="status" aria-live="polite">
+                <strong>{readiness.ready ? 'Ready to generate' : 'Not ready yet'}</strong>
+                {readiness.totalCredits !== null && <span>{readiness.totalCredits} credits for {project.scenes.length} scene{project.scenes.length === 1 ? '' : 's'} · {readiness.balance} available · 0 charged</span>}
+                {readiness.problems.length > 0 && <ul>{readiness.problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>}
+              </div>
+            )}
             {message && <p className="cinex-form-success" role="status">{message}</p>}
             {completed && <Link href={`/projects/${encodeURIComponent(project.id)}`} className="cinex-route-secondary-link">View completed project</Link>}
           </section>
