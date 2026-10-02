@@ -74,6 +74,16 @@ export async function PATCH(request, { params }) {
   const patch = {};
   if (typeof body.title === 'string' && body.title.trim()) patch.title = body.title.trim().slice(0, 200);
   if (['draft', 'in_production', 'delivered', 'archived'].includes(body.status)) patch.status = body.status;
+  if (body.visual_identity && typeof body.visual_identity === 'object' && !Array.isArray(body.visual_identity)) {
+    const current = await selectOne('projects', { id: `eq.${id}` }, 'visual_identity');
+    const next = { ...(current?.visual_identity || {}) };
+    const vi = body.visual_identity;
+    if (['16:9', '9:16', '1:1', '4:5', '21:9'].includes(vi.aspect_ratio)) next.aspect_ratio = vi.aspect_ratio;
+    if (typeof vi.style === 'string') next.style = vi.style.slice(0, 120);
+    if (typeof vi.style_notes === 'string') next.style_notes = vi.style_notes.slice(0, 1000);
+    if (Array.isArray(vi.style_tags)) next.style_tags = vi.style_tags.map((t) => String(t).slice(0, 32)).slice(0, 12);
+    patch.visual_identity = next;
+  }
   if (!Object.keys(patch).length) return safeError('Nothing to update.');
 
   const updated = await updateRows('projects', { id: `eq.${id}` }, patch);

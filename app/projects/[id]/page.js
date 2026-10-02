@@ -37,7 +37,8 @@ function CompletedContent() {
             ))}
           </div>
           <div className="cinex-dashboard-actions">
-            <Link href={`/create/review?project=${encodeURIComponent(project.id)}`} className="cinex-route-primary">Edit storyboard</Link>
+            <Link href={`/studio?project=${encodeURIComponent(project.id)}`} className="cinex-route-primary">Open in Studio</Link>
+            <Link href={`/create/review?project=${encodeURIComponent(project.id)}`} className="cinex-route-secondary-link">Edit storyboard</Link>
             <Link href="/create" className="cinex-auth-secondary">Create another project</Link>
             <Link href="/dashboard" className="cinex-route-secondary-link">Go to Dashboard</Link>
           </div>

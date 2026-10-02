@@ -72,6 +72,7 @@ export default function DashboardPage() {
       {demoModeEnabled && <p className="cinex-demo-indicator">Demo mode — local data only</p>}
       <div className="cinex-dashboard-actions">
         <Link href="/create" className="cinex-route-primary">Start a project</Link>
+        <Link href="/studio" className="cinex-route-secondary-link">Open AI Video Studio</Link>
         {!demoModeEnabled && <Link href="/account" className="cinex-route-secondary-link">Account and billing</Link>}
         {demoModeEnabled && <button type="button" className="cinex-auth-secondary" onClick={resetDemoData}>Reset demo data</button>}
       </div>
