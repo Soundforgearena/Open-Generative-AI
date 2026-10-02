@@ -63,6 +63,7 @@ export async function middleware(request) {
     const protectedAppPath =
         url.pathname.startsWith('/dashboard') ||
         url.pathname.startsWith('/create') ||
+        url.pathname.startsWith('/studio') ||
         url.pathname.startsWith('/account');
 
     // API routes authenticate their own Bearer tokens. OAuth callback handles

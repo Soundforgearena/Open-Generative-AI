@@ -148,7 +148,10 @@ export default function ProductionProjectEditor({ projectId }) {
           {savingId === 'project' ? 'Saving...' : 'Save project title'}
         </button>
         <div className="cinex-dashboard-actions">
-          <Link href={`/create/review?project=${encodeURIComponent(project.id)}`} className="cinex-route-primary">
+          <Link href={`/studio?project=${encodeURIComponent(project.id)}`} className="cinex-route-primary">
+            Open in Studio
+          </Link>
+          <Link href={`/create/review?project=${encodeURIComponent(project.id)}`} className="cinex-route-secondary-link">
             Review and generate
           </Link>
           <Link href="/account" className="cinex-route-secondary-link">Account and billing</Link>

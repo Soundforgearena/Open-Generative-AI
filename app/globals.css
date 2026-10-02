@@ -3282,3 +3282,4 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .cinex-readiness-result.is-ready { border-color: rgba(74,222,128,.55); background: rgba(74,222,128,.08); }
 .cinex-readiness-result.is-blocked { border-color: rgba(251,191,36,.55); background: rgba(251,191,36,.08); }
 .cinex-readiness-result ul { margin: 0; padding-left: 18px; }
+.cinex-admin-nav-link { min-height: 44px; display: inline-flex; align-items: center; }
