@@ -92,10 +92,12 @@ export default function AiDirectorAssistant({ fieldType, fieldLabel, value, cont
         context: { ...context, fieldLabel },
       });
       setResult(next);
-      setStatus('Director draft is ready.');
+      setStatus(next?.credits_charged ? `Director draft is ready · ${next.credits_charged} credits used.` : 'Director draft is ready.');
     } catch (assistError) {
       setResult(null);
-      setStatus(assistError.message || 'The Director could not respond just now. Please try again.');
+      setStatus(assistError.status === 402
+        ? `${assistError.message || 'Not enough credits for the AI Director.'} Add credits from Account and billing.`
+        : `${assistError.message || 'The Director could not respond just now. Please try again.'} No credits were charged.`);
     } finally {
       setPendingAction(null);
       setIsWriting(false);
@@ -168,7 +170,7 @@ export default function AiDirectorAssistant({ fieldType, fieldLabel, value, cont
           <button ref={closeRef} type="button" className="cinex-director-close" onClick={onClose} aria-label="Close AI Director">×</button>
         </div>
         {demoModeEnabled && <p className="cinex-demo-indicator">Demo Director preview — suggestions are generated locally. No model call, video generation, or credits are used.</p>}
-        {!demoModeEnabled && <p className="cinex-form-optional">Writing help is free — it never uses credits. Only video and image generation are charged.</p>}
+        {!demoModeEnabled && <p className="cinex-form-optional">Each AI Director request costs 8 credits. If a request fails, nothing is charged.</p>}
         <div className="cinex-director-actions">
           {actions.map(([action, label]) => <button type="button" key={`${action}-${label}`} onClick={() => runAction(action)} disabled={busy}>{label}</button>)}
         </div>

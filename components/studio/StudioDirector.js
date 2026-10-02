@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from './StudioIcons';
 import { requestDirectorAssist } from '@/lib/cinexvideo-client';
+import Link from 'next/link';
 import { demoModeEnabled } from '@/lib/demo-mode';
+import { DIRECTOR_CREDIT_COSTS } from '@/lib/billing/director-pricing';
+
+const COST = DIRECTOR_CREDIT_COSTS.assist;
 
 const ACTIONS = [
   { id: 'cinematicPrompt', label: 'Write this shot for me', hint: 'A production-ready prompt from your scene', empty: true },
@@ -21,11 +25,12 @@ function demoSuggestion(scene) {
   };
 }
 
-/** Free AI Director assistance for the shot prompt. Never spends credits. */
-export default function StudioDirector({ scene, project, styleName, onApply, open, onOpenChange }) {
+/** Paid AI Director assistance for the shot prompt. Each request costs COST credits, refunded if it fails. */
+export default function StudioDirector({ scene, project, styleName, onApply, open, onOpenChange, credits = null, onCharged }) {
   const [busy, setBusy] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [needsCredits, setNeedsCredits] = useState(false);
   const [instruction, setInstruction] = useState('');
   const wrapRef = useRef(null);
   const hasText = Boolean(scene?.prompt?.trim());
@@ -40,7 +45,14 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
   }, [open, onOpenChange]);
 
   async function run(action, custom = '') {
-    setBusy(action + custom); setError(''); setResult(null);
+    setError(''); setResult(null); setNeedsCredits(false);
+    if (!demoModeEnabled && credits !== null && credits < COST) {
+      setNeedsCredits(true);
+      setError(`The AI Director costs ${COST} credits per request. You have ${credits}.`);
+      onOpenChange(false);
+      return;
+    }
+    setBusy(action + custom);
     try {
       if (demoModeEnabled) {
         await new Promise((r) => setTimeout(r, 700));
@@ -60,10 +72,12 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
           },
         });
         setResult(data);
+        if (data?.credits_charged) onCharged?.(data.credits_charged);
       }
       onOpenChange(false);
     } catch (e) {
-      setError(e.message || 'The Director is unavailable right now.');
+      if (e.status === 402) setNeedsCredits(true);
+      setError(e.status === 402 ? (e.message || `The AI Director costs ${COST} credits. Add credits to keep directing.`) : `${e.message || 'The Director is unavailable right now.'} No credits were charged.`);
     } finally {
       setBusy('');
     }
@@ -76,11 +90,11 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
       </button>
       {open && (
         <div className="sx-menu sx-director-menu" role="menu">
-          <p className="sx-menu-heading">AI Director · free, never uses credits</p>
+          <p className="sx-menu-heading">AI Director · {COST} credits per request</p>
           {ACTIONS.filter((a) => (hasText ? !a.empty || a.id === 'createVisualDirection' : !a.needsText)).map((a) => (
             <button key={a.label} type="button" role="menuitem" onClick={() => run(a.id)} disabled={Boolean(busy)}>
               <span className="sx-dir-text"><strong>{a.label}</strong><small>{a.hint}</small></span>
-              {busy === a.id && <span className="sx-mini-spin" aria-hidden="true" />}
+              {busy === a.id ? <span className="sx-mini-spin" aria-hidden="true" /> : <span className="sx-dir-cost">{COST} cr</span>}
             </button>
           ))}
           <form className="sx-dir-custom" onSubmit={(e) => { e.preventDefault(); if (instruction.trim()) run('applyDirectorInstruction', instruction.trim()); }}>
@@ -106,7 +120,9 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
               </div>
             </>
           )}
-          {error && <button type="button" className="sx-link-btn" onClick={() => setError('')}>Dismiss</button>}
+          {needsCredits && <Link href="/account" className="sx-btn sx-btn-gold sx-btn-sm sx-dir-buy">Add credits</Link>}
+          {error && <button type="button" className="sx-link-btn" onClick={() => { setError(''); setNeedsCredits(false); }}>Dismiss</button>}
+          {result && !demoModeEnabled && <p className="sx-hint sx-dir-charged">{result.credits_charged || COST} credits used</p>}
         </div>
       )}
     </div>
