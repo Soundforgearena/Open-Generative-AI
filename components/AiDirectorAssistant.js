@@ -96,7 +96,7 @@ export default function AiDirectorAssistant({ fieldType, fieldLabel, value, cont
     } catch (assistError) {
       setResult(null);
       setStatus(assistError.status === 402
-        ? `${assistError.message || 'Not enough credits for the AI Director.'} Add credits from Account and billing.`
+        ? `${assistError.message || 'Not enough credits for the AI Director.'} Sign-up bonus credits can't be used for the Director. Add credits from Account and billing.`
         : `${assistError.message || 'The Director could not respond just now. Please try again.'} No credits were charged.`);
     } finally {
       setPendingAction(null);
@@ -170,7 +170,7 @@ export default function AiDirectorAssistant({ fieldType, fieldLabel, value, cont
           <button ref={closeRef} type="button" className="cinex-director-close" onClick={onClose} aria-label="Close AI Director">×</button>
         </div>
         {demoModeEnabled && <p className="cinex-demo-indicator">Demo Director preview — suggestions are generated locally. No model call, video generation, or credits are used.</p>}
-        {!demoModeEnabled && <p className="cinex-form-optional">Each AI Director request costs 8 credits. If a request fails, nothing is charged.</p>}
+        {!demoModeEnabled && <p className="cinex-form-optional">The AI Director runs on purchased credits (1 credit = $0.01). You pay only for what each request uses, usually a few cents. Failed requests are never charged.</p>}
         <div className="cinex-director-actions">
           {actions.map(([action, label]) => <button type="button" key={`${action}-${label}`} onClick={() => runAction(action)} disabled={busy}>{label}</button>)}
         </div>

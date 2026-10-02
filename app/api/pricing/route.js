@@ -1,4 +1,7 @@
+import { maxDirectorCredits, typicalDirectorCredits } from '../../../lib/billing/director-pricing';
 import { selectRows, callRpc, getSetting } from '../../../lib/cinexvideo-server';
+
+const DIRECTOR_MODEL = process.env.OPENAI_DIRECTOR_MODEL || 'gpt-5';
 
 /**
  * Public pricing.
@@ -108,7 +111,12 @@ export async function GET() {
       plans,
       actions,
       best_value_code: cheapest?.pack?.code || null,
-      free_actions: ['Exports and watermarking', 'Script, scene and shot planning', 'Reference uploads and storage'],
+      director: {
+        paid_credits_only: true,
+        assist: { label: 'AI Director writing help', max_credits: maxDirectorCredits('assist', DIRECTOR_MODEL), typical_credits: typicalDirectorCredits('assist', DIRECTOR_MODEL) },
+        plan: { label: 'AI Director full production plan', max_credits: maxDirectorCredits('plan', DIRECTOR_MODEL), typical_credits: typicalDirectorCredits('plan', DIRECTOR_MODEL) },
+      },
+      free_actions: ['Exports and watermarking', 'Writing and editing scenes and shots yourself', 'Reference uploads and storage', 'Readiness checks'],
       signup_credits: Number(signup?.signup_credits) || 0,
     });
   } catch (err) {

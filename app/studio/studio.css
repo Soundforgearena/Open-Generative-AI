@@ -555,3 +555,4 @@
 .sx-dir-cost { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--sx-gold, #e8b85c); background: rgba(232,184,92,.1); border: 1px solid rgba(232,184,92,.25); border-radius: 999px; padding: 2px 8px; white-space: nowrap; align-self: center; }
 .sx-dir-buy { margin-top: 8px; display: inline-flex; text-decoration: none; }
 .sx-dir-charged { margin-top: 6px; font-size: 12px; opacity: .75; }
+.sx-dir-price { margin: 0 12px 8px; font-size: 12px; line-height: 1.45; color: rgba(255,255,255,.62); }

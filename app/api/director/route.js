@@ -1,5 +1,14 @@
 import { callRpc, guard, requireSecret, safeError } from '../../../lib/cinexvideo-server';
-import { DIRECTOR_MAX_OUTPUT_TOKENS, DIRECTOR_PRICING_POLICY, directorCost } from '../../../lib/billing/director-pricing';
+import {
+  CHARS_PER_TOKEN,
+  DIRECTOR_PRICING_POLICY,
+  DIRECTOR_TOKEN_BUDGET,
+  isReasoningModel,
+  maxDirectorCredits,
+  ratesFor,
+  settledDirectorCredits,
+  typicalDirectorCredits,
+} from '../../../lib/billing/director-pricing';
 import {
   DIRECTOR_ACTION_BRIEFS,
   DIRECTOR_FIELD_BRIEFS,
@@ -22,18 +31,28 @@ const ASSIST_SCHEMA = {
   required: ['suggestion', 'whatChanged', 'craftNote', 'followUpPrompts'],
 };
 
-async function callDirectorModel({ system, user, schemaName, schema, maxOutputTokens }) {
+/** Keep every request inside its priced input budget. */
+function fitInput(text, kind) {
+  const maxChars = Math.floor(DIRECTOR_TOKEN_BUDGET[kind].input * CHARS_PER_TOKEN);
+  return String(text || '').slice(0, maxChars);
+}
+
+async function callDirectorModel({ kind, system, user, schemaName, schema }) {
   const apiKey = requireSecret('OPENAI_API_KEY');
+  const budget = DIRECTOR_TOKEN_BUDGET[kind];
+  const systemText = fitInput(system, kind);
+  const userText = fitInput(user, kind).slice(0, Math.max(0, Math.floor(budget.input * CHARS_PER_TOKEN) - systemText.length));
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: DIRECTOR_MODEL,
       input: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
+        { role: 'system', content: systemText },
+        { role: 'user', content: userText },
       ],
-      max_output_tokens: maxOutputTokens,
+      max_output_tokens: budget.output,
+      ...(isReasoningModel(DIRECTOR_MODEL) ? { reasoning: { effort: 'low' } } : {}),
       text: { format: { type: 'json_schema', name: schemaName, strict: true, schema } },
     }),
   });
@@ -43,11 +62,15 @@ async function callDirectorModel({ system, user, schemaName, schema, maxOutputTo
     return null;
   }
   const result = await response.json();
+  if (result.status && result.status !== 'completed') {
+    console.error('director model incomplete', result.status, result.incomplete_details);
+    return null;
+  }
   const text =
     result.output_text ||
     result.output?.flatMap((item) => item.content || []).find((item) => item.type === 'output_text')?.text;
   if (!text) return null;
-  return JSON.parse(text);
+  return { data: JSON.parse(text), usage: result.usage || null };
 }
 
 /** Checks run before any credits are reserved, so bad requests are never charged. */
@@ -107,21 +130,25 @@ async function handleAssist(body) {
     .filter(Boolean)
     .join('\n\n');
 
-  const plan = await callDirectorModel({
+  const model = await callDirectorModel({
+    kind: 'assist',
     system,
     user: details,
     schemaName: 'cinexvideo_director_assist',
     schema: ASSIST_SCHEMA,
-    maxOutputTokens: DIRECTOR_MAX_OUTPUT_TOKENS.assist,
   });
-  if (!plan) return safeError('Director service is temporarily unavailable.', 502);
+  if (!model) return { response: safeError('Director service is temporarily unavailable.', 502) };
+  const plan = model.data;
 
-  return Response.json({
-    suggestion: plan.suggestion,
-    whatChanged: plan.whatChanged,
-    craftNote: plan.craftNote,
-    followUpPrompts: Array.isArray(plan.followUpPrompts) ? plan.followUpPrompts.slice(0, 3) : [],
-  });
+  return {
+    usage: model.usage,
+    response: Response.json({
+      suggestion: plan.suggestion,
+      whatChanged: plan.whatChanged,
+      craftNote: plan.craftNote,
+      followUpPrompts: Array.isArray(plan.followUpPrompts) ? plan.followUpPrompts.slice(0, 3) : [],
+    }),
+  };
 }
 
 const PLAN_SCHEMA = { type: 'object', additionalProperties: false, properties: { creative_title: { type: 'string' }, logline: { type: 'string' }, visual_identity: { type: 'object', additionalProperties: false, properties: { palette: { type: 'array', items: { type: 'string' } }, lighting: { type: 'string' }, camera_language: { type: 'string' } }, required: ['palette','lighting','camera_language'] }, characters: { type: 'array', items: { type: 'string' } }, locations: { type: 'array', items: { type: 'string' } }, outfits: { type: 'array', items: { type: 'string' } }, scenes: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { title: { type: 'string' }, purpose: { type: 'string' }, duration_seconds: { type: 'integer' }, shot_direction: { type: 'string' }, prompt: { type: 'string' } }, required: ['title','purpose','duration_seconds','shot_direction','prompt'] } } }, required: ['creative_title','logline','visual_identity','characters','locations','outfits','scenes'] };
@@ -138,26 +165,31 @@ function errorMessage(result) {
 }
 
 /**
- * Reserve the Director's price up front so a user can never run the model
- * without the credits to pay for it. Success settles the charge; any failure
- * (model error, timeout, bad output) releases it in full.
+ * Reserve the Director's maximum price in purchased credits before the model
+ * runs (sign-up and bonus credits cannot be used). On success, settle at the
+ * cost of the tokens actually used plus margin; any failure releases it all.
  */
 async function chargeDirector(user, kind, idempotencyKey, run) {
-  const credits = directorCost(kind);
-  const reservation = await callRpc('reserve_credits_v2', {
+  const maxCredits = maxDirectorCredits(kind, DIRECTOR_MODEL);
+  if (!ratesFor(DIRECTOR_MODEL).known) console.warn('director model has no rate card; using conservative pricing', DIRECTOR_MODEL);
+  const reservation = await callRpc('reserve_paid_credits_v1', {
     p_user_id: user.id,
     p_operation: `director_${kind}`,
-    p_estimated_credits: credits,
-    p_max_reservation_credits: credits,
+    p_estimated_credits: typicalDirectorCredits(kind, DIRECTOR_MODEL),
+    p_max_reservation_credits: maxCredits,
     p_pricing_policy_version: DIRECTOR_PRICING_POLICY,
     p_idempotency_key: idempotencyKey,
   });
   const row = Array.isArray(reservation.data) ? reservation.data[0] : reservation.data;
   if (!reservation.ok || !row?.id) {
     const message = errorMessage(reservation);
-    if (message.includes('INSUFFICIENT_CREDITS')) {
+    if (message.includes('INSUFFICIENT_PAID_CREDITS') || message.includes('INSUFFICIENT_CREDITS')) {
       return Response.json(
-        { error: `The AI Director costs ${credits} credits. Add credits to keep directing.`, code: 'insufficient_credits', credits_required: credits },
+        {
+          error: `The AI Director runs on purchased credits. This request can cost up to ${maxCredits} credits ($${(maxCredits / 100).toFixed(2)}); sign-up bonus credits can't be used for it.`,
+          code: 'insufficient_paid_credits',
+          credits_required: maxCredits,
+        },
         { status: 402 }
       );
     }
@@ -165,24 +197,45 @@ async function chargeDirector(user, kind, idempotencyKey, run) {
     if (message.includes('No credit wallet')) return safeError('Your credit wallet is not ready yet. Please refresh and try again.', 409);
     return safeError('Could not reserve credits for the Director. Please try again.', 409);
   }
-  if (row.status !== 'reserved') return safeError('This Director request was already processed.', 409);
 
-  let response;
+  let outcome;
   try {
-    response = await run();
+    outcome = await run();
   } catch (err) {
     console.error('director run failed', err);
-    response = safeError('Director service is temporarily unavailable.', 502);
+    outcome = { response: safeError('Director service is temporarily unavailable.', 502) };
   }
-  if (response.ok) {
-    const settled = await callRpc('settle_reservation_v2', { p_reservation_id: row.id, p_settled_credits: credits, p_generation_job_id: null });
+  if (outcome.response.ok) {
+    const charged = settledDirectorCredits(kind, DIRECTOR_MODEL, outcome.usage);
+    const settled = await callRpc('settle_reservation_v2', { p_reservation_id: row.id, p_settled_credits: charged, p_generation_job_id: null });
     if (!settled.ok) console.error('director settle failed', row.id, errorMessage(settled));
-    const data = await response.json();
-    return Response.json({ ...data, credits_charged: credits });
+    const data = await outcome.response.json();
+    return Response.json({ ...data, credits_charged: charged, credits_max: maxCredits });
   }
   const released = await callRpc('release_reservation_v2', { p_reservation_id: row.id, p_reason: 'director_failed' });
   if (!released.ok) console.error('director release failed', row.id, errorMessage(released));
-  return response;
+  return outcome.response;
+}
+
+/** Public price list for the Director, in credits (1 credit = $0.01). */
+export async function GET(request) {
+  const price = (kind) => ({ max_credits: maxDirectorCredits(kind, DIRECTOR_MODEL), typical_credits: typicalDirectorCredits(kind, DIRECTOR_MODEL) });
+  let paidAvailable = null;
+  if (request.headers.get('authorization')) {
+    const { user } = await guard(request);
+    if (user) {
+      const paid = await callRpc('paid_credits_available', { p_user_id: user.id });
+      if (paid.ok) paidAvailable = Number(Array.isArray(paid.data) ? paid.data[0] : paid.data) || 0;
+    }
+  }
+  return Response.json({
+    credit_usd_cents: 1,
+    paid_credits_only: true,
+    assist: price('assist'),
+    plan: price('plan'),
+    paid_credits_available: paidAvailable,
+    policy: DIRECTOR_PRICING_POLICY,
+  });
 }
 
 export async function POST(request) {
@@ -199,15 +252,15 @@ export async function POST(request) {
     if (!body.prompt?.trim()) return safeError('Please enter a creative idea.');
     const laneBrief = LANE_BRIEF[body.lane] || LANE_BRIEF.episode;
     return await chargeDirector(user, 'plan', idempotencyKey, async () => {
-      const plan = await callDirectorModel({
+      const model = await callDirectorModel({
+        kind: 'plan',
         system: `${DIRECTOR_PERSONA} ${laneBrief} Return concise production-ready direction as JSON with creative_title, logline, visual_identity, characters, locations, outfits, and scenes. Plan between 4 and 12 scenes. Do not mention vendors, APIs, costs, or internal business rules.`,
         user: body.prompt.slice(0, 6000),
         schemaName: 'cinexvideo_director_plan',
         schema: PLAN_SCHEMA,
-        maxOutputTokens: DIRECTOR_MAX_OUTPUT_TOKENS.plan,
       });
-      if (!plan) return safeError('Director service is temporarily unavailable.', 502);
-      return Response.json({ plan });
+      if (!model) return { response: safeError('Director service is temporarily unavailable.', 502) };
+      return { usage: model.usage, response: Response.json({ plan: model.data }) };
     });
   } catch (error) {
     console.error('director route', error);

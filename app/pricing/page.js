@@ -101,9 +101,25 @@ export default function PricingPage() {
                       </tr>
                     ))
                   )}
+                  {pricing.director && ['assist', 'plan'].map((kind) => (
+                    <tr key={`director-${kind}`}>
+                      <td>
+                        {pricing.director[kind].label}
+                        <span className="cinex-pricing-unit">per request · purchased credits only</span>
+                      </td>
+                      <td>—</td>
+                      <td>~{pricing.director[kind].typical_credits} (max {pricing.director[kind].max_credits})</td>
+                      <td>≈ {money(pricing.director[kind].typical_credits)} (max {money(pricing.director[kind].max_credits)})</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
+            {pricing.director && (
+              <p className="cinex-form-optional">
+                The AI Director charges for what each request actually uses, never more than the maximum shown, and failed requests are never charged. It runs on purchased credits only; sign-up bonus credits can be used for generations.
+              </p>
+            )}
             {pricing.free_actions?.length ? (
               <p className="cinex-form-optional">
                 Included at no credit cost: {pricing.free_actions.join(', ').toLowerCase()}.

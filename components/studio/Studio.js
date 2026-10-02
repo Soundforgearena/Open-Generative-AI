@@ -980,7 +980,7 @@ export default function Studio() {
               <div className="sx-panel-head sx-panel-head-sm">
                 <h3><Icon.Spark /> AI PROMPT</h3>
                 <div className="sx-head-right">
-                  <StudioDirector scene={scene} project={project} styleName={styleName} onApply={applyDirector} open={directorOpen} onOpenChange={setDirectorOpen} credits={credits} onCharged={(n) => setCredits((c) => (c === null ? c : Math.max(0, c - n)))} />
+                  <StudioDirector scene={scene} project={project} styleName={styleName} onApply={applyDirector} open={directorOpen} onOpenChange={setDirectorOpen} onCharged={(n) => setCredits((c) => (c === null ? c : Math.max(0, c - n)))} />
                   <button type="button" className="sx-head-icon" aria-label={promptOpen ? 'Collapse prompt' : 'Expand prompt'} onClick={() => setPromptOpen((v) => !v)}>{promptOpen ? <Icon.Close /> : <Icon.ChevronDown />}</button>
                 </div>
               </div>
@@ -1256,7 +1256,7 @@ export default function Studio() {
             <dl className="sx-keys">
               {SHORTCUTS.map(([k, label]) => <div key={k}><dt><kbd>{k}</kbd></dt><dd>{label}</dd></div>)}
             </dl>
-            <p className="sx-hint">Drag scenes in the list or the Flight Path to reorder them. The AI Director costs 8 credits per request; failed requests are never charged.</p>
+            <p className="sx-hint">Drag scenes in the list or the Flight Path to reorder them. The AI Director runs on purchased credits and charges only for what it uses (usually a few cents). Failed requests are never charged.</p>
             <div className="sx-dialog-actions">
               <button type="button" className="sx-btn" onClick={() => { setHelpOpen(false); setTourOpen(true); }}>Replay the tour</button>
               <button type="button" className="sx-btn sx-btn-gold" autoFocus onClick={() => setHelpOpen(false)}>Got it</button>

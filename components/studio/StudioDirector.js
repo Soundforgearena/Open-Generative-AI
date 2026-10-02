@@ -5,9 +5,12 @@ import { Icon } from './StudioIcons';
 import { requestDirectorAssist } from '@/lib/cinexvideo-client';
 import Link from 'next/link';
 import { demoModeEnabled } from '@/lib/demo-mode';
-import { DIRECTOR_CREDIT_COSTS } from '@/lib/billing/director-pricing';
+import { maxDirectorCredits, typicalDirectorCredits } from '@/lib/billing/director-pricing';
+import { getDirectorPricing } from '@/lib/cinexvideo-client';
 
-const COST = DIRECTOR_CREDIT_COSTS.assist;
+// Shown until the live price list loads (default model).
+const FALLBACK = { max_credits: maxDirectorCredits('assist', 'gpt-5'), typical_credits: typicalDirectorCredits('assist', 'gpt-5') };
+const usd = (credits) => `$${(credits / 100).toFixed(2)}`;
 
 const ACTIONS = [
   { id: 'cinematicPrompt', label: 'Write this shot for me', hint: 'A production-ready prompt from your scene', empty: true },
@@ -25,8 +28,14 @@ function demoSuggestion(scene) {
   };
 }
 
-/** Paid AI Director assistance for the shot prompt. Each request costs COST credits, refunded if it fails. */
-export default function StudioDirector({ scene, project, styleName, onApply, open, onOpenChange, credits = null, onCharged }) {
+/**
+ * AI Director assistance for the shot prompt. Paid with purchased credits only:
+ * the maximum is reserved up front, the user is charged for what was actually
+ * used, and failed requests cost nothing.
+ */
+export default function StudioDirector({ scene, project, styleName, onApply, open, onOpenChange, onCharged }) {
+  const [price, setPrice] = useState(FALLBACK);
+  const [paidCredits, setPaidCredits] = useState(null);
   const [busy, setBusy] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -38,6 +47,19 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
   useEffect(() => { setResult(null); setError(''); }, [scene?.id]);
 
   useEffect(() => {
+    if (demoModeEnabled) return;
+    let live = true;
+    getDirectorPricing()
+      .then((data) => {
+        if (!live) return;
+        if (data?.assist?.max_credits) setPrice(data.assist);
+        if (data?.paid_credits_available !== null && data?.paid_credits_available !== undefined) setPaidCredits(Number(data.paid_credits_available));
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+
+  useEffect(() => {
     if (!open) return undefined;
     const close = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) onOpenChange(false); };
     document.addEventListener('pointerdown', close);
@@ -46,9 +68,9 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
 
   async function run(action, custom = '') {
     setError(''); setResult(null); setNeedsCredits(false);
-    if (!demoModeEnabled && credits !== null && credits < COST) {
+    if (!demoModeEnabled && paidCredits !== null && paidCredits < price.max_credits) {
       setNeedsCredits(true);
-      setError(`The AI Director costs ${COST} credits per request. You have ${credits}.`);
+      setError(`The AI Director runs on purchased credits. A request can cost up to ${price.max_credits} credits (${usd(price.max_credits)}) and you have ${paidCredits} purchased credits. Sign-up bonus credits can't be used for the Director.`);
       onOpenChange(false);
       return;
     }
@@ -72,12 +94,15 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
           },
         });
         setResult(data);
-        if (data?.credits_charged) onCharged?.(data.credits_charged);
+        if (data?.credits_charged) {
+          onCharged?.(data.credits_charged);
+          setPaidCredits((c) => (c === null ? c : Math.max(0, c - data.credits_charged)));
+        }
       }
       onOpenChange(false);
     } catch (e) {
       if (e.status === 402) setNeedsCredits(true);
-      setError(e.status === 402 ? (e.message || `The AI Director costs ${COST} credits. Add credits to keep directing.`) : `${e.message || 'The Director is unavailable right now.'} No credits were charged.`);
+      setError(e.status === 402 ? (e.message || `The AI Director runs on purchased credits. Add credits to keep directing.`) : `${e.message || 'The Director is unavailable right now.'} No credits were charged.`);
     } finally {
       setBusy('');
     }
@@ -90,11 +115,12 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
       </button>
       {open && (
         <div className="sx-menu sx-director-menu" role="menu">
-          <p className="sx-menu-heading">AI Director · {COST} credits per request</p>
+          <p className="sx-menu-heading">AI Director · purchased credits</p>
+          <p className="sx-dir-price">Usually ~{price.typical_credits} credits ({usd(price.typical_credits)}), never more than {price.max_credits} ({usd(price.max_credits)}). You only pay for what the Director uses. 1 credit = $0.01.</p>
           {ACTIONS.filter((a) => (hasText ? !a.empty || a.id === 'createVisualDirection' : !a.needsText)).map((a) => (
             <button key={a.label} type="button" role="menuitem" onClick={() => run(a.id)} disabled={Boolean(busy)}>
               <span className="sx-dir-text"><strong>{a.label}</strong><small>{a.hint}</small></span>
-              {busy === a.id ? <span className="sx-mini-spin" aria-hidden="true" /> : <span className="sx-dir-cost">{COST} cr</span>}
+              {busy === a.id ? <span className="sx-mini-spin" aria-hidden="true" /> : <span className="sx-dir-cost">~{price.typical_credits} cr</span>}
             </button>
           ))}
           <form className="sx-dir-custom" onSubmit={(e) => { e.preventDefault(); if (instruction.trim()) run('applyDirectorInstruction', instruction.trim()); }}>
@@ -122,7 +148,7 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
           )}
           {needsCredits && <Link href="/account" className="sx-btn sx-btn-gold sx-btn-sm sx-dir-buy">Add credits</Link>}
           {error && <button type="button" className="sx-link-btn" onClick={() => { setError(''); setNeedsCredits(false); }}>Dismiss</button>}
-          {result && !demoModeEnabled && <p className="sx-hint sx-dir-charged">{result.credits_charged || COST} credits used</p>}
+          {result && !demoModeEnabled && result.credits_charged && <p className="sx-hint sx-dir-charged">{result.credits_charged} credits used ({usd(result.credits_charged || 0)}) · max was {result.credits_max}</p>}
         </div>
       )}
     </div>

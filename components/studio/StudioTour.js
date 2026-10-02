@@ -7,7 +7,7 @@ export const TOUR_KEY = 'cinex-studio-tour-v1';
 const STEPS = [
   { target: null, title: 'Welcome to your studio', body: 'This is where your film comes to life. A 40-second tour, then the camera is yours.' },
   { target: 'scenes', title: 'Your scenes', body: 'Every beat of your story. Click one to direct it, drag to reorder, or add new scenes at the bottom.' },
-  { target: 'prompt', title: 'Describe the shot', body: 'Write what the camera sees, or press Director and let the AI Director write it for you (8 credits per request).' },
+  { target: 'prompt', title: 'Describe the shot', body: 'Write what the camera sees, or press Director and let the AI Director write it for you (purchased credits, usually a few cents).' },
   { target: 'shot', title: 'Call the camera', body: 'Shot type, movement, angle and lens become real camera language in your generation.' },
   { target: 'inspector', title: 'Fine-tune everything', body: 'Visual style, continuity between scenes, your soundtrack, and generation settings live here.' },
   { target: 'flight', title: "Director's Flight Path", body: 'See the whole film at a glance. Green is locked, amber needs review, red needs attention. Click anywhere to jump there.' },
