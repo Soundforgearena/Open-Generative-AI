@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import CinexRoutePage from '@/components/CinexRoutePage';
 import { demoModeEnabled } from '@/lib/demo-mode';
 import { createMusicProject, DEMO_TRACKS } from '@/lib/music-video-demo';
+import { createProject } from '@/lib/cinexvideo-client';
+import { buildMusicVideoPlan } from '@/lib/studio/music-video-plan';
 import MusicSourceStep from '@/components/music-video/MusicSourceStep';
 import LyricsStep from '@/components/music-video/LyricsStep';
 
@@ -22,10 +24,22 @@ function MusicVideoNewContent() {
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
-    if (!demoModeEnabled) { setMessage('Connect an authenticated account before processing music.'); return; }
     if (!rights) { setMessage('Confirm that you own this music or have permission before continuing.'); return; }
+    if (!demoModeEnabled) {
+      setSaving(true);
+      setMessage('');
+      try {
+        const plan = buildMusicVideoPlan({ title: title || 'Untitled music video', style, feeling, aspectRatio, lyrics: lyricsMode === 'instrumental' ? '' : lyrics });
+        const result = await createProject({ lane: 'music_video', title: plan.creative_title, plan });
+        router.push(`/studio?project=${encodeURIComponent(result.project_id)}&welcome=1&upload=audio`);
+      } catch (error) {
+        setMessage(error.status === 401 ? 'Sign in to save your music video project.' : error.message || 'Your project could not be created. Please try again.');
+        setSaving(false);
+      }
+      return;
+    }
     setSaving(true);
     const draftLyrics = lyricsMode === 'transcription-draft' && !lyrics.trim() ? ['The night is opening', 'Follow the light', 'Every beat becomes a choice'] : lyrics.split('\n').filter(Boolean);
     const lyricLines = lyricsMode === 'instrumental' ? [] : draftLyrics.map((text, index) => ({ line: index + 1, text, start: index * 4, end: index * 4 + 4, confidence: lyricsMode === 'official' ? 'needs review' : 'draft', confirmed: false }));
@@ -45,7 +59,7 @@ function MusicVideoNewContent() {
       <label>Aspect ratio<select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)}><option>16:9</option><option>9:16</option><option>1:1</option><option>2.39:1</option></select></label>
       <label className="cinex-check-row"><input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)} /> I confirm I own this music or have permission to create, generate, edit, and distribute a video using it.</label>
       <button type="submit" className="cinex-route-primary" disabled={saving}>{saving ? 'Saving music project...' : 'Continue to AI Director'}</button>
-      <p className="cinex-form-optional">Only use music you created or have permission to use. Import support will be enabled after account and authorized-source integration.</p>
+      <p className="cinex-form-optional">Only use music you created or have permission to use. {demoModeEnabled ? 'Demo mode keeps everything local.' : 'Next, you will upload your track in the Studio and the timeline will sync to it.'}</p>
       {message && <p className="cinex-form-error" role="alert">{message}</p>}
     </form>
   </CinexRoutePage>;

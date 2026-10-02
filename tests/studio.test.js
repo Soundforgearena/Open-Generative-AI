@@ -57,3 +57,36 @@ test('studio route is session-protected', async () => {
   const mw = await readFile(new URL('../middleware.js', import.meta.url), 'utf8');
   assert.match(mw, /startsWith\('\/studio'\)/);
 });
+import { moveId, newSceneFields, MAX_SCENES } from '../lib/studio/scene-order.js';
+import { buildMusicVideoPlan } from '../lib/studio/music-video-plan.js';
+import { actionRequiresExistingText, isDirectorAction } from '../lib/director-actions.js';
+
+test('scene reorder moves one id and keeps the rest', () => {
+  assert.deepEqual(moveId(['a', 'b', 'c', 'd'], 'a', 2), ['b', 'c', 'a', 'd']);
+  assert.deepEqual(moveId(['a', 'b', 'c'], 'c', 0), ['c', 'a', 'b']);
+  assert.deepEqual(moveId(['a', 'b'], 'z', 0), ['a', 'b']);
+});
+test('new scenes are sanitised drafts', () => {
+  const f = newSceneFields({ title: '  ', duration_seconds: 9999, prompt: 'x'.repeat(6000) }, 'Scene 4');
+  assert.equal(f.title, 'Scene 4'); assert.equal(f.duration_seconds, 600); assert.equal(f.prompt.length, 5000); assert.equal(f.status, 'draft');
+  assert.equal(MAX_SCENES, 60);
+});
+test('music video plan creates real song sections with lyric beats', () => {
+  const plan = buildMusicVideoPlan({ title: 'Midnight', style: 'Performance', feeling: 'euphoric', aspectRatio: '2.39:1', lyrics: 'one\ntwo\nthree' });
+  assert.equal(plan.scenes.length, 8); assert.equal(plan.scenes[3].title, 'Chorus');
+  assert.equal(plan.visual_identity.aspect_ratio, '21:9');
+  assert.match(plan.scenes[0].prompt, /euphoric/);
+});
+test('Director can write a cinematic prompt for an empty field', () => {
+  assert.equal(isDirectorAction('cinematicPrompt'), true);
+  assert.equal(actionRequiresExistingText('cinematicPrompt'), false);
+});
+test('deleting a scene with takes requires explicit confirmation', async () => {
+  const src = await readFile(new URL('../app/api/scenes/[id]/route.js', import.meta.url), 'utf8');
+  assert.match(src, /requires_confirmation: true/); assert.match(src, /confirm_takes !== true/); assert.match(src, /status === 'generating'/);
+});
+test('new projects open straight into the studio', async () => {
+  const story = await readFile(new URL('../app/create/story/page.js', import.meta.url), 'utf8');
+  const music = await readFile(new URL('../app/music-video/new/page.js', import.meta.url), 'utf8');
+  assert.match(story, /\/studio\?project=/); assert.match(music, /lane: 'music_video'/); assert.match(music, /upload=audio/);
+});
