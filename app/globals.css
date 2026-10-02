@@ -3276,3 +3276,9 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 @media (max-width: 640px) { .cinex-admin-table th, .cinex-admin-table td { white-space: nowrap; } }
 .cinex-legal-back { min-height: 44px; display: inline-flex; align-items: center; }
 .cinex-nav a { min-height: 44px; display: inline-flex; align-items: center; }
+
+.cinex-readiness-note { font-size: 13px; opacity: .75; margin: 8px 0 0; }
+.cinex-readiness-result { margin-top: 12px; padding: 14px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,.14); display: grid; gap: 6px; font-size: 14px; overflow-wrap: anywhere; }
+.cinex-readiness-result.is-ready { border-color: rgba(74,222,128,.55); background: rgba(74,222,128,.08); }
+.cinex-readiness-result.is-blocked { border-color: rgba(251,191,36,.55); background: rgba(251,191,36,.08); }
+.cinex-readiness-result ul { margin: 0; padding-left: 18px; }

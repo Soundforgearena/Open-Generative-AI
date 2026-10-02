@@ -21,3 +21,18 @@ test('preflight returns before reserving credits or calling the provider', async
   assert.ok(pf > 0);
   assert.ok(pf < src.indexOf("callRpc('reserve_credits_v2'"));
 });
+import { summarizeProjectReadiness } from '../lib/billing/generation-preflight.js';
+test('project readiness compares the total of all scenes against the balance', () => {
+  const s = summarizeProjectReadiness([0,1,2].map(() => buildPreflightReport({ ...ok, balance: 20 })));
+  assert.equal(s.totalCredits, 24); assert.equal(s.ready, false); assert.match(s.problems[0], /20 available, 24 needed/);
+});
+test('project readiness is ready when balance covers every scene', () => {
+  const s = summarizeProjectReadiness([0,1,2].map(() => buildPreflightReport(ok)));
+  assert.equal(s.ready, true); assert.equal(s.totalCredits, 24);
+});
+test('review page offers a free readiness check that uses preflight, not reservation', async () => {
+  const page = await readFile(new URL('../app/create/review/page.js', import.meta.url), 'utf8');
+  assert.match(page, /Check readiness \(free\)/);
+  const fn = page.slice(page.indexOf('async function checkReadiness'), page.indexOf('async function saveChanges'));
+  assert.match(fn, /preflightGeneration/); assert.doesNotMatch(fn, /confirmed_max_credits|startGeneration|idempotency/);
+});
