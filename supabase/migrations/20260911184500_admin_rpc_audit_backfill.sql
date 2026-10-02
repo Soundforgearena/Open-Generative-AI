@@ -9,6 +9,18 @@
 
 -- 1) Ensure the richer user_admin_actions schema exists and migrate legacy rows
 
+-- Fresh databases: create the legacy shape first so the upgrade path below is
+-- identical for new and existing environments.
+create table if not exists public.user_admin_actions (
+  id uuid primary key default gen_random_uuid(),
+  admin_user_id uuid references auth.users(id) on delete set null,
+  target_user_id uuid references auth.users(id) on delete set null,
+  action text,
+  credits integer,
+  note text,
+  created_at timestamptz not null default now()
+);
+
 alter table public.user_admin_actions
   add column if not exists action_type text,
   add column if not exists old_value jsonb,

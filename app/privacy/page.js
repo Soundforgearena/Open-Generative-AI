@@ -6,7 +6,7 @@ export default function PrivacyPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black text-white">
       <div className="max-w-4xl mx-auto px-6 py-16">
-        <Link href="/" className="inline-flex items-center gap-2 mb-8 text-slate-400 hover:text-white transition-colors">
+        <Link href="/" className="inline-flex items-center gap-2 min-h-[44px] py-2 mb-8 text-slate-400 hover:text-white transition-colors">
           ← Back to CinexVideo
         </Link>
         

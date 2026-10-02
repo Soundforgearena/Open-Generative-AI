@@ -3257,3 +3257,20 @@ button {
     text-align: center;
   }
 }
+
+/* ---- Cross-device compatibility (iOS Safari, Android Chrome, tablets) ---- */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+@supports (height: 100dvh) {
+  .cinex-page, .cinex-readiness-page, .cinex-admin-page, .cinex-route-page { min-height: 100dvh; }
+}
+.cinex-container {
+  padding-left: max(clamp(16px, 4vw, 48px), env(safe-area-inset-left));
+  padding-right: max(clamp(16px, 4vw, 48px), env(safe-area-inset-right));
+}
+.cinex-home-mark, .cinex-route-home, .cinex-route-secondary-link, .cinex-maintenance-link {
+  min-height: 44px; min-width: 44px; display: inline-flex; align-items: center;
+}
+.cinex-nav a { font-size: max(14px, 1em); }
+.cinex-action-text small, .cinex-template-card span { font-size: max(13px, 1em); }
+.cinex-admin-table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+@media (max-width: 640px) { .cinex-admin-table th, .cinex-admin-table td { white-space: nowrap; } }
