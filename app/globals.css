@@ -3274,3 +3274,5 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .cinex-action-text small, .cinex-template-card span { font-size: max(13px, 1em); }
 .cinex-admin-table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 @media (max-width: 640px) { .cinex-admin-table th, .cinex-admin-table td { white-space: nowrap; } }
+.cinex-legal-back { min-height: 44px; display: inline-flex; align-items: center; }
+.cinex-nav a { min-height: 44px; display: inline-flex; align-items: center; }
