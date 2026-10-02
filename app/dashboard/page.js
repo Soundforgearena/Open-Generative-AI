@@ -83,7 +83,7 @@ export default function DashboardPage() {
         {drafts.length ? (
           <div className="cinex-dashboard-list">
             {drafts.map((draft) => (
-              <Link key={draft.id || draft.key} href={`/create/project/${draft.id}`} className="cinex-dashboard-draft">
+              <Link key={draft.id || draft.key} href={draft.production ? `/studio?project=${encodeURIComponent(draft.id)}` : `/create/project/${draft.id}`} className="cinex-dashboard-draft">
                 <strong>{draft.title || 'Untitled project'}</strong>
                 <span>
                   {draft.status || 'Draft'} · {draft.sourceType || draft.mode}

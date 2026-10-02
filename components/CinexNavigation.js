@@ -123,6 +123,7 @@ export default function CinexNavigation({ showFeatures = false }) {
         {showFeatures && <a href="#features" onClick={closeMenu}>Features</a>}
         {authReady && user ? (
           <>
+            <Link href="/studio" onClick={closeMenu}>Studio</Link>
             <Link href="/dashboard" onClick={closeMenu}>Dashboard</Link>
             <Link href="/account" onClick={closeMenu}>Account</Link>
             {isAdmin && <Link href="/admin" className="cinex-nav-admin" onClick={closeMenu}>Admin</Link>}

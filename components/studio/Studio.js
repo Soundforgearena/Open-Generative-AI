@@ -4,14 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Icon, Logo } from './StudioIcons';
+import StudioDirector from './StudioDirector';
+import StudioTour, { SHORTCUTS, TOUR_KEY } from './StudioTour';
 import { demoModeEnabled } from '@/lib/demo-mode';
 import {
+  createScene,
+  deleteScene,
   getAccount,
   getCatalog,
   getProject,
   listProjects,
   preflightGeneration,
   quoteGeneration,
+  reorderScenes,
   startGeneration,
   updateProject,
   updateScene,
@@ -177,6 +182,16 @@ export default function Studio() {
   const [readiness, setReadiness] = useState(null);
   const [audioPeaks, setAudioPeaks] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [directorOpen, setDirectorOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [sceneMenu, setSceneMenu] = useState('');
+  const [dragId, setDragId] = useState('');
+  const [dropIndex, setDropIndex] = useState(-1);
+  const [deleteDialog, setDeleteDialog] = useState(null);
+  const [celebrate, setCelebrate] = useState('');
+  const [genStartedAt, setGenStartedAt] = useState(0);
+  const [sceneBusy, setSceneBusy] = useState(false);
 
   const videoRef = useRef(null);
   const audioRef = useRef(null);
@@ -243,6 +258,30 @@ export default function Studio() {
     load();
     return () => { cancelled = true; };
   }, [projectParam, applyProject]);
+
+  useEffect(() => {
+    if (loadState !== 'ready') return;
+    let seen = false;
+    try { seen = window.localStorage.getItem(TOUR_KEY) === 'done'; } catch { /* private mode */ }
+    if (search.get('upload') === 'audio') { setTab('assets'); setToast('Upload your track to sync the Flight Path to your song.'); }
+    if (search.get('welcome') === '1' || !seen) {
+      const t = window.setTimeout(() => setTourOpen(true), 500);
+      return () => window.clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadState]);
+
+  useEffect(() => {
+    if (genState !== 'running') return undefined;
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [genState]);
+
+  useEffect(() => {
+    if (!celebrate) return undefined;
+    const t = window.setTimeout(() => setCelebrate(''), 2600);
+    return () => window.clearTimeout(t);
+  }, [celebrate]);
 
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 20000);
@@ -467,14 +506,128 @@ export default function Studio() {
     const onKey = (e) => {
       const tag = e.target?.tagName;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || e.target?.isContentEditable) return;
+      if (tourOpen) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
       if (e.key === 'ArrowRight') step(1);
       if (e.key === 'ArrowLeft') step(-1);
-      if (e.key === 'Escape') { setMenu(''); setGenDialog(null); }
+      if (e.key === 'p' || e.key === 'P') playSequence();
+      if (e.key === 'g' || e.key === 'G') openGenerate();
+      if (e.key === 'd' || e.key === 'D') { e.preventDefault(); setDirectorOpen(true); }
+      if (e.key === 'n' || e.key === 'N') addScene({ afterId: scene?.id });
+      if (e.key === '?') setHelpOpen(true);
+      if (e.key === 'Escape') { setMenu(''); setGenDialog(null); setHelpOpen(false); setSceneMenu(''); setDirectorOpen(false); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+
+  /* ---------------------------------------------------------- scene ops */
+
+  async function refreshProject(focusId) {
+    const fresh = await getProject(project.id);
+    applyProject(fresh);
+    if (focusId) setSelectedId(focusId);
+  }
+
+  async function addScene({ afterId, duplicateOf } = {}) {
+    if (sceneBusy || !project) return;
+    setSceneMenu('');
+    await flush();
+    if (demoModeEnabled) {
+      const source = duplicateOf ? scenes.find((s) => s.id === duplicateOf) : null;
+      const id = `demo-scene-${Date.now()}`;
+      const fresh = source
+        ? { ...source, id, title: `${source.title} (copy)`, status: 'draft', versions: [], output_url: '', thumbnail_url: '', continuity_locked: false }
+        : { id, title: `Scene ${scenes.length + 1}`, purpose: '', prompt: '', shot_direction: '', duration_seconds: 8, continuity_locked: false, status: 'draft', versions: [], output_url: '', thumbnail_url: '' };
+      const at = afterId ? scenes.findIndex((s) => s.id === afterId) + 1 : scenes.length;
+      const next = [...scenes.slice(0, at), fresh, ...scenes.slice(at)].map((s, i) => ({ ...s, position: i + 1 }));
+      setScenes(next); selectScene(id);
+      setToast(source ? 'Scene duplicated.' : 'New scene added. Describe the shot, or ask the Director.');
+      return;
+    }
+    setSceneBusy(true);
+    try {
+      const created = await createScene(project.id, { after_scene_id: afterId || undefined, duplicate_of: duplicateOf || undefined });
+      await refreshProject(created.scene?.id);
+      setToast(duplicateOf ? 'Scene duplicated.' : 'New scene added. Describe the shot, or ask the Director.');
+    } catch (error) {
+      setToast(error.message || 'The scene could not be added.');
+    } finally {
+      setSceneBusy(false);
+    }
+  }
+
+  async function moveScene(id, toIndex) {
+    const from = scenes.findIndex((s) => s.id === id);
+    if (from < 0) return;
+    const target = Math.max(0, Math.min(scenes.length - 1, toIndex));
+    if (target === from) return;
+    const next = scenes.slice();
+    const [moved] = next.splice(from, 1);
+    next.splice(target, 0, moved);
+    const renumbered = next.map((s, i) => ({ ...s, position: i + 1 }));
+    const previous = scenes;
+    setScenes(renumbered);
+    setSceneMenu('');
+    if (demoModeEnabled) return;
+    try {
+      await flush();
+      await reorderScenes(project.id, renumbered.map((s) => s.id));
+      setSavedAt(new Date());
+    } catch (error) {
+      setScenes(previous);
+      setToast(error.message || 'The new order could not be saved.');
+    }
+  }
+
+  async function removeScene(id, confirmTakes = false) {
+    setSceneMenu('');
+    const target = scenes.find((s) => s.id === id);
+    if (!target) return;
+    if (scenes.length <= 1) { setToast('A project needs at least one scene.'); return; }
+    if (!confirmTakes && !deleteDialog) { setDeleteDialog({ id, title: target.title, takes: target.versions?.filter((v) => v.status === 'completed').length || 0 }); return; }
+    setDeleteDialog(null);
+    const idx = scenes.findIndex((s) => s.id === id);
+    const neighbour = scenes[idx + 1] || scenes[idx - 1];
+    if (demoModeEnabled) {
+      setScenes(scenes.filter((s) => s.id !== id).map((s, i) => ({ ...s, position: i + 1 })));
+      selectScene(neighbour.id); setToast(`${target.title} deleted.`);
+      return;
+    }
+    setSceneBusy(true);
+    try {
+      await flush();
+      dirty.current.delete(id);
+      await deleteScene(id, { confirmTakes: true });
+      await refreshProject(neighbour.id);
+      setToast(`${target.title} deleted.`);
+    } catch (error) {
+      setToast(error.message || 'The scene could not be deleted.');
+    } finally {
+      setSceneBusy(false);
+    }
+  }
+
+  function onDragStart(e, id) {
+    setDragId(id);
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', id); } catch { /* Safari */ }
+  }
+  function onDragOver(e, i) { if (!dragId) return; e.preventDefault(); setDropIndex(i); }
+  function onDrop(e, i) {
+    e.preventDefault();
+    if (dragId) moveScene(dragId, i);
+    setDragId(''); setDropIndex(-1);
+  }
+  function onDragEnd() { setDragId(''); setDropIndex(-1); }
+
+  function applyDirector(text, mode) {
+    if (!scene) return;
+    const next = mode === 'append' && scene.prompt ? `${scene.prompt.trim()}\n\n${text}` : text;
+    patchScene(scene.id, { prompt: next.slice(0, 5000) });
+    setToast('Director\'s draft applied. Autosaving.');
+  }
 
   /* ---------------------------------------------------------- generation */
 
@@ -499,6 +652,11 @@ export default function Studio() {
 
   async function openGenerate() {
     if (!scene || !videoOption) { setToast('No video model is available right now.'); return; }
+    if (!scene.prompt?.trim()) {
+      setToast('Describe this shot first, or press D and let the Director write it for you.');
+      setDirectorOpen(true);
+      return;
+    }
     await flush();
     if (demoModeEnabled) { setGenDialog({ scope: 'scene', byScene: { [scene.id]: 8 }, total: 8, all: { total: 8 * scenes.length } }); return; }
     setGenState('quoting');
@@ -518,23 +676,36 @@ export default function Studio() {
     const targets = genDialog.scope === 'all' ? scenes : [scene];
     const needed = genDialog.scope === 'all' ? genDialog.all.total : genDialog.total;
     if (credits !== null && needed > credits) { setToast(`You need ${needed} credits and have ${credits}. Add credits from Account and billing.`); return; }
-    if (demoModeEnabled) { setGenDialog(null); setToast('Demo mode: generation is simulated and spends nothing.'); return; }
+    if (demoModeEnabled) {
+      const ids = targets.map((t) => t.id);
+      setGenDialog(null); setGenState('running'); setGenStartedAt(Date.now());
+      setScenes((cur) => cur.map((x) => (ids.includes(x.id) ? { ...x, status: 'generating' } : x)));
+      window.setTimeout(() => {
+        setScenes((cur) => cur.map((x) => (ids.includes(x.id) ? { ...x, status: 'needs_review' } : x)));
+        setGenState('idle'); setCelebrate(ids[ids.length - 1]);
+        setToast('Demo mode: generation simulated. Nothing was spent.');
+      }, 4200);
+      return;
+    }
     genLock.current = true;
     const dialog = genDialog;
     setGenDialog(null);
     setGenState('running');
+    setGenStartedAt(Date.now());
     let failed = 0;
+    let lastDone = '';
     try {
       for (const s of targets) {
         setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, status: 'generating' } : x)));
         setToast(`Generating ${s.title}...`);
         const job = await startGeneration({ ...payloadFor(s), confirmed_max_credits: dialog.byScene[s.id] });
         const result = await waitForJob(job.request_id);
-        if (result.status !== 'completed') failed += 1;
+        if (result.status !== 'completed') failed += 1; else lastDone = s.id;
       }
       const [fresh, account] = await Promise.all([getProject(project.id), getAccount()]);
       applyProject(fresh);
       setCredits(Number(account.credits ?? 0));
+      if (lastDone) { setSelectedId(lastDone); setCelebrate(lastDone); }
       setToast(failed ? `${failed} scene${failed > 1 ? 's' : ''} failed. Credits for failed scenes were returned.` : 'Generation complete. New takes are ready to review.');
     } catch (error) {
       setToast(error.status === 402 ? 'Not enough credits. Open Account and billing to add more.' : error.message || 'Generation could not be started.');
@@ -597,17 +768,24 @@ export default function Studio() {
   if (loadState !== 'ready') {
     const copy = {
       loading: ['Loading your studio', 'Preparing scenes, credits and the Flight Path...'],
-      empty: ['No projects yet', 'Start a project and your scenes will open here.'],
+      empty: ['Your first film starts here', 'Pick a format. Your scenes open in this studio, ready to direct.'],
       missing: ['Project not found', 'This project does not exist or is not yours.'],
       signin: ['Sign in to open the studio', 'Your projects and credits stay private to your account.'],
       error: ['The studio could not load', loadError],
     }[loadState];
     return (
-      <main className="sx-root sx-state">
+      <main className={`sx-root sx-state ${loadState === 'empty' ? 'is-empty' : ''}`}>
         <div className="sx-state-card">
           <Logo />
           <h1>{copy[0]}</h1>
           <p>{copy[1]}</p>
+          {loadState === 'empty' && (
+            <div className="sx-lanes">
+              <Link href="/create/story" className="sx-lane"><strong>Short film</strong><span>Start from a story idea. The Director builds your scenes.</span></Link>
+              <Link href="/music-video" className="sx-lane"><strong>Music video</strong><span>Upload your track and cut to the beat.</span></Link>
+              <Link href="/create/script" className="sx-lane"><strong>Episode</strong><span>Paste a script and get a shot-by-shot plan.</span></Link>
+            </div>
+          )}
           {loadState === 'loading' ? <span className="sx-spinner" aria-hidden="true" /> : (
             <div className="sx-state-actions">
               {loadState === 'signin' && <Link className="sx-btn sx-btn-gold" href="/auth?next=/studio">Sign in</Link>}
@@ -662,13 +840,14 @@ export default function Studio() {
         </span>
 
         <div className="sx-top-actions">
+          <button type="button" className="sx-icon-btn" aria-label="Help and keyboard shortcuts" onClick={() => setHelpOpen(true)}>?</button>
           <Link href="/account" className="sx-credits" title="Credits and billing">
             <Icon.Coin className="sx-coin" />
             <span>{credits === null ? '—' : credits.toLocaleString()} credits</span>
             <Icon.ChevronDown />
           </Link>
           <button type="button" className="sx-btn sx-btn-ghost" onClick={playSequence} disabled={!scenes.length}><Icon.Play /> Preview</button>
-          <button type="button" className="sx-btn sx-btn-gold" onClick={openGenerate} disabled={!scene || generating || genState === 'quoting'}>
+          <button type="button" className="sx-btn sx-btn-gold" data-tour="generate" onClick={openGenerate} disabled={!scene || generating || genState === 'quoting'}>
             <Icon.Spark /> {generating ? 'Generating...' : genState === 'quoting' ? 'Pricing...' : 'Generate'}
           </button>
         </div>
@@ -676,7 +855,7 @@ export default function Studio() {
 
       <div className="sx-body">
         {/* ------------------------------------------------------ scenes */}
-        <aside className="sx-scenes sx-panel" aria-label="Scenes">
+        <aside className="sx-scenes sx-panel" aria-label="Scenes" data-tour="scenes">
           <div className="sx-panel-head">
             <h2>SCENES <span className="sx-count">{scenes.length}</span></h2>
             <div className="sx-head-tools">
@@ -688,9 +867,11 @@ export default function Studio() {
           <ol className={`sx-scene-list ${listMode === 'compact' ? 'is-compact' : ''}`}>
             {ordered.map((s) => {
               const h = sceneHealth(s);
+              const realIndex = scenes.findIndex((x) => x.id === s.id);
               return (
-                <li key={s.id}>
-                  <button type="button" className={`sx-scene ${s.id === selectedId ? 'is-active' : ''}`} onClick={() => selectScene(s.id)} aria-current={s.id === selectedId}>
+                <li key={s.id} className={`sx-scene-li ${dragId === s.id ? 'is-dragging' : ''} ${dropIndex === realIndex && dragId && dragId !== s.id ? 'is-drop' : ''}`}
+                  draggable={!sortDesc} onDragStart={(e) => onDragStart(e, s.id)} onDragOver={(e) => onDragOver(e, realIndex)} onDrop={(e) => onDrop(e, realIndex)} onDragEnd={onDragEnd}>
+                  <button type="button" className={`sx-scene ${s.id === selectedId ? 'is-active' : ''} ${s.status === 'generating' ? 'is-generating' : ''}`} onClick={() => selectScene(s.id)} aria-current={s.id === selectedId}>
                     <span className="sx-scene-thumb"><Thumb scene={s} /></span>
                     <span className="sx-scene-text">
                       <span className="sx-scene-row">
@@ -702,16 +883,31 @@ export default function Studio() {
                       {listMode !== 'compact' && <span className="sx-scene-desc">{s.purpose || s.prompt || 'No description yet.'}</span>}
                     </span>
                   </button>
+                  <div className="sx-scene-more" onClick={(e) => e.stopPropagation()}>
+                    <button type="button" aria-label={`Scene ${s.position} options`} aria-haspopup="menu" aria-expanded={sceneMenu === s.id} onClick={() => setSceneMenu(sceneMenu === s.id ? '' : s.id)}><Icon.More /></button>
+                    {sceneMenu === s.id && (
+                      <div className="sx-menu sx-scene-menu" role="menu">
+                        <button type="button" role="menuitem" onClick={() => addScene({ afterId: s.id })}><Icon.Plus /> Add scene after</button>
+                        <button type="button" role="menuitem" onClick={() => addScene({ afterId: s.id, duplicateOf: s.id })}><Icon.Expand /> Duplicate</button>
+                        <button type="button" role="menuitem" disabled={realIndex === 0} onClick={() => moveScene(s.id, realIndex - 1)}><Icon.ChevronUp /> Move up</button>
+                        <button type="button" role="menuitem" disabled={realIndex === scenes.length - 1} onClick={() => moveScene(s.id, realIndex + 1)}><Icon.ChevronDown /> Move down</button>
+                        <button type="button" role="menuitem" className="is-danger" disabled={scenes.length <= 1 || s.status === 'generating'} onClick={() => removeScene(s.id)}><Icon.Close /> Delete scene</button>
+                      </div>
+                    )}
+                  </div>
                 </li>
               );
             })}
           </ol>
+          <button type="button" className="sx-add-scene" onClick={() => addScene({ afterId: scenes[scenes.length - 1]?.id })} disabled={sceneBusy}>
+            <Icon.Plus /> {sceneBusy ? 'Working...' : 'Add scene'} <kbd>N</kbd>
+          </button>
         </aside>
 
         {/* ------------------------------------------------------ center */}
         <section className="sx-center">
           <div className="sx-stage sx-panel" ref={stageRef}>
-            <div className={`sx-frame ratio-${aspect.replace(':', 'x')}`}>
+            <div className={`sx-frame ratio-${aspect.replace(':', 'x')} ${celebrate === scene?.id ? 'is-celebrating' : ''}`}>
               {scene?.output_url && !scene.output_is_image ? (
                 <video key={scene.id} ref={videoRef} className="sx-media" src={scene.output_url} poster={scene.thumbnail_url || undefined} playsInline
                   onTimeUpdate={(e) => setPlayhead(e.currentTarget.currentTime)} onEnded={advance} />
@@ -724,6 +920,15 @@ export default function Studio() {
                   <p>{scene?.prompt || scene?.purpose || 'Write the AI prompt below, then press Generate.'}</p>
                 </div>
               )}
+              {scene?.status === 'generating' && (
+                <div className="sx-rendering" role="status" aria-live="polite">
+                  <span className="sx-render-ring" aria-hidden="true" />
+                  <strong>Rendering scene {scene.position}</strong>
+                  <span>{scene.title} · {formatClock(genStartedAt ? (now - genStartedAt) / 1000 : 0)} elapsed</span>
+                  <small>You can keep directing other scenes while this renders.</small>
+                </div>
+              )}
+              {celebrate === scene?.id && <div className="sx-reveal" aria-hidden="true"><span>Take ready</span></div>}
               <div className="sx-stage-top">
                 <div className="sx-pill sx-scene-nav">
                   <button type="button" aria-label="Previous scene" onClick={() => step(-1)}><Icon.ChevronLeft /></button>
@@ -771,10 +976,13 @@ export default function Studio() {
           </div>
 
           <div className="sx-lower">
-            <div className="sx-prompt sx-panel">
+            <div className="sx-prompt sx-panel" data-tour="prompt">
               <div className="sx-panel-head sx-panel-head-sm">
                 <h3><Icon.Spark /> AI PROMPT</h3>
-                <button type="button" aria-label={promptOpen ? 'Collapse prompt' : 'Expand prompt'} onClick={() => setPromptOpen((v) => !v)}>{promptOpen ? <Icon.Close /> : <Icon.ChevronDown />}</button>
+                <div className="sx-head-right">
+                  <StudioDirector scene={scene} project={project} styleName={styleName} onApply={applyDirector} open={directorOpen} onOpenChange={setDirectorOpen} />
+                  <button type="button" className="sx-head-icon" aria-label={promptOpen ? 'Collapse prompt' : 'Expand prompt'} onClick={() => setPromptOpen((v) => !v)}>{promptOpen ? <Icon.Close /> : <Icon.ChevronDown />}</button>
+                </div>
               </div>
               {promptOpen && (
                 <>
@@ -802,7 +1010,7 @@ export default function Studio() {
               )}
             </div>
 
-            <div className="sx-shot sx-panel">
+            <div className="sx-shot sx-panel" data-tour="shot">
               <div className="sx-panel-head sx-panel-head-sm"><h3><Icon.Camera /> SHOT CONTROLS</h3></div>
               <div className="sx-shot-grid">
                 <Select id="sc-shot" label={<><Icon.Camera /> Shot Type</>} value={controls.shot} options={SHOT_TYPES} onChange={(v) => patchControls({ shot: v })} />
@@ -815,7 +1023,7 @@ export default function Studio() {
         </section>
 
         {/* ------------------------------------------------------ inspector */}
-        <aside className="sx-inspector sx-panel" aria-label="Inspector">
+        <aside className="sx-inspector sx-panel" aria-label="Inspector" data-tour="inspector">
           <div className="sx-tabs" role="tablist">
             <button type="button" role="tab" aria-selected={tab === 'inspector'} className={tab === 'inspector' ? 'is-active' : ''} onClick={() => setTab('inspector')}><Icon.Inspector /> INSPECTOR</button>
             <button type="button" role="tab" aria-selected={tab === 'assets'} className={tab === 'assets' ? 'is-active' : ''} onClick={() => setTab('assets')}><Icon.Folder /> ASSETS</button>
@@ -940,7 +1148,7 @@ export default function Studio() {
       </div>
 
       {/* --------------------------------------------------- flight path */}
-      <section className="sx-flight sx-panel" aria-label="Director's Flight Path">
+      <section className="sx-flight sx-panel" aria-label="Director's Flight Path" data-tour="flight">
         <div className="sx-flight-head">
           <h2><Icon.Route className="sx-gold" /> Director&apos;s Flight Path</h2>
           <span className="sx-muted">{scenes.length} scenes • {formatClock(total)} total</span>
@@ -959,10 +1167,11 @@ export default function Studio() {
         <div className="sx-flight-scroll">
           <div className="sx-flight-track" style={zoom > 1 ? { minWidth: `${Math.max(100, total * pxPerSecond)}px` } : undefined}>
             <div className="sx-tiles">
-              {scenes.map((s) => {
+              {scenes.map((s, i) => {
                 const h = sceneHealth(s);
                 return (
-                  <button key={s.id} type="button" className={`sx-tile ${s.id === selectedId ? 'is-active' : ''}`} style={{ flexGrow: s.duration_seconds, flexBasis: 0 }} onClick={() => selectScene(s.id)}>
+                  <button key={s.id} type="button" className={`sx-tile ${s.id === selectedId ? 'is-active' : ''} ${s.status === 'generating' ? 'is-generating' : ''} ${dragId === s.id ? 'is-dragging' : ''} ${dropIndex === i && dragId && dragId !== s.id ? 'is-drop' : ''}`} style={{ flexGrow: s.duration_seconds, flexBasis: 0 }} onClick={() => selectScene(s.id)}
+                    draggable onDragStart={(e) => onDragStart(e, s.id)} onDragOver={(e) => onDragOver(e, i)} onDrop={(e) => onDrop(e, i)} onDragEnd={onDragEnd} title="Drag to reorder">
                     <span className="sx-tile-img">
                       <Thumb scene={s} />
                       {h === 'warning' && <Icon.Warning className="sx-tile-flag is-warning" />}
@@ -1024,6 +1233,39 @@ export default function Studio() {
           </section>
         </div>
       )}
+
+      {deleteDialog && (
+        <div className="sx-backdrop" role="presentation" onClick={() => setDeleteDialog(null)}>
+          <section className="sx-dialog" role="alertdialog" aria-modal="true" aria-labelledby="sx-del-title" onClick={(e) => e.stopPropagation()}>
+            <p className="sx-kicker">Delete scene</p>
+            <h2 id="sx-del-title">Delete “{deleteDialog.title}”?</h2>
+            <p className="sx-hint">{deleteDialog.takes ? `This scene has ${deleteDialog.takes} generated take${deleteDialog.takes > 1 ? 's' : ''}. They will be permanently removed with it. Credits already spent are not refunded.` : 'This scene has no generated takes. The rest of your film is renumbered automatically.'}</p>
+            <div className="sx-dialog-actions">
+              <button type="button" className="sx-btn" autoFocus onClick={() => setDeleteDialog(null)}>Keep scene</button>
+              <button type="button" className="sx-btn sx-btn-danger" onClick={() => removeScene(deleteDialog.id, true)}>Delete scene</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {helpOpen && (
+        <div className="sx-backdrop" role="presentation" onClick={() => setHelpOpen(false)}>
+          <section className="sx-dialog" role="dialog" aria-modal="true" aria-labelledby="sx-help-title" onClick={(e) => e.stopPropagation()}>
+            <p className="sx-kicker">Studio help</p>
+            <h2 id="sx-help-title">Keyboard shortcuts</h2>
+            <dl className="sx-keys">
+              {SHORTCUTS.map(([k, label]) => <div key={k}><dt><kbd>{k}</kbd></dt><dd>{label}</dd></div>)}
+            </dl>
+            <p className="sx-hint">Drag scenes in the list or the Flight Path to reorder them. Writing help from the Director is always free.</p>
+            <div className="sx-dialog-actions">
+              <button type="button" className="sx-btn" onClick={() => { setHelpOpen(false); setTourOpen(true); }}>Replay the tour</button>
+              <button type="button" className="sx-btn sx-btn-gold" autoFocus onClick={() => setHelpOpen(false)}>Got it</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      <StudioTour open={tourOpen} onClose={() => setTourOpen(false)} />
 
       {toast && <div className="sx-toast" role="status" aria-live="polite">{toast}</div>}
     </main>

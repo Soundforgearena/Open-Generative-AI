@@ -1,4 +1,5 @@
  'use client';
+import { demoModeEnabled } from '@/lib/demo-mode';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -19,7 +20,7 @@ export default function ScriptPage() {
       title="Use my script"
       description="Bring your existing script into a focused cinematic workflow for planning and production."
     >
-      <DemoProjectBuilder sourceType="script" template={template ? { title: template, starterPrompt: '', category: 'Cinematic' } : null} onCreated={(id) => router.push(`/create/review?project=${encodeURIComponent(id)}`)} />
+      <DemoProjectBuilder sourceType="script" template={template ? { title: template, starterPrompt: '', category: 'Cinematic' } : null} onCreated={(id) => router.push(demoModeEnabled ? `/create/review?project=${encodeURIComponent(id)}` : `/studio?project=${encodeURIComponent(id)}&welcome=1`)} />
     </CinexRoutePage>
   );
 }

@@ -1,4 +1,5 @@
-import { guard, selectOne, updateRows, safeError } from '../../../../lib/cinexvideo-server';
+import { guard, selectOne, selectRows, updateRows, deleteRows, safeError } from '../../../../lib/cinexvideo-server';
+import { sceneIds, writeSceneOrder } from '../../../../lib/studio/scene-store';
 
 async function ownedScene(id, user, admin) {
   const scene = await selectOne('scenes', { id: `eq.${id}` });
@@ -56,4 +57,31 @@ export async function PATCH(request, { params }) {
   const updated = await updateRows('scenes', { id: `eq.${id}` }, patch);
   if (!updated.ok) return safeError('Scene could not be updated.', 500);
   return Response.json({ scene: updated.data?.[0] || null });
+}
+
+/**
+ * Delete a scene. Scenes with generated takes need { confirm_takes: true }
+ * because their takes are removed with them. Running generations block delete.
+ */
+export async function DELETE(request, { params }) {
+  const { user, admin, error } = await guard(request, { blockOnMaintenance: true });
+  if (error) return error;
+  const { id } = await params;
+  const scene = await ownedScene(id, user, admin);
+  if (!scene) return safeError('Scene not found.', 404);
+  if (scene.status === 'generating') return safeError('Wait for this scene to finish generating before deleting it.', 409);
+
+  const ids = await sceneIds(scene.project_id);
+  if (ids.length <= 1) return safeError('A project needs at least one scene.', 409);
+
+  const body = await request.json().catch(() => ({}));
+  const takes = await selectRows('scene_versions', { scene_id: `eq.${id}`, status: 'eq.completed' }, 'id');
+  if (takes.length && body.confirm_takes !== true) {
+    return Response.json({ error: 'This scene has generated takes.', takes: takes.length, requires_confirmation: true }, { status: 409 });
+  }
+
+  const removed = await deleteRows('scenes', { id: `eq.${id}` });
+  if (removed && removed.ok === false) return safeError('Scene could not be deleted.', 500);
+  await writeSceneOrder(scene.project_id, ids.filter((x) => x !== id));
+  return Response.json({ deleted: id });
 }
