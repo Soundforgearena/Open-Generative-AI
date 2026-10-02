@@ -36,6 +36,7 @@ function demoSuggestion(scene) {
 export default function StudioDirector({ scene, project, styleName, onApply, open, onOpenChange, onCharged }) {
   const [price, setPrice] = useState(FALLBACK);
   const [paidCredits, setPaidCredits] = useState(null);
+  const [platformFunded, setPlatformFunded] = useState(false);
   const [busy, setBusy] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -53,6 +54,7 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
       .then((data) => {
         if (!live) return;
         if (data?.assist?.max_credits) setPrice(data.assist);
+        if (data?.platform_funded) setPlatformFunded(true);
         if (data?.paid_credits_available !== null && data?.paid_credits_available !== undefined) setPaidCredits(Number(data.paid_credits_available));
       })
       .catch(() => {});
@@ -68,7 +70,7 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
 
   async function run(action, custom = '') {
     setError(''); setResult(null); setNeedsCredits(false);
-    if (!demoModeEnabled && paidCredits !== null && paidCredits < price.max_credits) {
+    if (!demoModeEnabled && !platformFunded && paidCredits !== null && paidCredits < price.max_credits) {
       setNeedsCredits(true);
       setError(`The AI Director runs on purchased credits. A request can cost up to ${price.max_credits} credits (${usd(price.max_credits)}) and you have ${paidCredits} purchased credits. Sign-up bonus credits can't be used for the Director.`);
       onOpenChange(false);
@@ -115,12 +117,12 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
       </button>
       {open && (
         <div className="sx-menu sx-director-menu" role="menu">
-          <p className="sx-menu-heading">AI Director · purchased credits</p>
-          <p className="sx-dir-price">Usually ~{price.typical_credits} credits ({usd(price.typical_credits)}), never more than {price.max_credits} ({usd(price.max_credits)}). You only pay for what the Director uses. 1 credit = $0.01.</p>
+          <p className="sx-menu-heading">AI Director · {platformFunded ? 'platform-funded' : 'purchased credits'}</p>
+          {platformFunded ? <p className="sx-dir-price">Super admin: the platform pays OpenAI directly, so no credits are used. The real cost is still recorded.</p> : <p className="sx-dir-price">Usually ~{price.typical_credits} credits ({usd(price.typical_credits)}), never more than {price.max_credits} ({usd(price.max_credits)}). You only pay for what the Director uses. 1 credit = $0.01.</p>}
           {ACTIONS.filter((a) => (hasText ? !a.empty || a.id === 'createVisualDirection' : !a.needsText)).map((a) => (
             <button key={a.label} type="button" role="menuitem" onClick={() => run(a.id)} disabled={Boolean(busy)}>
               <span className="sx-dir-text"><strong>{a.label}</strong><small>{a.hint}</small></span>
-              {busy === a.id ? <span className="sx-mini-spin" aria-hidden="true" /> : <span className="sx-dir-cost">~{price.typical_credits} cr</span>}
+              {busy === a.id ? <span className="sx-mini-spin" aria-hidden="true" /> : <span className="sx-dir-cost">{platformFunded ? 'Free' : `~${price.typical_credits} cr`}</span>}
             </button>
           ))}
           <form className="sx-dir-custom" onSubmit={(e) => { e.preventDefault(); if (instruction.trim()) run('applyDirectorInstruction', instruction.trim()); }}>
@@ -148,7 +150,8 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
           )}
           {needsCredits && <Link href="/account" className="sx-btn sx-btn-gold sx-btn-sm sx-dir-buy">Add credits</Link>}
           {error && <button type="button" className="sx-link-btn" onClick={() => { setError(''); setNeedsCredits(false); }}>Dismiss</button>}
-          {result && !demoModeEnabled && result.credits_charged && <p className="sx-hint sx-dir-charged">{result.credits_charged} credits used ({usd(result.credits_charged || 0)}) · max was {result.credits_max}</p>}
+          {result && !demoModeEnabled && result.platform_funded && <p className="sx-hint sx-dir-charged">Platform-funded · 0 credits used</p>}
+          {result && !demoModeEnabled && result.credits_charged > 0 && <p className="sx-hint sx-dir-charged">{result.credits_charged} credits used ({usd(result.credits_charged || 0)}) · max was {result.credits_max}</p>}
         </div>
       )}
     </div>

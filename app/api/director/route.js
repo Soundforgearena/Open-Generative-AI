@@ -1,4 +1,5 @@
-import { callRpc, guard, requireSecret, safeError } from '../../../lib/cinexvideo-server';
+import { callRpc, guard, platformUsageToday, recordPlatformUsage, requireSecret, safeError } from '../../../lib/cinexvideo-server';
+import { isPlatformFunded, remainingPlatformAllowanceCents } from '../../../lib/billing/platform-funding';
 import {
   CHARS_PER_TOKEN,
   DIRECTOR_PRICING_POLICY,
@@ -7,6 +8,7 @@ import {
   maxDirectorCredits,
   ratesFor,
   settledDirectorCredits,
+  tokenCostCents,
   typicalDirectorCredits,
 } from '../../../lib/billing/director-pricing';
 import {
@@ -217,12 +219,54 @@ async function chargeDirector(user, kind, idempotencyKey, run) {
   return outcome.response;
 }
 
+/**
+ * Super admins run on platform funds: the platform pays OpenAI directly, so no
+ * credits move. The real token cost is still recorded, and a daily cap stops a
+ * compromised admin account from running up the bill.
+ */
+async function runPlatformFunded(user, kind, run) {
+  const maxCredits = maxDirectorCredits(kind, DIRECTOR_MODEL);
+  const remaining = remainingPlatformAllowanceCents(await platformUsageToday(user.id));
+  if (remaining < maxCredits) {
+    return safeError('Today\'s platform-funded allowance is used up. It resets at midnight UTC, or raise PLATFORM_FUNDED_DAILY_CAP_CENTS.', 429);
+  }
+  let outcome;
+  try {
+    outcome = await run();
+  } catch (err) {
+    console.error('director run failed', err);
+    outcome = { response: safeError('Director service is temporarily unavailable.', 502) };
+  }
+  if (!outcome.response.ok) return outcome.response;
+  const usage = outcome.usage;
+  const costCents = usage
+    ? tokenCostCents(DIRECTOR_MODEL, {
+        inputTokens: Number(usage.input_tokens) || 0,
+        cachedTokens: Number(usage.input_tokens_details?.cached_tokens) || 0,
+        outputTokens: Number(usage.output_tokens) || 0,
+      })
+    : tokenCostCents(DIRECTOR_MODEL, { inputTokens: DIRECTOR_TOKEN_BUDGET[kind].input, outputTokens: DIRECTOR_TOKEN_BUDGET[kind].output });
+  const equivalent = settledDirectorCredits(kind, DIRECTOR_MODEL, usage);
+  await recordPlatformUsage({
+    user_id: user.id,
+    operation: `director_${kind}`,
+    provider: 'openai',
+    model: DIRECTOR_MODEL,
+    estimated_cost_cents: Math.round(costCents * 10000) / 10000,
+    credits_equivalent: equivalent,
+  });
+  const data = await outcome.response.json();
+  return Response.json({ ...data, credits_charged: 0, platform_funded: true, credits_equivalent: equivalent });
+}
+
 /** Public price list for the Director, in credits (1 credit = $0.01). */
 export async function GET(request) {
   const price = (kind) => ({ max_credits: maxDirectorCredits(kind, DIRECTOR_MODEL), typical_credits: typicalDirectorCredits(kind, DIRECTOR_MODEL) });
   let paidAvailable = null;
+  let platformFunded = false;
   if (request.headers.get('authorization')) {
-    const { user } = await guard(request);
+    const { user, superAdmin } = await guard(request);
+    platformFunded = isPlatformFunded({ superAdmin });
     if (user) {
       const paid = await callRpc('paid_credits_available', { p_user_id: user.id });
       if (paid.ok) paidAvailable = Number(Array.isArray(paid.data) ? paid.data[0] : paid.data) || 0;
@@ -234,24 +278,27 @@ export async function GET(request) {
     assist: price('assist'),
     plan: price('plan'),
     paid_credits_available: paidAvailable,
+    platform_funded: platformFunded,
     policy: DIRECTOR_PRICING_POLICY,
   });
 }
 
 export async function POST(request) {
-  const { user, error } = await guard(request, { blockOnMaintenance: true });
+  const { user, superAdmin, error } = await guard(request, { blockOnMaintenance: true });
   if (error) return error;
+  const platformFunded = isPlatformFunded({ superAdmin });
+  const charge = (kind, key, run) => (platformFunded ? runPlatformFunded(user, kind, run) : chargeDirector(user, kind, key, run));
   try {
     const body = await request.json();
     const idempotencyKey = request.headers.get('idempotency-key') || crypto.randomUUID();
     if (body.action) {
       const invalid = validateAssist(body);
       if (invalid) return invalid;
-      return await chargeDirector(user, 'assist', idempotencyKey, () => handleAssist(body));
+      return await charge('assist', idempotencyKey, () => handleAssist(body));
     }
     if (!body.prompt?.trim()) return safeError('Please enter a creative idea.');
     const laneBrief = LANE_BRIEF[body.lane] || LANE_BRIEF.episode;
-    return await chargeDirector(user, 'plan', idempotencyKey, async () => {
+    return await charge('plan', idempotencyKey, async () => {
       const model = await callDirectorModel({
         kind: 'plan',
         system: `${DIRECTOR_PERSONA} ${laneBrief} Return concise production-ready direction as JSON with creative_title, logline, visual_identity, characters, locations, outfits, and scenes. Plan between 4 and 12 scenes. Do not mention vendors, APIs, costs, or internal business rules.`,

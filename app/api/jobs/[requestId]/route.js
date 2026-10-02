@@ -84,8 +84,11 @@ export async function GET(request, { params }) {
         response: data,
         headers: Object.fromEntries(response.headers.entries()),
       });
-      const reservation = await findCreditReservation(job.reservation_reference);
-      if (reservation) {
+      const platformJob = job.funding_source === 'platform';
+      const reservation = platformJob ? null : await findCreditReservation(job.reservation_reference);
+      if (platformJob) {
+        // Platform-funded (super admin): no credits to settle. Record the real cost below.
+      } else if (reservation) {
         if (reservation.status === 'reserved') {
           const actualCredits = Number.isInteger(costNormalized.amountCredits)
             ? Math.min(Math.max(0, costNormalized.amountCredits), reservation.max_reservation_credits)
@@ -117,6 +120,9 @@ export async function GET(request, { params }) {
           p_raw_response: data,
         });
         if (!costRecord.ok) throw new Error('provider cost could not be recorded');
+        if (platformJob) {
+          await updateRows('platform_funded_usage', { generation_job_id: `eq.${job.id}` }, { estimated_cost_cents: costNormalized.amountUsdCents });
+        }
       }
       const completedUpdate = await updateRows(
         'generation_requests',
@@ -133,7 +139,7 @@ export async function GET(request, { params }) {
       // the credits are actually spent and the provider cost is incurred.
       // record_revenue is idempotent on the request id, so a duplicate poll
       // cannot pay partners twice.
-      await callRpc('settle_generation_revenue', { p_generation_request_id: job.id });
+      if (!platformJob) await callRpc('settle_generation_revenue', { p_generation_request_id: job.id });
 
       if (job.scene_id && job.scene_version) {
         await updateRows(
@@ -164,8 +170,11 @@ export async function GET(request, { params }) {
     }
 
     // Failure path — the customer gets their credits back.
-    const reservation = await findCreditReservation(job.reservation_reference);
-    if (reservation) {
+    const platformJob = job.funding_source === 'platform';
+    const reservation = platformJob ? null : await findCreditReservation(job.reservation_reference);
+    if (platformJob) {
+      // Nothing to refund: platform-funded jobs never debited credits.
+    } else if (reservation) {
       if (reservation.status === 'reserved') {
         const release = await callRpc('release_reservation_v2', {
           p_reservation_id: reservation.id,

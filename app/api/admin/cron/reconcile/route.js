@@ -37,10 +37,13 @@ async function reservationFor(job) {
 async function completeJob(job, data, headers = {}) {
   const output = data?.output || data?.result || null;
   const outputUrl = firstUrl(output);
-  const reservation = await reservationFor(job);
+  const platformJob = job.funding_source === 'platform';
+  const reservation = platformJob ? null : await reservationFor(job);
   const cost = normalizeMuapiCost({ response: data, headers });
 
-  if (reservation?.status === 'reserved') {
+  if (platformJob) {
+    // Platform-funded (super admin): no credits to settle.
+  } else if (reservation?.status === 'reserved') {
     const actualCredits = Number.isInteger(cost.amountCredits)
       ? Math.min(Math.max(0, cost.amountCredits), reservation.max_reservation_credits)
       : cost.amountUsdCents == null
@@ -70,6 +73,9 @@ async function completeJob(job, data, headers = {}) {
       p_raw_response: data,
     });
     if (!costWrite.ok) throw new Error('provider cost could not be recorded');
+    if (platformJob) {
+      await updateRows('platform_funded_usage', { generation_job_id: `eq.${job.id}` }, { estimated_cost_cents: cost.amountUsdCents });
+    }
   }
 
   const updated = await updateRows(
@@ -83,10 +89,12 @@ async function completeJob(job, data, headers = {}) {
   );
   if (!updated.ok) throw new Error('generation completion could not be recorded');
 
-  const revenue = await callRpc('settle_generation_revenue', {
-    p_generation_request_id: job.id,
-  });
-  if (!revenue.ok) throw new Error('generation revenue could not be settled');
+  if (!platformJob) {
+    const revenue = await callRpc('settle_generation_revenue', {
+      p_generation_request_id: job.id,
+    });
+    if (!revenue.ok) throw new Error('generation revenue could not be settled');
+  }
 
   if (job.scene_id && job.scene_version) {
     await updateRows(
@@ -99,8 +107,11 @@ async function completeJob(job, data, headers = {}) {
 }
 
 async function failJob(job, reason = 'provider_failed') {
-  const reservation = await reservationFor(job);
-  if (reservation?.status === 'reserved') {
+  const platformJob = job.funding_source === 'platform';
+  const reservation = platformJob ? null : await reservationFor(job);
+  if (platformJob) {
+    // Nothing to refund: platform-funded jobs never debited credits.
+  } else if (reservation?.status === 'reserved') {
     const released = await callRpc('release_reservation_v2', {
       p_reservation_id: reservation.id,
       p_reason: reason,
