@@ -159,7 +159,7 @@ export default function Studio() {
   const [projects, setProjects] = useState([]);
   const [videoOptions, setVideoOptions] = useState([]);
   const [credits, setCredits] = useState(null);
-  const [platformFunded, setPlatformFunded] = useState(false);
+  const [atCost, setAtCost] = useState(false);
   const [selectedId, setSelectedId] = useState('');
   const [aspect, setAspect] = useState('16:9');
   const [savedAt, setSavedAt] = useState(null);
@@ -239,7 +239,7 @@ export default function Studio() {
         const all = list.projects || [];
         setProjects(all);
         setCredits(Number(account.credits ?? 0));
-        setPlatformFunded(Boolean(account.platform_funded));
+        setAtCost(Boolean(account.at_cost));
         const opts = (catalog.options || []).filter((o) => o.operation === 'video');
         setVideoOptions(opts);
         setModelKey((k) => k || opts[0]?.model || '');
@@ -677,7 +677,7 @@ export default function Studio() {
     if (genLock.current || !genDialog) return;
     const targets = genDialog.scope === 'all' ? scenes : [scene];
     const needed = genDialog.scope === 'all' ? genDialog.all.total : genDialog.total;
-    if (!platformFunded && credits !== null && needed > credits) { setToast(`You need ${needed} credits and have ${credits}. Add credits from Account and billing.`); return; }
+    if (credits !== null && needed > credits) { setToast(`You need ${needed} credits and have ${credits}. Add credits from Account and billing.`); return; }
     if (demoModeEnabled) {
       const ids = targets.map((t) => t.id);
       setGenDialog(null); setGenState('running'); setGenStartedAt(Date.now());
@@ -845,7 +845,7 @@ export default function Studio() {
           <button type="button" className="sx-icon-btn" aria-label="Help and keyboard shortcuts" onClick={() => setHelpOpen(true)}>?</button>
           <Link href="/account" className="sx-credits" title="Credits and billing">
             <Icon.Coin className="sx-coin" />
-            <span>{credits === null ? '—' : credits.toLocaleString()} credits{platformFunded ? ' · platform-funded' : ''}</span>
+            <span>{credits === null ? '—' : credits.toLocaleString()} credits{atCost ? ' · at cost' : ''}</span>
             <Icon.ChevronDown />
           </Link>
           <button type="button" className="sx-btn sx-btn-ghost" onClick={playSequence} disabled={!scenes.length}><Icon.Play /> Preview</button>
@@ -1213,7 +1213,7 @@ export default function Studio() {
         <div className="sx-backdrop" role="presentation" onClick={() => setGenDialog(null)}>
           <section className="sx-dialog" role="dialog" aria-modal="true" aria-labelledby="sx-gen-title" onClick={(e) => e.stopPropagation()}>
             <p className="sx-kicker">Final confirmation</p>
-            <h2 id="sx-gen-title">{platformFunded ? 'Start platform-funded generation?' : 'Start paid generation?'}</h2>
+            <h2 id="sx-gen-title">{atCost ? 'Start at-cost generation?' : 'Start paid generation?'}</h2>
             <div className="sx-scope" role="radiogroup" aria-label="What to generate">
               <button type="button" role="radio" aria-checked={genDialog.scope === 'scene'} className={genDialog.scope === 'scene' ? 'is-active' : ''} onClick={() => setGenDialog((d) => ({ ...d, scope: 'scene' }))}>
                 <strong>This scene</strong><span>{scene?.title} · {genDialog.total} credits</span>
@@ -1223,21 +1223,12 @@ export default function Studio() {
               </button>
             </div>
             <dl className="sx-dl">
-              {platformFunded ? (
-                <>
-                  <div><dt>Charged to</dt><dd>Platform funds · 0 credits</dd></div>
-                  <div><dt>Customer value</dt><dd>{genDialog.scope === 'all' ? genDialog.all.total : genDialog.total} credits</dd></div>
-                </>
-              ) : (
-                <>
-                  <div><dt>Maximum debit</dt><dd>{genDialog.scope === 'all' ? genDialog.all.total : genDialog.total} credits</dd></div>
-                  <div><dt>Your balance</dt><dd>{credits ?? '—'} credits</dd></div>
-                </>
-              )}
+              <div><dt>Maximum debit</dt><dd>{genDialog.scope === 'all' ? genDialog.all.total : genDialog.total} credits{atCost ? ' (at cost)' : ''}</dd></div>
+              <div><dt>Your balance</dt><dd>{credits ?? '—'} credits</dd></div>
               <div><dt>Model</dt><dd>{videoOption?.label}</dd></div>
             </dl>
-            <p className="sx-hint">{platformFunded
-              ? 'Super admin: the platform pays the video provider directly and no credits are used. The real cost is still recorded.'
+            <p className="sx-hint">{atCost
+              ? 'Super admin pricing: you pay the provider cost plus card fees, no markup, from purchased credits only. You are charged the actual cost when it is lower. Failed scenes are refunded.'
               : 'Credits are reserved first and settled on completion. Failed scenes are refunded automatically.'}</p>
             <div className="sx-dialog-actions">
               <button type="button" className="sx-btn" autoFocus onClick={() => setGenDialog(null)}>Cancel</button>

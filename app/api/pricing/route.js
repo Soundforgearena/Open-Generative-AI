@@ -1,5 +1,6 @@
 import { maxDirectorCredits, typicalDirectorCredits } from '../../../lib/billing/director-pricing';
 import { selectRows, callRpc, getSetting } from '../../../lib/cinexvideo-server';
+import { providerCostCents } from '../../../lib/billing/provider-pricing';
 
 const DIRECTOR_MODEL = process.env.OPENAI_DIRECTOR_MODEL || 'gpt-5';
 
@@ -33,7 +34,8 @@ async function quoteCredits(rule, durationSeconds) {
     p_provider: rule.provider,
     p_model: rule.model,
     p_operation: rule.operation,
-    p_provider_cost_cents: rule.provider_cost_cents,
+    // Same real per-second cost the generate route uses (default 720p).
+    p_provider_cost_cents: providerCostCents({ model: rule.model, operation: rule.operation, durationSeconds, resolution: '720p', ruleCostCents: rule.provider_cost_cents }),
     p_duration_seconds: durationSeconds,
     p_resolution: null,
     p_reference_count: 0,

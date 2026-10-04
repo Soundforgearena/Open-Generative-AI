@@ -1,4 +1,4 @@
-import { isPlatformFunded } from '../../../lib/billing/platform-funding.js';
+import { isAtCostUser } from '../../../lib/billing/at-cost.js';
 import {
   guard,
   callRpc,
@@ -60,9 +60,10 @@ export async function POST(request) {
     const row = Array.isArray(quote.data) ? quote.data[0] : quote.data;
     if (!quote.ok || !row) return safeError('This export option is temporarily unavailable.', 409);
 
-    // Super admins run on platform funds: exports never debit their credits.
-    const platformFunded = isPlatformFunded({ superAdmin });
-    const credits = platformFunded ? 0 : Number(row.credits ?? row.credits_required ?? 0);
+    // Super admins pay cost. Exports have no provider cost (they are built and
+    // stored in-house), so at cost they are free; customers pay the quote.
+    const atCost = isAtCostUser({ superAdmin });
+    const credits = atCost ? 0 : Number(row.credits ?? row.credits_required ?? 0);
 
     // Quote-only pass so the UI can show the cost before the user commits.
     if (!confirm) {

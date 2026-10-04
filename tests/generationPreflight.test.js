@@ -19,7 +19,7 @@ test('preflight returns before reserving credits or calling the provider', async
   const src = await readFile(new URL('../app/api/generate/route.js', import.meta.url), 'utf8');
   const pf = src.indexOf('if (preflight === true)');
   assert.ok(pf > 0);
-  assert.ok(pf < src.indexOf("callRpc('reserve_credits_v2'"));
+  assert.ok(pf < src.indexOf("callRpc(atCost ? 'reserve_paid_credits_v1' : 'reserve_credits_v2'"));
 });
 import { summarizeProjectReadiness } from '../lib/billing/generation-preflight.js';
 test('project readiness compares the total of all scenes against the balance', () => {

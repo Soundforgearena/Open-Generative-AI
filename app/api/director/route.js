@@ -1,5 +1,5 @@
-import { callRpc, guard, platformUsageToday, recordPlatformUsage, requireSecret, safeError } from '../../../lib/cinexvideo-server';
-import { isPlatformFunded, remainingPlatformAllowanceCents } from '../../../lib/billing/platform-funding';
+import { callRpc, guard, requireSecret, safeError } from '../../../lib/cinexvideo-server';
+import { AT_COST_POLICY, isAtCostUser } from '../../../lib/billing/at-cost';
 import {
   CHARS_PER_TOKEN,
   DIRECTOR_PRICING_POLICY,
@@ -8,7 +8,6 @@ import {
   maxDirectorCredits,
   ratesFor,
   settledDirectorCredits,
-  tokenCostCents,
   typicalDirectorCredits,
 } from '../../../lib/billing/director-pricing';
 import {
@@ -171,15 +170,16 @@ function errorMessage(result) {
  * runs (sign-up and bonus credits cannot be used). On success, settle at the
  * cost of the tokens actually used plus margin; any failure releases it all.
  */
-async function chargeDirector(user, kind, idempotencyKey, run) {
-  const maxCredits = maxDirectorCredits(kind, DIRECTOR_MODEL);
+async function chargeDirector(user, kind, idempotencyKey, run, { atCost = false } = {}) {
+  const pricing = { atCost };
+  const maxCredits = maxDirectorCredits(kind, DIRECTOR_MODEL, pricing);
   if (!ratesFor(DIRECTOR_MODEL).known) console.warn('director model has no rate card; using conservative pricing', DIRECTOR_MODEL);
   const reservation = await callRpc('reserve_paid_credits_v1', {
     p_user_id: user.id,
     p_operation: `director_${kind}`,
-    p_estimated_credits: typicalDirectorCredits(kind, DIRECTOR_MODEL),
+    p_estimated_credits: Math.min(maxCredits, typicalDirectorCredits(kind, DIRECTOR_MODEL, pricing)),
     p_max_reservation_credits: maxCredits,
-    p_pricing_policy_version: DIRECTOR_PRICING_POLICY,
+    p_pricing_policy_version: atCost ? AT_COST_POLICY : DIRECTOR_PRICING_POLICY,
     p_idempotency_key: idempotencyKey,
   });
   const row = Array.isArray(reservation.data) ? reservation.data[0] : reservation.data;
@@ -208,77 +208,37 @@ async function chargeDirector(user, kind, idempotencyKey, run) {
     outcome = { response: safeError('Director service is temporarily unavailable.', 502) };
   }
   if (outcome.response.ok) {
-    const charged = settledDirectorCredits(kind, DIRECTOR_MODEL, outcome.usage);
+    const charged = settledDirectorCredits(kind, DIRECTOR_MODEL, outcome.usage, pricing);
     const settled = await callRpc('settle_reservation_v2', { p_reservation_id: row.id, p_settled_credits: charged, p_generation_job_id: null });
     if (!settled.ok) console.error('director settle failed', row.id, errorMessage(settled));
     const data = await outcome.response.json();
-    return Response.json({ ...data, credits_charged: charged, credits_max: maxCredits });
+    return Response.json({ ...data, credits_charged: charged, credits_max: maxCredits, at_cost: atCost });
   }
   const released = await callRpc('release_reservation_v2', { p_reservation_id: row.id, p_reason: 'director_failed' });
   if (!released.ok) console.error('director release failed', row.id, errorMessage(released));
   return outcome.response;
 }
 
-/**
- * Super admins run on platform funds: the platform pays OpenAI directly, so no
- * credits move. The real token cost is still recorded, and a daily cap stops a
- * compromised admin account from running up the bill.
- */
-async function runPlatformFunded(user, kind, run) {
-  const maxCredits = maxDirectorCredits(kind, DIRECTOR_MODEL);
-  const remaining = remainingPlatformAllowanceCents(await platformUsageToday(user.id));
-  if (remaining < maxCredits) {
-    return safeError('Today\'s platform-funded allowance is used up. It resets at midnight UTC, or raise PLATFORM_FUNDED_DAILY_CAP_CENTS.', 429);
-  }
-  let outcome;
-  try {
-    outcome = await run();
-  } catch (err) {
-    console.error('director run failed', err);
-    outcome = { response: safeError('Director service is temporarily unavailable.', 502) };
-  }
-  if (!outcome.response.ok) return outcome.response;
-  const usage = outcome.usage;
-  const costCents = usage
-    ? tokenCostCents(DIRECTOR_MODEL, {
-        inputTokens: Number(usage.input_tokens) || 0,
-        cachedTokens: Number(usage.input_tokens_details?.cached_tokens) || 0,
-        outputTokens: Number(usage.output_tokens) || 0,
-      })
-    : tokenCostCents(DIRECTOR_MODEL, { inputTokens: DIRECTOR_TOKEN_BUDGET[kind].input, outputTokens: DIRECTOR_TOKEN_BUDGET[kind].output });
-  const equivalent = settledDirectorCredits(kind, DIRECTOR_MODEL, usage);
-  await recordPlatformUsage({
-    user_id: user.id,
-    operation: `director_${kind}`,
-    provider: 'openai',
-    model: DIRECTOR_MODEL,
-    estimated_cost_cents: Math.round(costCents * 10000) / 10000,
-    credits_equivalent: equivalent,
-  });
-  const data = await outcome.response.json();
-  return Response.json({ ...data, credits_charged: 0, platform_funded: true, credits_equivalent: equivalent });
-}
-
 /** Public price list for the Director, in credits (1 credit = $0.01). */
 export async function GET(request) {
-  const price = (kind) => ({ max_credits: maxDirectorCredits(kind, DIRECTOR_MODEL), typical_credits: typicalDirectorCredits(kind, DIRECTOR_MODEL) });
   let paidAvailable = null;
-  let platformFunded = false;
+  let atCost = false;
   if (request.headers.get('authorization')) {
     const { user, superAdmin } = await guard(request);
-    platformFunded = isPlatformFunded({ superAdmin });
+    atCost = isAtCostUser({ superAdmin });
     if (user) {
       const paid = await callRpc('paid_credits_available', { p_user_id: user.id });
       if (paid.ok) paidAvailable = Number(Array.isArray(paid.data) ? paid.data[0] : paid.data) || 0;
     }
   }
+  const price = (kind) => ({ max_credits: maxDirectorCredits(kind, DIRECTOR_MODEL, { atCost }), typical_credits: typicalDirectorCredits(kind, DIRECTOR_MODEL, { atCost }) });
   return Response.json({
     credit_usd_cents: 1,
     paid_credits_only: true,
     assist: price('assist'),
     plan: price('plan'),
     paid_credits_available: paidAvailable,
-    platform_funded: platformFunded,
+    at_cost: atCost,
     policy: DIRECTOR_PRICING_POLICY,
   });
 }
@@ -286,8 +246,10 @@ export async function GET(request) {
 export async function POST(request) {
   const { user, superAdmin, error } = await guard(request, { blockOnMaintenance: true });
   if (error) return error;
-  const platformFunded = isPlatformFunded({ superAdmin });
-  const charge = (kind, key, run) => (platformFunded ? runPlatformFunded(user, kind, run) : chargeDirector(user, kind, key, run));
+  // Super admins pay cost (no margin); everyone else pays the marked-up price.
+  // Both are paid with purchased credits only.
+  const atCost = isAtCostUser({ superAdmin });
+  const charge = (kind, key, run) => chargeDirector(user, kind, key, run, { atCost });
   try {
     const body = await request.json();
     const idempotencyKey = request.headers.get('idempotency-key') || crypto.randomUUID();
