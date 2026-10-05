@@ -4,6 +4,8 @@ import {
   createSubscriptionCheckoutSession,
   setSubscriptionCancelAtPeriodEnd,
 } from '../../../../lib/stripe-connect';
+import { currentPaymentMode } from '../../../../lib/billing/payment-mode-server';
+import { canCheckout } from '../../../../lib/billing/payment-mode';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,39 +19,45 @@ function publicSubscription(row) {
     current_period_end: row.current_period_end,
     cancel_at_period_end: row.cancel_at_period_end,
     live: LIVE.has(row.status),
+    sandbox: row.livemode === false,
   };
 }
 
 /** Monthly plans on sale plus the signed-in user's current plan. */
 export async function GET(request) {
-  const { user, error } = await guard(request);
+  const { user, admin, error } = await guard(request);
   if (error) return error;
+  const mode = await currentPaymentMode();
   const [plans, current] = await Promise.all([
     selectRows('billing_plans', { active: 'eq.true', monthly_price_cents: 'gt.0', order: 'sort_order.asc' },
       'code,name,monthly_price_cents,included_credits,blurb'),
     selectOne('user_subscriptions', { user_id: `eq.${user.id}` },
-      'plan_code,status,current_period_end,cancel_at_period_end'),
+      'plan_code,status,current_period_end,cancel_at_period_end,livemode'),
   ]);
   return Response.json({
     plans,
     subscription: publicSubscription(current),
-    checkout_enabled: stripeEnabled(),
+    checkout_enabled: stripeEnabled(mode) && canCheckout(mode, { admin }),
+    sandbox: mode === 'test',
   });
 }
 
 /** Start a monthly plan through Stripe's hosted checkout. */
 export async function POST(request) {
-  const { user, error } = await guard(request);
+  const { user, admin, error } = await guard(request);
   if (error) return error;
-  if (!stripeEnabled()) return safeError('Monthly plans are not available on this deployment yet.', 503);
+  const mode = await currentPaymentMode();
+  if (!canCheckout(mode, { admin })) return safeError('Monthly plans open soon.', 503);
+  if (!stripeEnabled(mode)) return safeError('Monthly plans are not available on this deployment yet.', 503);
 
   try {
     const body = await request.json().catch(() => ({}));
     const plan = await selectOne('billing_plans', { code: `eq.${body.plan_code}`, active: 'eq.true' });
     if (!plan || !(plan.monthly_price_cents > 0)) return safeError('That plan is not available.', 404);
 
-    const current = await selectOne('user_subscriptions', { user_id: `eq.${user.id}` }, 'status');
-    if (current && LIVE.has(current.status)) {
+    const current = await selectOne('user_subscriptions', { user_id: `eq.${user.id}` }, 'status,livemode');
+    // A sandbox plan never blocks a real one (and vice versa).
+    if (current && LIVE.has(current.status) && current.livemode === (mode === 'live')) {
       return safeError('You already have a monthly plan. Cancel it first to switch plans.', 409);
     }
 
@@ -60,6 +68,7 @@ export async function POST(request) {
       userEmail: user.email,
       successUrl: `${origin}/account?plan=success`,
       cancelUrl: `${origin}/account?plan=cancelled`,
+      mode,
     });
     return Response.json({ url: session.url });
   } catch (err) {
@@ -72,7 +81,6 @@ export async function POST(request) {
 export async function PATCH(request) {
   const { user, error } = await guard(request);
   if (error) return error;
-  if (!stripeEnabled()) return safeError('Monthly plans are not available on this deployment yet.', 503);
 
   const body = await request.json().catch(() => ({}));
   if (!['cancel', 'resume'].includes(body.action)) return safeError('Unknown action.', 400);
@@ -81,7 +89,9 @@ export async function PATCH(request) {
 
   try {
     // The webhook (customer.subscription.updated) writes the new state back.
-    const sub = await setSubscriptionCancelAtPeriodEnd(current.stripe_subscription_id, body.action === 'cancel');
+    const subMode = current.livemode === false ? 'test' : 'live';
+    if (!stripeEnabled(subMode)) return safeError('Monthly plans are not available on this deployment yet.', 503);
+    const sub = await setSubscriptionCancelAtPeriodEnd(current.stripe_subscription_id, body.action === 'cancel', subMode);
     return Response.json({
       subscription: publicSubscription({
         ...current,
