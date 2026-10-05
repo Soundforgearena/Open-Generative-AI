@@ -8,6 +8,7 @@ const money = (cents) => `$${(cents / 100).toFixed(0)}`;
 export default function CreditStore({ notify, onClose }) {
   const [packs, setPacks] = useState(null);
   const [enabled, setEnabled] = useState(true);
+  const [sandbox, setSandbox] = useState(false);
   const [busy, setBusy] = useState('');
   const [plans, setPlans] = useState([]);
   const [subscription, setSubscription] = useState(null);
@@ -18,6 +19,7 @@ export default function CreditStore({ notify, onClose }) {
       .then((data) => {
         setPacks(data.packs);
         setEnabled(data.checkout_enabled);
+        setSandbox(Boolean(data.sandbox));
       })
       .catch((err) => notify(err.message));
     getSubscription()
@@ -88,11 +90,16 @@ export default function CreditStore({ notify, onClose }) {
           </button>
         </div>
 
+        {sandbox && enabled && (
+          <p className="cinex-sandbox-banner" role="note">
+            Sandbox mode: use Stripe test card 4242 4242 4242 4242 with any future date and CVC. No real money is charged.
+          </p>
+        )}
         {!packs ? (
           <p className="cinex-credit-store-note" role="status">Loading credit packs...</p>
         ) : !enabled ? (
           <p className="cinex-credit-store-note">
-            Credit purchases are not switched on for this deployment yet.
+            {sandbox ? 'Credit purchases open soon.' : 'Credit purchases are not switched on for this deployment yet.'}
           </p>
         ) : (
           <ul className="cinex-pack-grid">

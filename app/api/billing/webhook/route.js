@@ -1,15 +1,13 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
-import { stripeEnabled, constructWebhookEvent, getSubscription } from '../../../../lib/stripe-connect';
+import { verifyWebhookEvent, getSubscription } from '../../../../lib/stripe-connect';
+import { purchaseAccounting, stripeWebhookSecret } from '../../../../lib/billing/payment-mode';
 import { subscriptionMetadata, subscriptionRow, invoiceGrant } from '../../../../lib/billing/subscriptions';
 
 // Webhooks are request-time only; nothing here may run during the build.
 export const dynamic = 'force-dynamic';
 
-const webhookSecret =
-  process.env.CINEXVIDEO_STRIPE_WEBHOOK_SECRET ||
-  process.env.STRIPE_WEBHOOK_SECRET;
 
 /**
  * Lazily build the service-role Supabase client.
@@ -35,7 +33,7 @@ function getSupabase() {
 }
 
 export async function POST(req) {
-  if (!stripeEnabled() || !webhookSecret) {
+  if (!stripeWebhookSecret('live') && !stripeWebhookSecret('test')) {
     return NextResponse.json(
       { error: 'Stripe webhooks are not configured on this deployment.' },
       { status: 503 }
@@ -48,7 +46,8 @@ export async function POST(req) {
   let event;
 
   try {
-    event = constructWebhookEvent(body, signature, webhookSecret);
+    // Accepts live and sandbox (test-mode) endpoints.
+    ({ event } = verifyWebhookEvent(body, signature));
   } catch (err) {
     console.error('Webhook signature verification failed:', err.message);
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
@@ -152,10 +151,10 @@ export async function POST(req) {
         if (session.mode === 'subscription') {
           // Credits for plans are granted on invoice.paid, never here.
           if (session.subscription && session.metadata?.user_id) {
-            const sub = await getSubscription(session.subscription);
+            const sub = await getSubscription(session.subscription, event.livemode === false ? 'test' : 'live');
             const { error: subError } = await supabase
               .from('user_subscriptions')
-              .upsert(subscriptionRow(sub, session.metadata), { onConflict: 'user_id' });
+              .upsert({ ...subscriptionRow(sub, session.metadata), livemode: event.livemode !== false }, { onConflict: 'user_id' });
             if (subError) throw subError;
           }
           break;
@@ -174,12 +173,14 @@ export async function POST(req) {
         }
 
         // One database RPC records the payment, wallet and ledger atomically.
+        // Sandbox payments carry zero revenue value (see payment-mode.js).
+        const packAccounting = purchaseAccounting({ livemode: event.livemode, amountCents: session.amount_total });
         const { error: purchaseError } = await supabase.rpc('fulfil_credit_purchase', {
           p_user_id: userId,
           p_credits: credits,
           p_amount_cents: session.amount_total,
-          p_fee_cents: 0,
-          p_provider: 'stripe',
+          p_fee_cents: packAccounting.feeCents,
+          p_provider: packAccounting.provider,
           p_provider_payment_id: paymentId,
           p_currency: session.currency || 'usd',
           p_settled_amount_cents: session.amount_total,
@@ -199,12 +200,13 @@ export async function POST(req) {
           .from('billing_plans').select('included_credits').eq('code', grant.planCode).maybeSingle();
         const credits = Number(plan?.included_credits) || grant.credits;
         if (!credits) break;
+        const planAccounting = purchaseAccounting({ livemode: event.livemode, amountCents: grant.amountCents });
         const { error: grantError } = await supabase.rpc('fulfil_credit_purchase', {
           p_user_id: grant.userId,
           p_credits: credits,
           p_amount_cents: grant.amountCents,
-          p_fee_cents: 0,
-          p_provider: 'stripe',
+          p_fee_cents: planAccounting.feeCents,
+          p_provider: planAccounting.provider,
           p_provider_payment_id: grant.paymentId,
           p_currency: grant.currency,
           p_settled_amount_cents: grant.amountCents,
@@ -222,7 +224,7 @@ export async function POST(req) {
         if (!sub.metadata?.user_id) break;
         const { error: subError } = await supabase
           .from('user_subscriptions')
-          .upsert(subscriptionRow(sub, sub.metadata), { onConflict: 'user_id' });
+          .upsert({ ...subscriptionRow(sub, sub.metadata), livemode: event.livemode !== false }, { onConflict: 'user_id' });
         if (subError) throw subError;
         break;
       }
