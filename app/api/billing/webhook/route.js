@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
-import { stripeEnabled, constructWebhookEvent } from '../../../../lib/stripe-connect';
+import { stripeEnabled, constructWebhookEvent, getSubscription } from '../../../../lib/stripe-connect';
+import { subscriptionMetadata, subscriptionRow, invoiceGrant } from '../../../../lib/billing/subscriptions';
 
 // Webhooks are request-time only; nothing here may run during the build.
 export const dynamic = 'force-dynamic';
@@ -56,7 +57,8 @@ export async function POST(req) {
   // Only handle CinexVideo events if shared Stripe account
   const isCinexVideo =
     event.data?.object?.metadata?.product === 'cinexvideo' ||
-    event.data?.object?.metadata?.cinexvideo_partner_id;
+    event.data?.object?.metadata?.cinexvideo_partner_id ||
+    subscriptionMetadata(event.data?.object)?.product === 'cinexvideo';
 
   // This Stripe account is shared by multiple products. A foreign checkout or
   // Connect event must be acknowledged before touching CinexVideo storage.
@@ -64,7 +66,9 @@ export async function POST(req) {
     (event.type === 'checkout.session.completed' ||
       event.type === 'checkout.session.async_payment_succeeded' ||
       event.type === 'payment_intent.payment_failed' ||
-      event.type === 'account.updated') &&
+      event.type === 'account.updated' ||
+      event.type === 'invoice.paid' ||
+      event.type.startsWith('customer.subscription.')) &&
     !isCinexVideo
   ) {
     return NextResponse.json({ received: true, ignored: true });
@@ -145,6 +149,17 @@ export async function POST(req) {
       case 'checkout.session.async_payment_succeeded': {
         if (!isCinexVideo) break;
         const session = event.data.object;
+        if (session.mode === 'subscription') {
+          // Credits for plans are granted on invoice.paid, never here.
+          if (session.subscription && session.metadata?.user_id) {
+            const sub = await getSubscription(session.subscription);
+            const { error: subError } = await supabase
+              .from('user_subscriptions')
+              .upsert(subscriptionRow(sub, session.metadata), { onConflict: 'user_id' });
+            if (subError) throw subError;
+          }
+          break;
+        }
         const userId = session.metadata?.user_id;
         const credits = parseInt(session.metadata?.credits || '0', 10);
         const paymentId = session.payment_intent || session.id;
@@ -171,6 +186,44 @@ export async function POST(req) {
           p_settled_currency: session.currency || 'usd',
         });
         if (purchaseError) throw purchaseError;
+        break;
+      }
+
+      case 'invoice.paid': {
+        if (!isCinexVideo) break;
+        const grant = invoiceGrant(event.data.object);
+        if (!grant) break;
+        // Plan credits are purchased credits (paid money), granted once per
+        // invoice; fulfil_credit_purchase is idempotent on the payment id.
+        const { data: plan } = await supabase
+          .from('billing_plans').select('included_credits').eq('code', grant.planCode).maybeSingle();
+        const credits = Number(plan?.included_credits) || grant.credits;
+        if (!credits) break;
+        const { error: grantError } = await supabase.rpc('fulfil_credit_purchase', {
+          p_user_id: grant.userId,
+          p_credits: credits,
+          p_amount_cents: grant.amountCents,
+          p_fee_cents: 0,
+          p_provider: 'stripe',
+          p_provider_payment_id: grant.paymentId,
+          p_currency: grant.currency,
+          p_settled_amount_cents: grant.amountCents,
+          p_settled_currency: grant.currency,
+        });
+        if (grantError) throw grantError;
+        break;
+      }
+
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted': {
+        if (!isCinexVideo) break;
+        const sub = event.data.object;
+        if (!sub.metadata?.user_id) break;
+        const { error: subError } = await supabase
+          .from('user_subscriptions')
+          .upsert(subscriptionRow(sub, sub.metadata), { onConflict: 'user_id' });
+        if (subError) throw subError;
         break;
       }
 

@@ -3283,3 +3283,23 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .cinex-readiness-result.is-blocked { border-color: rgba(251,191,36,.55); background: rgba(251,191,36,.08); }
 .cinex-readiness-result ul { margin: 0; padding-left: 18px; }
 .cinex-admin-nav-link { min-height: 44px; display: inline-flex; align-items: center; }
+
+/* Monthly plans */
+.cinex-credit-store-subtitle {
+  margin: 1.25rem 0 0.25rem;
+  font-size: 1rem;
+  color: var(--cinex-text, #fff);
+}
+.cinex-account-plan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+}
+.cinex-account-plan p { margin: 0; }
+.cinex-account-plan button { min-height: 44px; }

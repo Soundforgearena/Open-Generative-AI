@@ -333,6 +333,8 @@ export async function POST(request) {
       operation,
       reservation_reference: reference,
       credits_reserved: credits,
+      // Real provider cost (per second and resolution), used for partner revenue.
+      provider_cost_cents: Math.ceil(jobCostCents),
       funding_source: 'credits',
       idempotency_key: idempotencyKey,
       status: 'queued',
