@@ -50,7 +50,7 @@ export async function GET() {
   try {
     const [packs, plans, rules, signup] = await Promise.all([
       selectRows('credit_packs', { active: 'eq.true', order: 'sort_order.asc' }, 'code,name,credits,price_cents,blurb'),
-      selectRows('customer_visible_plans', {}, 'code,name,monthly_price_cents,included_credits,overage_price_cents'),
+      selectRows('customer_visible_plans', { monthly_price_cents: 'gt.0', order: 'sort_order.asc' }, 'code,name,monthly_price_cents,included_credits,blurb'),
       selectRows(
         'model_cost_rules',
         { active: 'eq.true', customer_visible: 'eq.true', order: 'operation.asc' },

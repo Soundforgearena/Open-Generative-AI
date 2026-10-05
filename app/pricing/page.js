@@ -136,15 +136,16 @@ export default function PricingPage() {
 
           {pricing.plans?.length ? (
             <section className="cinex-pricing-section" aria-labelledby="pricing-plans-title">
-              <h2 id="pricing-plans-title">Monthly tiers</h2>
+              <h2 id="pricing-plans-title">Monthly plans</h2>
+              <p className="cinex-form-optional">Credits arrive every month and roll over. Cancel any time from your account page.</p>
               <div className="cinex-pricing-table-wrap">
                 <table className="cinex-pricing-table">
                   <thead>
                     <tr>
                       <th scope="col">Tier</th>
                       <th scope="col">Monthly</th>
-                      <th scope="col">Included credits</th>
-                      <th scope="col">Extra credits</th>
+                      <th scope="col">Credits each month</th>
+                      <th scope="col">Per credit</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -153,7 +154,7 @@ export default function PricingPage() {
                         <td>{plan.name}</td>
                         <td>{plan.monthly_price_cents ? wholeMoney(plan.monthly_price_cents) : 'Free'}</td>
                         <td>{plan.included_credits.toLocaleString()}</td>
-                        <td>{plan.overage_price_cents ? `${money(plan.overage_price_cents)} each` : '—'}</td>
+                        <td>{plan.included_credits ? `${(plan.monthly_price_cents / plan.included_credits).toFixed(2)}¢` : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
