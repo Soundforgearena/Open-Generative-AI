@@ -8,6 +8,7 @@ import {
   safeError,
 } from '../../../../lib/cinexvideo-server';
 import { normalizeMuapiCost } from '../../../../lib/providers/muapi-cost-adapter.js';
+import { settledGenerationCredits } from '../../../../lib/billing/at-cost.js';
 
 function normaliseStatus(raw) {
   const value = String(raw || '').toLowerCase();
@@ -23,7 +24,7 @@ function normaliseStatus(raw) {
  */
 async function findCreditReservation(referenceId) {
   if (!referenceId) return null;
-  return selectOne('credit_reservations', { id: `eq.${referenceId}` }, 'id,status,max_reservation_credits');
+  return selectOne('credit_reservations', { id: `eq.${referenceId}` }, 'id,status,max_reservation_credits,pricing_policy_version');
 }
 
 function firstUrl(output) {
@@ -90,11 +91,9 @@ export async function GET(request, { params }) {
         // Platform-funded (super admin): no credits to settle. Record the real cost below.
       } else if (reservation) {
         if (reservation.status === 'reserved') {
-          const actualCredits = Number.isInteger(costNormalized.amountCredits)
-            ? Math.min(Math.max(0, costNormalized.amountCredits), reservation.max_reservation_credits)
-            : costNormalized.amountUsdCents == null
-              ? reservation.max_reservation_credits
-              : Math.min(Math.max(0, costNormalized.amountUsdCents), reservation.max_reservation_credits);
+          // Customers pay the price they confirmed; at-cost (super admin) jobs pay
+          // the provider's reported cost plus card fees, capped at the confirmed price.
+          const actualCredits = settledGenerationCredits(reservation, costNormalized);
           const settlement = await callRpc('settle_reservation_v2', {
             p_reservation_id: reservation.id,
             p_settled_credits: actualCredits,

@@ -27,7 +27,7 @@ test('production review invokes the real generation client', async () => {
 
 test('generation uses one v2 reservation and checks ownership', async () => {
   const route = await read('app/api/generate/route.js');
-  assert.equal((route.match(/callRpc\('reserve_credits_v2'/g) || []).length, 1);
+  assert.equal((route.match(/callRpc\(atCost \? 'reserve_paid_credits_v1' : 'reserve_credits_v2'/g) || []).length, 1);
   assert.equal((route.match(/callRpc\('reserve_credits'/g) || []).length, 0);
   assert.match(route, /ownedProject\.owner_id !== user\.id/);
   assert.match(route, /Scene does not belong to this project/);

@@ -59,14 +59,14 @@ test('Director spends purchased credits only and never runs without a reservatio
   assert.doesNotMatch(src, /'reserve_credits_v2'/);
   assert.match(src, /settle_reservation_v2/);
   assert.match(src, /release_reservation_v2/);
-  assert.match(src, /settledDirectorCredits\(kind, DIRECTOR_MODEL, outcome\.usage\)/);
+  assert.match(src, /settledDirectorCredits\(kind, DIRECTOR_MODEL, outcome\.usage, pricing\)/);
   assert.match(src, /INSUFFICIENT_PAID_CREDITS/);
   assert.match(src, /max_output_tokens: budget\.output/);
   assert.match(src, /effort: 'low'/);
   const post = src.slice(src.indexOf('export async function POST'));
   assert.match(post, /charge\('assist'/);
   assert.match(post, /charge\('plan'/);
-  assert.match(post, /platformFunded \? runPlatformFunded\(user, kind, run\) : chargeDirector\(user, kind, key, run\)/);
+  assert.match(post, /chargeDirector\(user, kind, key, run, \{ atCost \}\)/);
 });
 
 test('paid-only reservation refuses bonus credits in the database', async () => {

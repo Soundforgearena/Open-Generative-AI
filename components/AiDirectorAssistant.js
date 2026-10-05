@@ -92,7 +92,7 @@ export default function AiDirectorAssistant({ fieldType, fieldLabel, value, cont
         context: { ...context, fieldLabel },
       });
       setResult(next);
-      setStatus(next?.platform_funded ? 'Director draft is ready · platform-funded, 0 credits used.' : next?.credits_charged ? `Director draft is ready · ${next.credits_charged} credits used.` : 'Director draft is ready.');
+      setStatus(next?.credits_charged ? `Director draft is ready · ${next.credits_charged} credits used.` : 'Director draft is ready.');
     } catch (assistError) {
       setResult(null);
       setStatus(assistError.status === 402

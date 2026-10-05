@@ -8,6 +8,7 @@ import {
   updateRows,
 } from '../../../../../lib/cinexvideo-server';
 import { normalizeMuapiCost } from '../../../../../lib/providers/muapi-cost-adapter.js';
+import { settledGenerationCredits } from '../../../../../lib/billing/at-cost.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +31,7 @@ async function reservationFor(job) {
   return selectOne(
     'credit_reservations',
     { id: `eq.${job.reservation_reference}` },
-    'id,status,max_reservation_credits'
+    'id,status,max_reservation_credits,pricing_policy_version'
   );
 }
 
@@ -44,11 +45,9 @@ async function completeJob(job, data, headers = {}) {
   if (platformJob) {
     // Platform-funded (super admin): no credits to settle.
   } else if (reservation?.status === 'reserved') {
-    const actualCredits = Number.isInteger(cost.amountCredits)
-      ? Math.min(Math.max(0, cost.amountCredits), reservation.max_reservation_credits)
-      : cost.amountUsdCents == null
-        ? reservation.max_reservation_credits
-        : Math.min(Math.max(0, cost.amountUsdCents), reservation.max_reservation_credits);
+    // Customers pay the price they confirmed; at-cost (super admin) jobs pay
+          // the provider's reported cost plus card fees, capped at the confirmed price.
+          const actualCredits = settledGenerationCredits(reservation, cost);
     const settled = await callRpc('settle_reservation_v2', {
       p_reservation_id: reservation.id,
       p_settled_credits: actualCredits,

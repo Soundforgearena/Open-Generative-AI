@@ -7,10 +7,9 @@ import {
   updateRows,
   requireSecret,
   safeError,
-  platformUsageToday,
-  recordPlatformUsage,
 } from '../../../lib/cinexvideo-server';
-import { isPlatformFunded, remainingPlatformAllowanceCents } from '../../../lib/billing/platform-funding.js';
+import { AT_COST_POLICY, atCostCredits, isAtCostUser } from '../../../lib/billing/at-cost.js';
+import { providerCostCents } from '../../../lib/billing/provider-pricing.js';
 import { evaluateProviderExposure } from '../../../lib/billing/provider-exposure-guard.js';
 import { evaluateReservationRisk } from '../../../lib/billing/risk-policy.js';
 import { loadRuntimeSafetySignals } from '../../../lib/billing/runtime-safety-signals.js';
@@ -105,8 +104,9 @@ function referenceCountFor(input) {
  */
 export async function POST(request) {
   const { user, admin, superAdmin, error } = await guard(request, { blockOnMaintenance: true });
-  // Super admins run on platform funds (the platform pays MUAPI directly).
-  const platformFunded = isPlatformFunded({ superAdmin });
+  // Super admins pay cost (provider + card fees, no margin) from purchased
+  // credits; everyone else pays the marked-up quote.
+  const atCost = isAtCostUser({ superAdmin });
   if (error) return error;
 
   try {
@@ -181,11 +181,19 @@ export async function POST(request) {
       return safeError('Too many references for this option.', 409);
     }
 
+    const jobCostCents = providerCostCents({
+      model,
+      operation,
+      durationSeconds,
+      resolution,
+      ruleCostCents: rule.provider_cost_cents,
+    });
     const quote = await callRpc('quote_generation', {
       p_provider: rule.provider,
       p_model: model,
       p_operation: operation,
-      p_provider_cost_cents: rule.provider_cost_cents,
+      // Real per-second / per-resolution provider cost, not a flat per-job figure.
+      p_provider_cost_cents: jobCostCents,
       p_duration_seconds: durationSeconds,
       p_resolution: resolution,
       p_reference_count: referenceCount,
@@ -195,13 +203,14 @@ export async function POST(request) {
       return safeError('This creative setup is temporarily unavailable.', 409);
     }
 
-    const credits = Number(quoteRow.credits);
+    const credits = atCost ? atCostCredits(jobCostCents) : Number(quoteRow.credits);
     if (quoteOnly) {
       return Response.json({
         credits_required: credits,
         duration_seconds: durationSeconds,
         model,
         operation,
+        at_cost: atCost,
       });
     }
     const runtimeSignals = await loadRuntimeSafetySignals({
@@ -212,15 +221,16 @@ export async function POST(request) {
     });
     if (preflight === true) {
       const wallet = await selectOne('credit_wallets', { user_id: `eq.${user.id}` }, 'balance');
-      if (platformFunded) {
-        const remaining = remainingPlatformAllowanceCents(await platformUsageToday(user.id));
+      if (atCost) {
+        const paid = await callRpc('paid_credits_available', { p_user_id: user.id });
+        const paidAvailable = paid.ok ? Number(Array.isArray(paid.data) ? paid.data[0] : paid.data) || 0 : 0;
         return Response.json(buildPreflightReport({
           credits,
-          balance: remaining,
-          risk: { decision: 'allowed' },
+          balance: paidAvailable,
+          risk: evaluateReservationRisk(runtimeSignals.risk, credits),
           exposure: evaluateProviderExposure(runtimeSignals.exposure),
           providerKeyPresent: Boolean(process.env.MUAPI_API_KEY),
-          platformFunded: true,
+          atCost: true,
         }));
       }
       return Response.json(buildPreflightReport({
@@ -231,7 +241,7 @@ export async function POST(request) {
         providerKeyPresent: Boolean(process.env.MUAPI_API_KEY),
       }));
     }
-    const risk = platformFunded ? { decision: 'allowed' } : evaluateReservationRisk(runtimeSignals.risk, credits);
+    const risk = evaluateReservationRisk(runtimeSignals.risk, credits);
     if (risk.decision === 'blocked') {
       return safeError('This request could not be started right now.', 403);
     }
@@ -247,36 +257,23 @@ export async function POST(request) {
     }
     const idempotencyKey = request.headers.get('idempotency-key');
     let reference = null;
-    if (platformFunded) {
-      // No wallet debit. Duplicate submits return the original job; a daily cap
-      // keeps platform spend bounded even if an admin account is misused.
-      const existingJob = await selectOne(
-        'generation_requests',
-        { user_id: `eq.${user.id}`, idempotency_key: `eq.${idempotencyKey}` },
-        'id,provider_request_id,credits_reserved,scene_version,status'
-      );
-      if (existingJob) {
-        return Response.json(
-          { job_id: existingJob.id, request_id: existingJob.provider_request_id, credits_required: 0, scene_version: existingJob.scene_version, status: existingJob.status, platform_funded: true },
-          { status: 202 }
-        );
-      }
-      const remaining = remainingPlatformAllowanceCents(await platformUsageToday(user.id));
-      if (remaining < credits) {
-        return safeError('Today\'s platform-funded allowance is used up. It resets at midnight UTC, or raise PLATFORM_FUNDED_DAILY_CAP_CENTS.', 429);
-      }
-    } else {
-      const reservation = await callRpc('reserve_credits_v2', {
+    {
+      // At-cost jobs may only spend purchased credits (bonus credits would mean
+      // paying the provider bill with money nobody paid us).
+      const reservation = await callRpc(atCost ? 'reserve_paid_credits_v1' : 'reserve_credits_v2', {
         p_user_id: user.id,
         p_operation: operation,
         p_estimated_credits: credits,
         p_max_reservation_credits: credits,
-        p_pricing_policy_version: '2026-09-06-v1',
+        p_pricing_policy_version: atCost ? AT_COST_POLICY : '2026-09-06-v1',
         p_idempotency_key: idempotencyKey,
       });
       const reservationRow = Array.isArray(reservation.data) ? reservation.data[0] : reservation.data;
       if (!reservation.ok || !reservationRow?.id) {
         const message = String(reservation.data?.message || '');
+        if (message.includes('INSUFFICIENT_PAID_CREDITS')) {
+          return safeError(`At-cost generation uses purchased credits only. This scene needs ${credits} purchased credits.`, 402);
+        }
         if (message.includes('INSUFFICIENT_CREDITS')) {
           return safeError('You need more credits to continue.', 402);
         }
@@ -335,8 +332,8 @@ export async function POST(request) {
       model,
       operation,
       reservation_reference: reference,
-      credits_reserved: platformFunded ? 0 : credits,
-      funding_source: platformFunded ? 'platform' : 'credits',
+      credits_reserved: credits,
+      funding_source: 'credits',
       idempotency_key: idempotencyKey,
       status: 'queued',
     });
@@ -452,22 +449,8 @@ export async function POST(request) {
       }
       if (!persisted) throw new Error('provider job accepted but tracking persistence failed');
 
-      if (platformFunded) {
-        // The real MUAPI cost is recorded by the job poller / reconcile cron
-        // (provider_cost_records); this row tracks platform-funded volume.
-        await recordPlatformUsage({
-          user_id: user.id,
-          operation,
-          provider: rule.provider || 'muapi',
-          model,
-          generation_job_id: jobId,
-          estimated_cost_cents: 0,
-          credits_equivalent: credits,
-        });
-      }
-
       return Response.json(
-        { job_id: jobId, request_id: providerRequestId, credits_required: platformFunded ? 0 : credits, credits_equivalent: credits, platform_funded: platformFunded, scene_version: sceneVersion },
+        { job_id: jobId, request_id: providerRequestId, credits_required: credits, at_cost: atCost, scene_version: sceneVersion },
         { status: 202 }
       );
     } catch (providerError) {
