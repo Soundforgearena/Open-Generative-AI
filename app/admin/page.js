@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import { requireAdmin } from '@/lib/admin/authorize';
+import { currentAdminRole, requireAdmin } from '@/lib/admin/authorize';
 import { selectRows } from '@/lib/cinexvideo-server';
-import { ADMIN_SECTIONS } from '@/lib/admin/sections';
+import { sectionsForRole } from '@/lib/admin/sections';
 import SiteVisibilityToggle from '@/components/admin/SiteVisibilityToggle';
 import PaymentModeToggle from '@/components/admin/PaymentModeToggle';
 import PremieresReadiness from '@/components/admin/PremieresReadiness';
@@ -54,6 +54,7 @@ async function loadOverview() {
 
 export default async function AdminOverviewPage() {
   await requireAdmin('/admin');
+  const role = await currentAdminRole();
 
   let overview = null;
   let loadError = '';
@@ -203,7 +204,7 @@ export default async function AdminOverviewPage() {
       <section aria-labelledby="admin-sections-title">
         <h2 id="admin-sections-title">Admin sections</h2>
         <div className="cinex-admin-section-cards">
-          {ADMIN_SECTIONS.filter((section) => section.href !== '/admin').map((section) => (
+          {sectionsForRole(role).filter((section) => section.href !== '/admin').map((section) => (
             <Link key={section.href} href={section.href} className="cinex-admin-section-card">
               <strong>{section.label}</strong>
               <span>{section.blurb}</span>

@@ -6,7 +6,7 @@ import { describeProviderConfiguration } from '../../../../lib/admin/provider-co
  * only here — this route is hard-gated to admin_members.
  */
 export async function GET(request) {
-  const { error } = await guard(request, { requireAdminRole: true });
+  const { superAdmin, error } = await guard(request, { requireAdminRole: true });
   if (error) return error;
 
   try {
@@ -40,11 +40,16 @@ export async function GET(request) {
         generations_24h: Number(summary.generations_24h || 0),
         failures_24h: Number(summary.failures_24h || 0),
         credits_24h: Number(summary.credits_24h || 0),
-        revenue_24h_cents: revenue,
-        provider_cost_24h_cents: providerCost,
-        realised_margin_percent: marginPercent === null ? null : Number(marginPercent.toFixed(1)),
-        margin_floor_percent: 45,
-        margin_floor_met: marginPercent === null ? null : marginPercent >= 45,
+        // Revenue, cost and margin are super admin only.
+        ...(superAdmin
+          ? {
+              revenue_24h_cents: revenue,
+              provider_cost_24h_cents: providerCost,
+              realised_margin_percent: marginPercent === null ? null : Number(marginPercent.toFixed(1)),
+              margin_floor_percent: 45,
+              margin_floor_met: marginPercent === null ? null : marginPercent >= 45,
+            }
+          : {}),
         total_users: wallets.length,
         credits_outstanding: wallets.reduce((sum, w) => sum + Number(w.balance || 0), 0),
         generations_total: generations.length,

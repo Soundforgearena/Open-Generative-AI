@@ -169,8 +169,7 @@ export default function RevenuePanel({ notify }) {
             <thead>
               <tr>
                 <th>Partner</th>
-                <th>Share of partner pool</th>
-                <th>Effective share of {draft.basis}</th>
+                <th>Share of net revenue (%)</th>
                 <th>Available</th>
                 <th>Lifetime</th>
                 <th>Payouts</th>
@@ -180,7 +179,6 @@ export default function RevenuePanel({ notify }) {
             <tbody>
               {draft.partners.map((partner, index) => {
                 const live = data.partners.find((item) => item.partner_id === partner.partner_id) || {};
-                const effective = (partnerPool * Number(partner.share_percent || 0)) / 100;
                 return (
                   <tr key={partner.partner_id}>
                     <td className="mono">{partner.display_name}</td>
@@ -198,7 +196,6 @@ export default function RevenuePanel({ notify }) {
                         }}
                       />
                     </td>
-                    <td>{effective.toFixed(1)}%</td>
                     <td className="mono">{money(live.available_cents)}</td>
                     <td>{money(live.lifetime_earned_cents)}</td>
                     <td>
@@ -237,17 +234,17 @@ export default function RevenuePanel({ notify }) {
           </table>
         </div>
 
-        <p className={Math.abs(shareTotal - 100) > 0.01 ? 'fine-print warn' : 'fine-print'}>
-          Partner shares total {shareTotal}% of the {partnerPool}% partner pool.
-          {Math.abs(shareTotal - 100) > 0.01
-            ? ' They must total 100% before this can be saved.'
+        <p className={Math.abs(shareTotal - partnerPool) > 0.01 ? 'fine-print warn' : 'fine-print'}>
+          Partners total {shareTotal}% and the platform keeps {draft.platform_percent}% of net revenue.
+          {Math.abs(shareTotal - partnerPool) > 0.01
+            ? ` Partners must total ${partnerPool}% so the split adds up to 100%.`
             : ''}
         </p>
 
         <button
           className="primary"
           onClick={saveSplit}
-          disabled={busy === 'split' || Math.abs(shareTotal - 100) > 0.01}
+          disabled={busy === 'split' || Math.abs(shareTotal - partnerPool) > 0.01}
         >
           {busy === 'split' ? 'Saving…' : 'Save split'}
         </button>

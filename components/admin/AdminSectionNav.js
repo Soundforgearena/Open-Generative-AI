@@ -2,14 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ADMIN_SECTIONS } from '@/lib/admin/sections';
+import { sectionsForRole } from '@/lib/admin/sections';
 
-export default function AdminSectionNav() {
+export default function AdminSectionNav({ role = 'admin' }) {
   const pathname = usePathname();
 
   return (
     <nav className="cinex-admin-nav" aria-label="Admin sections">
-      {ADMIN_SECTIONS.map((section) => {
+      {sectionsForRole(role).map((section) => {
         const current = pathname === section.href;
         return (
           <Link

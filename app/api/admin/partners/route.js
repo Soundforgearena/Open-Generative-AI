@@ -1,5 +1,6 @@
 import { guard, selectRows, updateRows, callRpcAsUser, bearerToken, safeError } from '../../../../lib/cinexvideo-server';
 import { stripeEnabled, getAccount, summariseAccount } from '../../../../lib/stripe-connect';
+import { validateSplit } from '../../../../lib/billing/revenue-split.js';
 
 /** Revenue partners, their live balances, and the current split configuration. */
 export async function GET(request) {
@@ -49,7 +50,7 @@ export async function GET(request) {
 
     return Response.json({
       partners: balances,
-      config: config[0]?.value || { platform_percent: 50, basis: 'net' },
+      config: config[0]?.value || { platform_percent: 30, basis: 'net' },
       stripe_configured: stripeEnabled(),
       recent_events: recent,
       totals,
@@ -68,28 +69,36 @@ export async function PATCH(request) {
     const body = await request.json();
     const token = bearerToken(request);
 
+    // Validate everything before writing anything, so a bad edit can never
+    // leave the platform share and the partner shares out of step.
     if (body.config) {
       const percent = Number(body.config.platform_percent);
       if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
         return safeError('Platform share must be between 0 and 100.');
       }
-      if (!['net', 'gross'].includes(body.config.basis)) {
-        return safeError('Split basis must be net or gross.');
+      if (body.config.basis !== 'net') {
+        return safeError('Splits are always paid from net revenue (after provider costs and fees).');
       }
+    }
+    if (body.config || Array.isArray(body.partners)) {
+      const current = await selectRows('app_settings', { key: 'eq.revenue_split' }, 'value');
+      const platformPercent = body.config ? Number(body.config.platform_percent) : Number(current[0]?.value?.platform_percent ?? 30);
+      const partners = Array.isArray(body.partners)
+        ? body.partners
+        : (await selectRows('revenue_partners', { active: 'eq.true' }, 'share_percent,active'));
+      const check = validateSplit({ platformPercent, partners });
+      if (!check.ok) return safeError(check.error);
+    }
+
+    if (body.config) {
       await callRpcAsUser(
         'admin_set_revenue_split',
-        { p_platform_percent: percent, p_basis: body.config.basis },
+        { p_platform_percent: Number(body.config.platform_percent), p_basis: 'net' },
         token
       );
     }
 
     if (Array.isArray(body.partners)) {
-      const total = body.partners.reduce((sum, item) => sum + Number(item.share_percent || 0), 0);
-      // Shares are a division of the partner pool, so they have to account for
-      // all of it — otherwise the unallocated remainder silently disappears.
-      if (Math.abs(total - 100) > 0.01) {
-        return safeError(`Partner shares must total 100%. They currently total ${total}%.`);
-      }
       for (const partner of body.partners) {
         await updateRows(
           'revenue_partners',

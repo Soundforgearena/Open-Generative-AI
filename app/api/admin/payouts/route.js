@@ -8,7 +8,7 @@ import {
   bearerToken,
   safeError,
 } from '../../../../lib/cinexvideo-server';
-import { stripeEnabled, createTransfer } from '../../../../lib/stripe-connect';
+import { stripeEnabled, createTransfer, transferOutcomeUnknown } from '../../../../lib/stripe-connect';
 
 /** Payout history. */
 export async function GET(request) {
@@ -94,7 +94,11 @@ export async function POST(request) {
         transfer_id: transfer.id,
       });
     } catch (transferError) {
-      await callRpc('settle_partner_payout', { p_payout_id: payoutId, p_status: 'failed' });
+      if (transferOutcomeUnknown(transferError)) {
+        await updateRows('partner_payouts', { id: `eq.${payoutId}` }, { note: 'Stripe did not confirm this transfer. Check the Stripe dashboard before retrying.' });
+        return safeError('Stripe did not confirm the transfer. It is held as pending; check the Stripe dashboard before paying again.', 502);
+      }
+      await callRpc('settle_partner_payout', { p_payout_id: payoutId, p_status: 'failed', p_provider_transfer_id: null });
       await updateRows('partner_payouts', { id: `eq.${payoutId}` }, { note: transferError.message });
       console.error('stripe transfer', transferError);
       return safeError(`Transfer failed: ${transferError.message}. The earnings were returned to available.`, 502);
