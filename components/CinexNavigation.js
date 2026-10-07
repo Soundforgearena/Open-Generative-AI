@@ -12,6 +12,7 @@ export default function CinexNavigation({ showFeatures = false }) {
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isPartner, setIsPartner] = useState(false);
 
   useEffect(() => {
     if (!isMenuOpen) return undefined;
@@ -62,13 +63,17 @@ export default function CinexNavigation({ showFeatures = false }) {
   useEffect(() => {
     if (!user) {
       setIsAdmin(false);
+      setIsPartner(false);
       return undefined;
     }
 
     let active = true;
     getAccount()
       .then((account) => {
-        if (active) setIsAdmin(Boolean(account?.is_admin || account?.is_super_admin));
+        if (active) {
+          setIsAdmin(Boolean(account?.is_admin || account?.is_super_admin));
+          setIsPartner(Boolean(account?.partner));
+        }
       })
       .catch(() => {
         if (active) setIsAdmin(false);
@@ -127,6 +132,7 @@ export default function CinexNavigation({ showFeatures = false }) {
             <Link href="/studio" onClick={closeMenu}>Studio</Link>
             <Link href="/dashboard" onClick={closeMenu}>Dashboard</Link>
             <Link href="/account" onClick={closeMenu}>Account</Link>
+            {isPartner && <Link href="/payouts" onClick={closeMenu}>Payouts</Link>}
             {isAdmin && <Link href="/admin" className="cinex-nav-admin" onClick={closeMenu}>Admin</Link>}
             <button type="button" className="cinex-nav-action" onClick={handleSignOut}>Sign out</button>
           </>

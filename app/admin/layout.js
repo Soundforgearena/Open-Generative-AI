@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import CinexNavigation from '@/components/CinexNavigation';
 import AdminSectionNav from '@/components/admin/AdminSectionNav';
-import { requireAdmin } from '@/lib/admin/authorize';
+import { currentAdminRole, requireAdmin } from '@/lib/admin/authorize';
 
 /**
  * Shared shell for every /admin route.
@@ -11,6 +11,7 @@ import { requireAdmin } from '@/lib/admin/authorize';
  */
 export default async function AdminLayout({ children }) {
   await requireAdmin('/admin');
+  const role = await currentAdminRole();
 
   return (
     <main className="cinex-page cinex-admin-page">
@@ -22,7 +23,7 @@ export default async function AdminLayout({ children }) {
       <section className="cinex-admin-shell">
         <header className="cinex-admin-header">
           <p className="cinex-route-eyebrow">Administration</p>
-          <AdminSectionNav />
+          <AdminSectionNav role={role || 'admin'} />
         </header>
 
         {children}

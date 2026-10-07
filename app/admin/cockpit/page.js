@@ -1,4 +1,4 @@
-import { requireAdmin } from '@/lib/admin/authorize';
+import { requireSuperAdmin } from '@/lib/admin/authorize';
 import { selectRows } from '@/lib/cinexvideo-server';
 import EconomicsDashboard from '@/components/admin/EconomicsDashboard';
 import CreditPackSimulator from '@/components/admin/CreditPackSimulator';
@@ -25,7 +25,7 @@ async function readTable(table, filters = {}, select = '*') {
 }
 
 export default async function AdminCockpitPage() {
-  await requireAdmin('/admin/cockpit');
+  await requireSuperAdmin('/admin/cockpit');
   const [
     wallets,
     payments,

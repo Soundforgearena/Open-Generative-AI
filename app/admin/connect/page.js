@@ -9,6 +9,7 @@ export default function AdminConnectPage() {
   const router = useRouter();
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [partners, setPartners] = useState([]);
+  const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -17,6 +18,7 @@ export default function AdminConnectPage() {
     setError(null);
     try {
       const data = await getPartners();
+      setConfig(data.config || null);
       // /api/admin/partners reads the partner_balances view, which keys rows on
       // partner_id; the card renders on `id`.
       setPartners(
@@ -38,8 +40,9 @@ export default function AdminConnectPage() {
       const account = await getAccount();
       if (cancelled) return;
 
-      if (!account?.is_admin && !account?.is_super_admin) {
-        router.push('/');
+      // Revenue split and partner details are super admin only.
+      if (!account?.is_super_admin) {
+        router.push(account?.is_admin ? '/admin' : '/');
         return;
       }
 
@@ -65,42 +68,33 @@ export default function AdminConnectPage() {
 
   if (!isAuthorized || loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black text-white flex items-center justify-center">
-        <p className="text-slate-400">{error || 'Loading admin dashboard...'}</p>
-      </div>
+      <p className="cinex-route-description">{error || 'Loading revenue partners...'}</p>
     );
   }
 
+  const active = partners.filter((p) => p.active !== false);
+  const partnerTotal = active.reduce((sum, p) => sum + Number(p.share_percent || 0), 0);
+  const platform = Number(config?.platform_percent ?? 0);
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black text-white">
-      <div className="max-w-6xl mx-auto px-6 py-16">
-        <button
-          onClick={() => router.push('/')}
-          className="inline-flex items-center gap-2 mb-8 text-slate-400 hover:text-white transition-colors"
-        >
-          ← Back to CinexVideo
-        </button>
+    <div className="cinex-admin-connect">
+      <h1>Revenue partners</h1>
+      <p className="cinex-route-description">
+        Split of net revenue (after provider costs, overhead and Stripe fees). Visible to the super admin only.
+        Every partner is paid through their own Stripe Express account, in their local currency.
+      </p>
+      <div className="cinex-split-summary" aria-label="Current split">
+        <span className="is-platform">Platform keeps {platform}%</span>
+        {active.map((p) => <span key={p.id}>{p.display_name} {Number(p.share_percent)}%</span>)}
+        <span className={Math.abs(platform + partnerTotal - 100) < 0.01 ? '' : 'is-platform'}>Total {platform + partnerTotal}%</span>
+      </div>
 
-        <h1 className="text-4xl font-bold mb-4">Stripe Connect Onboarding</h1>
-        <p className="text-slate-400 mb-8">
-          Manage revenue partner onboarding and payout configuration (Authorized admins only)
-        </p>
+      {error && <p className="cinex-form-error" role="alert">{error}</p>}
 
-        {error && (
-          <div className="mb-8 p-4 bg-red-500/10 border border-red-500/50 rounded-lg text-red-200">
-            {error}
-          </div>
-        )}
-
-        <div className="grid gap-6">
-          {partners.map((partner) => (
-            <PartnerOnboardingCard
-              key={partner.id}
-              partner={partner}
-              onRefresh={loadPartners}
-            />
-          ))}
-        </div>
+      <div className="cinex-partner-grid">
+        {partners.map((partner) => (
+          <PartnerOnboardingCard key={partner.id} partner={partner} onRefresh={loadPartners} />
+        ))}
       </div>
     </div>
   );

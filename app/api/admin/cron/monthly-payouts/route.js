@@ -1,16 +1,10 @@
-import { createTransfer, stripeEnabled } from '../../../../../lib/stripe-connect';
-import {
-  calculateMonthlyContractorPayouts,
-  payoutPeriodBounds,
-} from '../../../../../lib/contractor-payouts.js';
-import {
-  insertRows,
-  selectRows,
-  updateRows,
-  safeError,
-} from '../../../../../lib/cinexvideo-server';
+import { createTransfer, stripeEnabled, transferOutcomeUnknown } from '../../../../../lib/stripe-connect';
+import { callRpc, selectOne, selectRows, updateRows, safeError } from '../../../../../lib/cinexvideo-server';
 
 export const dynamic = 'force-dynamic';
+
+// Stripe charges per payout, so tiny balances roll over to next month.
+const MINIMUM_PAYOUT_CENTS = 1000;
 
 function hasCronAuthorization(request) {
   const expected = process.env.CRON_SECRET?.trim();
@@ -18,134 +12,69 @@ function hasCronAuthorization(request) {
   return Boolean(expected && provided && provided === expected);
 }
 
-function payoutRowFromResult(result, partner, period) {
-  return {
-    partner_id: partner.id,
-    period,
-    amount_cents: result.cappedShareCents,
-    raw_share_cents: result.rawShareCents,
-    excess_to_platform_cents: result.excessToPlatformCents,
-    provider: 'stripe_express',
-    status: 'pending',
-    note: `Monthly contractor payout for ${period}`,
-  };
-}
-
 /**
- * Runs a monthly contractor payout from server-derived revenue_events.
- * The request accepts only the period; revenue is never trusted from a
- * client, cron body, or admin form.
+ * Monthly partner payouts, paid from the same ledger the cockpit shows.
+ *
+ * Each sale is split once, when it happens, by record_revenue() into
+ * partner_earnings (net revenue, platform 30%, partners per their share).
+ * This job only pays out what each partner has already earned and not yet
+ * been paid. Earnings are attached to a single payout row before any money
+ * moves, and that payout id is the Stripe idempotency key, so the same
+ * earnings can never be paid twice, even if the job runs twice.
  */
 export async function POST(request) {
   if (!hasCronAuthorization(request)) return safeError('Cron authorization required.', 401);
   if (!stripeEnabled()) return safeError('Stripe payouts are not configured.', 503);
 
-  try {
-    const body = await request.json().catch(() => ({}));
-    const { period } = body;
-    const bounds = payoutPeriodBounds(period);
+  const balances = await selectRows(
+    'partner_balances',
+    { active: 'eq.true', order: 'share_percent.desc' },
+    'partner_id,display_name,available_cents'
+  );
+  const summaries = [];
 
-    const [revenueEvents, partners] = await Promise.all([
-      selectRows(
-        'revenue_events',
-        {
-          created_at: [`gte.${bounds.start}`, `lt.${bounds.end}`],
-          limit: 10000,
-        },
-        'gross_cents'
-      ),
-      selectRows(
-        'revenue_partners',
-        { active: 'eq.true', order: 'email.asc' },
-        'id,email,display_name,stripe_account_id,payout_provider,payouts_enabled,contractor_key,payout_units'
-      ),
-    ]);
-
-    const totalRevenueCents = revenueEvents.reduce(
-      (total, event) => total + Math.max(0, Number(event.gross_cents) || 0),
-      0
-    );
-    const configuredPartners = partners
-      .filter((partner) => Number.isInteger(partner.payout_units) && partner.payout_units > 0)
-      .map((partner) => ({
-        ...partner,
-        key: partner.contractor_key,
-        units: partner.payout_units,
-      }));
-    const calculation = calculateMonthlyContractorPayouts({
-      totalRevenueCents,
-      contractors: configuredPartners,
-    });
-    const summaries = [];
-
-    for (const result of calculation.payouts) {
-      if (result.cappedShareCents <= 0) {
-        summaries.push({ key: result.key, status: 'skipped', amount_cents: 0 });
-        continue;
-      }
-      if (!result.stripe_account_id || result.payout_provider !== 'stripe_express' || !result.payouts_enabled) {
-        summaries.push({ key: result.key, status: 'blocked', reason: 'Stripe Express onboarding is incomplete.' });
-        continue;
-      }
-
-      const existingRows = await selectRows(
-        'partner_payouts',
-        { partner_id: `eq.${result.id}`, period: `eq.${period}`, limit: 1 },
-        '*'
-      );
-      let payout = existingRows[0];
-      if (payout?.status === 'paid') {
-        summaries.push({ key: result.key, status: 'paid', amount_cents: payout.amount_cents, transfer_id: payout.provider_transfer_id });
-        continue;
-      }
-
-      if (!payout) {
-        const created = await insertRows('partner_payouts', payoutRowFromResult(result, result, period));
-        if (!created.ok) {
-          const retryRows = await selectRows(
-            'partner_payouts',
-            { partner_id: `eq.${result.id}`, period: `eq.${period}`, limit: 1 },
-            '*'
-          );
-          payout = retryRows[0];
-        } else {
-          payout = Array.isArray(created.data) ? created.data[0] : created.data;
-        }
-      }
-      if (!payout?.id) {
-        summaries.push({ key: result.key, status: 'failed', reason: 'Could not create payout record.' });
-        continue;
-      }
-
-      try {
-        const transfer = await createTransfer({
-          accountId: result.stripe_account_id,
-          amountCents: payout.amount_cents,
-          payoutId: payout.id,
-          description: `CinexVideo contractor payout - ${result.key} - ${period}`,
-        });
-        await updateRows(
-          'partner_payouts',
-          { id: `eq.${payout.id}` },
-          { status: 'paid', provider_transfer_id: transfer.id, completed_at: new Date().toISOString() }
-        );
-        summaries.push({ key: result.key, status: 'paid', amount_cents: payout.amount_cents, transfer_id: transfer.id });
-      } catch (error) {
-        await updateRows('partner_payouts', { id: `eq.${payout.id}` }, { status: 'failed', note: error.message });
-        summaries.push({ key: result.key, status: 'failed', amount_cents: payout.amount_cents, reason: 'Stripe transfer failed.' });
-      }
+  for (const row of balances) {
+    const available = Number(row.available_cents || 0);
+    if (available < MINIMUM_PAYOUT_CENTS) {
+      summaries.push({ partner: row.display_name, status: 'rolled_over', amount_cents: available });
+      continue;
+    }
+    const partner = await selectOne('revenue_partners', { id: `eq.${row.partner_id}` });
+    if (!partner?.stripe_account_id || partner.payout_provider !== 'stripe_express' || !partner.payouts_enabled) {
+      summaries.push({ partner: row.display_name, status: 'waiting_for_stripe', amount_cents: available });
+      continue;
     }
 
-    return Response.json({
-      ok: summaries.every((summary) => ['paid', 'skipped'].includes(summary.status)),
-      period,
-      totalRevenueCents,
-      contractorPoolCents: calculation.contractorPoolCents,
-      totalCappedToPlatformCents: calculation.totalCappedToPlatformCents,
-      summaries,
+    const { ok, data: payoutId } = await callRpc('open_partner_payout_system', {
+      p_partner_id: partner.id,
+      p_note: `Monthly payout ${new Date().toISOString().slice(0, 7)}`,
     });
-  } catch (error) {
-    console.error('monthly contractor payouts', error);
-    return safeError(error.message || 'Could not run monthly contractor payouts.', 500);
+    if (!ok || !payoutId) {
+      summaries.push({ partner: row.display_name, status: 'nothing_to_pay' });
+      continue;
+    }
+    const payout = await selectOne('partner_payouts', { id: `eq.${payoutId}` });
+    try {
+      const transfer = await createTransfer({
+        accountId: partner.stripe_account_id,
+        amountCents: payout.amount_cents,
+        payoutId,
+        description: `CinexVideo partner payout - ${partner.display_name}`,
+      });
+      await callRpc('settle_partner_payout', { p_payout_id: payoutId, p_status: 'paid', p_provider_transfer_id: transfer.id });
+      summaries.push({ partner: row.display_name, status: 'paid', amount_cents: payout.amount_cents, transfer_id: transfer.id });
+    } catch (error) {
+      if (transferOutcomeUnknown(error)) {
+        await updateRows('partner_payouts', { id: `eq.${payoutId}` }, { note: 'Stripe did not confirm this transfer. Check the Stripe dashboard before retrying.' });
+        summaries.push({ partner: row.display_name, status: 'needs_check', amount_cents: payout.amount_cents });
+        continue;
+      }
+      // A definite failure releases the earnings back to available for next time.
+      await callRpc('settle_partner_payout', { p_payout_id: payoutId, p_status: 'failed', p_provider_transfer_id: null });
+      await updateRows('partner_payouts', { id: `eq.${payoutId}` }, { note: String(error.message || 'transfer failed').slice(0, 300) });
+      summaries.push({ partner: row.display_name, status: 'failed', amount_cents: payout.amount_cents });
+    }
   }
+
+  return Response.json({ ok: summaries.every((s) => !['failed', 'needs_check'].includes(s.status)), summaries });
 }
