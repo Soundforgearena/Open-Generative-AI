@@ -1,0 +1,42 @@
+{
+  "manifestVersion": "production-read-canary-v1",
+  "environment": "production",
+  "phase": "read_play_only",
+  "rolloutPercent": 1,
+  "actions": ["read", "play"],
+  "flags": {
+    "webhook_shadow_capture": true,
+    "entitlement_shadow_calculation": true,
+    "access_enforcement": true,
+    "upload_enforcement": false,
+    "credit_enforcement": false,
+    "payout_enforcement": false,
+    "destructive_purge": false
+  },
+  "versions": {
+    "invoiceNormalizer": "invoice-normalizer-v1",
+    "entitlementMapping": "shadow-v1",
+    "accessChecker": "access-v1",
+    "accessGateway": "gateway-v1",
+    "reconciliation": "storage-v1"
+  },
+  "cohort": {
+    "internalUserIds": [],
+    "internalEmailDomains": [],
+    "selection": "stable_hash",
+    "saltVersion": "canary-salt-v1"
+  },
+  "approvalPolicy": {
+    "requireIndependentApprover": true,
+    "requireFreshPromotionEvaluation": true,
+    "requireConfigurationHashMatch": true,
+    "approvalTtlMinutes": 30
+  },
+  "safety": {
+    "dryRunOnly": true,
+    "allowProviderMutations": false,
+    "allowFinancialMutations": false,
+    "allowEntitlementMutations": false,
+    "allowStorageDeletion": false
+  }
+}

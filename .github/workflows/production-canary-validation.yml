@@ -1,0 +1,75 @@
+name: Production canary validation
+
+on:
+  workflow_call:
+  pull_request:
+    paths:
+      - "scripts/validate-production-canary.js"
+      - "production-read-canary-v1.json"
+      - ".github/workflows/production-canary-validation.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/validate-production-canary.js"
+      - "production-read-canary-v1.json"
+      - ".github/workflows/production-canary-validation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-canary-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate production canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate production manifest
+        env:
+          APP_ENVIRONMENT: production
+        run: |
+          set +e
+          node scripts/validate-production-canary.js \
+            --manifest=production-read-canary-v1.json \
+            > validator-output.json
+          status=$?
+          set -e
+          cat validator-output.json
+          if [ "$status" -ne 2 ]; then
+            echo "Expected fail-closed dry-run status 2 without promotion-gate credentials."
+            exit 1
+          fi
+          node - <<'NODE'
+          const fs = require('fs');
+          const result = JSON.parse(fs.readFileSync('validator-output.json', 'utf8'));
+          if (result.applied !== false) throw new Error('Validator must never apply changes in CI');
+          if (!Array.isArray(result.sideEffects) || result.sideEffects.length !== 0) throw new Error('Validator reported side effects');
+          if (result.environment !== 'production') throw new Error('Validator did not validate production');
+          if (result.manifestValid !== true) throw new Error(`Manifest invalid: ${JSON.stringify(result.errors)}`);
+          if (result.promotionEligible !== false) throw new Error('Missing promotion-gate credentials must fail closed');
+          const allowed = new Set(['promotion_gate_endpoint_missing', 'promotion_gate_token_missing']);
+          for (const failure of result.promotionFailures || []) {
+            if (!allowed.has(failure.code)) throw new Error(`Unexpected validation failure: ${failure.code}`);
+          }
+          NODE
+      - name: Upload dry-run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-canary-validation-${{ github.sha }}
+          path: validator-output.json
+          if-no-files-found: error
+          retention-days: 14
