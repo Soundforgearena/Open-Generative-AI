@@ -31,6 +31,7 @@ export const Icon = {
   Route: (p) => <svg {...base} {...p}><circle cx="6" cy="18" r="2" /><circle cx="18" cy="6" r="2" /><path d="M8 18h6a4 4 0 000-8h-4a4 4 0 010-8h6" /></svg>,
   Warning: (p) => <svg {...base} {...p}><path d="M12 3l10 18H2z" fill="currentColor" stroke="none" /><path d="M12 10v5M12 18h.01" stroke="#1a1206" /></svg>,
   Upload: (p) => <svg {...base} {...p}><path d="M12 16V4M7 9l5-5 5 5M4 20h16" /></svg>,
+  Download: (p) => <svg {...base} {...p}><path d="M12 4v12M7 11l5 5 5-5M4 20h16" /></svg>,
   Shield: (p) => <svg {...base} {...p}><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" /><path d="M8.5 12l2.5 2.5 4.5-5" /></svg>,
 };
 

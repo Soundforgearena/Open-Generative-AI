@@ -1,6 +1,7 @@
 import { maxDirectorCredits, typicalDirectorCredits } from '../../../lib/billing/director-pricing';
 import { selectRows, callRpc, getSetting } from '../../../lib/cinexvideo-server';
 import { providerCostCents } from '../../../lib/billing/provider-pricing';
+import { createTtlCache } from '../../../lib/ttl-cache';
 
 const DIRECTOR_MODEL = process.env.OPENAI_DIRECTOR_MODEL || 'gpt-5';
 
@@ -46,8 +47,8 @@ async function quoteCredits(rule, durationSeconds) {
   return Number.isFinite(credits) ? credits : null;
 }
 
-export async function GET() {
-  try {
+async function buildPricing() {
+  {
     const [packs, plans, rules, signup] = await Promise.all([
       selectRows('credit_packs', { active: 'eq.true', order: 'sort_order.asc' }, 'code,name,credits,price_cents,blurb'),
       selectRows('customer_visible_plans', { monthly_price_cents: 'gt.0', order: 'sort_order.asc' }, 'code,name,monthly_price_cents,included_credits,blurb'),
@@ -104,7 +105,7 @@ export async function GET() {
       null
     );
 
-    return Response.json({
+    return {
       packs: packs.map((pack) => ({
         ...pack,
         credits_per_dollar: Math.round((pack.credits / (pack.price_cents / 100)) * 10) / 10,
@@ -120,7 +121,18 @@ export async function GET() {
       },
       free_actions: ['Exports and watermarking', 'Writing and editing scenes and shots yourself', 'Reference uploads and storage', 'Readiness checks'],
       signup_credits: Number(signup?.signup_credits) || 0,
-    });
+    };
+  }
+}
+
+// Public and identical for everyone: cache it so a traffic spike on the
+// pricing page costs one database read every 30 seconds, not one per visitor.
+const pricingCache = createTtlCache({ ttlMs: 30_000, max: 1 });
+
+export async function GET() {
+  try {
+    const body = await pricingCache.get('pricing', buildPricing);
+    return Response.json(body, { headers: { 'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=300' } });
   } catch (err) {
     console.error('pricing route', err);
     return Response.json({ error: 'Pricing is temporarily unavailable.' }, { status: 503 });

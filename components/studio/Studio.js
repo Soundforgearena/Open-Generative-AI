@@ -10,11 +10,14 @@ import { demoModeEnabled } from '@/lib/demo-mode';
 import {
   createScene,
   deleteScene,
+  renderFinishedVideoFile,
+  saveBlobToDevice,
   getAccount,
   getCatalog,
   getProject,
   listProjects,
   preflightGeneration,
+  quoteFinishedVideo,
   quoteGeneration,
   reorderScenes,
   startGeneration,
@@ -24,6 +27,9 @@ import {
   waitForJob,
 } from '@/lib/cinexvideo-client';
 import { summarizeProjectReadiness } from '@/lib/billing/generation-preflight.js';
+import { connectGoogleDrive, disconnectGoogleDrive, googleDriveAvailable, googleDriveConnected, preloadGoogleDrive, uploadToGoogleDrive } from '@/lib/cloud/google-drive';
+import { connectDropbox, disconnectDropbox, dropboxAvailable, dropboxConnected, uploadToDropbox } from '@/lib/cloud/dropbox';
+import { clearJournal, pendingJournal, readUiState, writeJournal, writeUiState } from '@/lib/studio/draft-journal';
 import {
   ANGLES,
   ASPECT_RATIOS,
@@ -76,6 +82,7 @@ function mapScene(scene) {
     duration_seconds: Number(scene.duration_seconds || 8),
     continuity_locked: Boolean(scene.continuity_locked),
     status: scene.status || 'draft',
+    updated_at: scene.updated_at || null,
     output_url: output,
     thumbnail_url: thumb || (IMAGE_RE.test(output) ? output : ''),
     output_is_image: IMAGE_RE.test(output),
@@ -193,6 +200,12 @@ export default function Studio() {
   const [celebrate, setCelebrate] = useState('');
   const [genStartedAt, setGenStartedAt] = useState(0);
   const [sceneBusy, setSceneBusy] = useState(false);
+  const [resumeJobs, setResumeJobs] = useState([]);
+  const [exportState, setExportState] = useState({ open: false, phase: 'idle', progress: 0 });
+  const [destinations, setDestinations] = useState({ device: true, drive: false, dropbox: false });
+  const [cloud, setCloud] = useState({ drive: false, dropbox: false, busy: '' });
+  const renderedFile = useRef(null);
+  const flushRef = useRef(null);
 
   const videoRef = useRef(null);
   const audioRef = useRef(null);
@@ -201,6 +214,8 @@ export default function Studio() {
   const projectDirty = useRef(null);
   const saveTimer = useRef(null);
   const genLock = useRef(false);
+  const projectIdRef = useRef('');
+  const resumed = useRef(new Set());
 
   /* ------------------------------------------------------------- loading */
 
@@ -216,6 +231,16 @@ export default function Studio() {
     setScenes(mapped);
     setAssets(result.assets || []);
     setSelectedId((current) => (mapped.some((s) => s.id === current) ? current : mapped[0]?.id || ''));
+    projectIdRef.current = result.project.id;
+  }, []);
+
+  /** Mirror unsaved edits to local storage so a refresh never loses work. */
+  const persistJournal = useCallback(() => {
+    if (demoModeEnabled || !projectIdRef.current) return;
+    writeJournal(projectIdRef.current, {
+      scenes: Object.fromEntries(dirty.current),
+      project: projectDirty.current,
+    });
   }, []);
 
   useEffect(() => {
@@ -249,6 +274,31 @@ export default function Studio() {
         if (cancelled) return;
         if (!result?.project) { setLoadState('missing'); return; }
         applyProject(result);
+        // Restore where the user was (scene, panel) after a refresh.
+        const ui = readUiState(result.project.id);
+        if (ui.selectedId && (result.scenes || []).some((x) => x.id === ui.selectedId)) setSelectedId(ui.selectedId);
+        if (ui.tab) setTab(ui.tab);
+        if (ui.listMode) setListMode(ui.listMode);
+        if (Number(ui.zoom)) setZoom(Number(ui.zoom));
+        // Replay edits that were typed but not yet saved when the page closed.
+        const pending = pendingJournal(result.project.id, result.scenes || [], result.project.updated_at);
+        if (pending) {
+          setScenes((cur) => cur.map((x) => (pending.scenes[x.id] ? { ...x, ...pending.scenes[x.id] } : x)));
+          Object.entries(pending.scenes).forEach(([sid, patch]) => dirty.current.set(sid, { ...patch }));
+          if (pending.project) {
+            projectDirty.current = { ...pending.project };
+            setProject((pr) => ({
+              ...pr,
+              ...(pending.project.title ? { title: pending.project.title } : {}),
+              ...(pending.project.visual_identity ? { visual_identity: { ...pr.visual_identity, ...pending.project.visual_identity } } : {}),
+            }));
+          }
+          setToast('Restored your unsaved changes.');
+          window.setTimeout(() => flushRef.current?.(), 600);
+        } else {
+          clearJournal(result.project.id);
+        }
+        setResumeJobs(result.active_jobs || []);
         setSavedAt(null);
         setLoadState('ready');
       } catch (error) {
@@ -360,7 +410,7 @@ export default function Studio() {
 
   /* ------------------------------------------------------------ autosave */
 
-  const flush = useCallback(async () => {
+  const flush = useCallback(async ({ keepalive = false } = {}) => {
     window.clearTimeout(saveTimer.current);
     const scenePatches = [...dirty.current.entries()];
     const projectPatch = projectDirty.current;
@@ -371,18 +421,25 @@ export default function Studio() {
     setSaving(true);
     try {
       await Promise.all([
-        ...scenePatches.map(([id, patch]) => updateScene(id, patch)),
-        projectPatch ? updateProject(project.id, projectPatch) : null,
+        ...scenePatches.map(([id, patch]) => updateScene(id, patch, { keepalive })),
+        projectPatch ? updateProject(project.id, projectPatch, { keepalive }) : null,
       ]);
       setSavedAt(new Date());
+      // Only edits made after this save are still pending locally.
+      persistJournal();
     } catch (error) {
       scenePatches.forEach(([id, patch]) => dirty.current.set(id, { ...patch, ...(dirty.current.get(id) || {}) }));
-      setToast(error.message || 'Autosave failed. Retrying shortly.');
+      if (projectPatch) projectDirty.current = { ...projectPatch, ...(projectDirty.current || {}) };
+      persistJournal();
+      setToast(navigator.onLine === false
+        ? 'You are offline. Your changes are kept on this device and will save when you reconnect.'
+        : error.message || 'Autosave failed. Retrying shortly.');
       saveTimer.current = window.setTimeout(() => flush(), 5000);
     } finally {
       setSaving(false);
     }
-  }, [project?.id]);
+  }, [project?.id, persistJournal]);
+  flushRef.current = flush;
 
   const scheduleSave = useCallback(() => {
     window.clearTimeout(saveTimer.current);
@@ -390,16 +447,71 @@ export default function Studio() {
   }, [flush]);
 
   useEffect(() => {
+    const pending = () => dirty.current.size || projectDirty.current;
     const beforeUnload = (e) => {
-      if (dirty.current.size || projectDirty.current) { flush(); e.preventDefault(); e.returnValue = ''; }
+      if (pending()) { persistJournal(); flush({ keepalive: true }); e.preventDefault(); e.returnValue = ''; }
     };
+    // iOS Safari and Android rarely fire beforeunload; pagehide and a hidden
+    // tab are the reliable moments to save.
+    const pageHide = () => { if (pending()) { persistJournal(); flush({ keepalive: true }); } };
+    const visibility = () => { if (document.visibilityState === 'hidden') pageHide(); };
+    const online = () => { if (pending()) flush(); };
     window.addEventListener('beforeunload', beforeUnload);
-    return () => window.removeEventListener('beforeunload', beforeUnload);
-  }, [flush]);
+    window.addEventListener('pagehide', pageHide);
+    document.addEventListener('visibilitychange', visibility);
+    window.addEventListener('online', online);
+    return () => {
+      window.removeEventListener('beforeunload', beforeUnload);
+      window.removeEventListener('pagehide', pageHide);
+      document.removeEventListener('visibilitychange', visibility);
+      window.removeEventListener('online', online);
+    };
+  }, [flush, persistJournal]);
+
+  // Remember the selected scene and panels for this tab.
+  useEffect(() => {
+    if (loadState !== 'ready' || !project?.id) return;
+    writeUiState(project.id, { selectedId, tab, listMode, zoom });
+  }, [loadState, project?.id, selectedId, tab, listMode, zoom]);
+
+  // Pick up generations that were still running when the page was refreshed.
+  useEffect(() => {
+    if (loadState !== 'ready' || demoModeEnabled || !resumeJobs.length || !project?.id) return undefined;
+    const jobs = resumeJobs.filter((job) => !resumed.current.has(job.request_id));
+    if (!jobs.length) return undefined;
+    jobs.forEach((job) => resumed.current.add(job.request_id));
+    let cancelled = false;
+    const ids = jobs.map((job) => job.scene_id);
+    setScenes((cur) => cur.map((x) => (ids.includes(x.id) ? { ...x, status: 'generating' } : x)));
+    setGenState('running');
+    setGenStartedAt(Date.parse(jobs[0].started_at) || Date.now());
+    setToast(`Picking up ${jobs.length} generation${jobs.length > 1 ? 's' : ''} still in progress...`);
+    (async () => {
+      let lastDone = '';
+      let failed = 0;
+      await Promise.all(jobs.map(async (job) => {
+        try {
+          const result = await waitForJob(job.request_id);
+          if (result.status === 'completed') lastDone = job.scene_id; else failed += 1;
+        } catch { failed += 1; }
+      }));
+      if (cancelled) return;
+      try {
+        const [fresh, account] = await Promise.all([getProject(project.id), getAccount()]);
+        applyProject(fresh);
+        setCredits(Number(account.credits ?? 0));
+      } catch { /* keep local state */ }
+      if (lastDone) { setSelectedId(lastDone); setCelebrate(lastDone); }
+      setToast(failed ? 'Some generations did not finish. Credits for failed scenes were returned.' : 'Generation complete. New takes are ready to review.');
+      setGenState('idle');
+    })();
+    return () => { cancelled = true; };
+  }, [loadState, resumeJobs, project?.id, applyProject]);
 
   function patchScene(id, patch) {
     setScenes((cur) => cur.map((s) => (s.id === id ? { ...s, ...patch } : s)));
     dirty.current.set(id, { ...(dirty.current.get(id) || {}), ...patch });
+    persistJournal();
     scheduleSave();
   }
 
@@ -410,13 +522,14 @@ export default function Studio() {
 
   function patchVisualIdentity(patch) {
     setProject((p) => ({ ...p, visual_identity: { ...p.visual_identity, ...patch } }));
-    projectDirty.current = { visual_identity: { ...(projectDirty.current?.visual_identity || {}), ...patch } };
+    projectDirty.current = { ...(projectDirty.current || {}), visual_identity: { ...(projectDirty.current?.visual_identity || {}), ...patch } };
+    persistJournal();
     scheduleSave();
   }
 
   function renameProject(title) {
     setProject((p) => ({ ...p, title }));
-    if (title.trim()) { projectDirty.current = { ...(projectDirty.current || {}), title }; scheduleSave(); }
+    if (title.trim()) { projectDirty.current = { ...(projectDirty.current || {}), title }; persistJournal(); scheduleSave(); }
   }
 
   /* ------------------------------------------------------------ playback */
@@ -733,6 +846,97 @@ export default function Studio() {
     }
   }
 
+  /* ------------------------------------------------ finished video */
+  async function openExport() {
+    if (demoModeEnabled) {
+      // Demo: show the real dialog with sample prices; nothing renders.
+      setExportState({ open: true, phase: 'choose', progress: 0, error: '', free: { ready: true, missing: [] }, clean: { ready: true, credits_required: 80 } });
+      return;
+    }
+    await flush();
+    preloadGoogleDrive();
+    const connected = { drive: googleDriveConnected(), dropbox: dropboxConnected() };
+    setCloud({ ...connected, busy: '' });
+    setDestinations((d) => ({ device: d.device, drive: d.drive && connected.drive, dropbox: d.dropbox && connected.dropbox }));
+    setExportState({ open: true, phase: 'quoting', progress: 0, error: '' });
+    try {
+      const [free, clean] = await Promise.all([quoteFinishedVideo(project.id, false), quoteFinishedVideo(project.id, true)]);
+      setExportState((st) => ({ ...st, phase: 'choose', free, clean }));
+    } catch (error) {
+      setExportState((st) => ({ ...st, phase: 'choose', error: error.message || 'Could not check your video.' }));
+    }
+  }
+
+  async function toggleCloud(key) {
+    const isOn = cloud[key];
+    if (isOn) {
+      if (key === 'drive') disconnectGoogleDrive(); else await disconnectDropbox();
+      setCloud((c) => ({ ...c, [key]: false }));
+      setDestinations((d) => ({ ...d, [key]: false }));
+      return;
+    }
+    setCloud((c) => ({ ...c, busy: key }));
+    try {
+      if (key === 'drive') await connectGoogleDrive(); else await connectDropbox();
+      setCloud((c) => ({ ...c, [key]: true, busy: '' }));
+      setDestinations((d) => ({ ...d, [key]: true }));
+    } catch (error) {
+      setCloud((c) => ({ ...c, busy: '' }));
+      setToast(error.message);
+    }
+  }
+
+  const DEST_LABEL = { device: 'This device', drive: 'Google Drive', dropbox: 'Dropbox' };
+
+  async function deliver(file, keys) {
+    const results = keys.map((key) => ({ key, status: 'waiting', progress: 0 }));
+    const update = (key, patch) => {
+      const row = results.find((r) => r.key === key);
+      Object.assign(row, patch);
+      setExportState((st) => ({ ...st, deliveries: results.map((r) => ({ ...r })) }));
+    };
+    setExportState((st) => ({ ...st, phase: 'delivering', deliveries: results.map((r) => ({ ...r })) }));
+    for (const key of keys) {
+      update(key, { status: 'working' });
+      try {
+        if (key === 'device') { saveBlobToDevice(file.blob, file.name); update(key, { status: 'done', progress: 1 }); }
+        if (key === 'drive') { const r = await uploadToGoogleDrive(file.blob, file.name, { onProgress: (p) => update(key, { progress: p }) }); update(key, { status: 'done', progress: 1, link: r.link }); }
+        if (key === 'dropbox') { const r = await uploadToDropbox(file.blob, file.name, { onProgress: (p) => update(key, { progress: p }) }); update(key, { status: 'done', progress: 1, link: r.link }); }
+      } catch (error) {
+        update(key, { status: 'failed', error: error.message });
+      }
+    }
+    setExportState((st) => ({ ...st, phase: 'done' }));
+  }
+
+  async function runExport(clean) {
+    const keys = Object.keys(destinations).filter((k) => destinations[k]);
+    if (!keys.length) { setToast('Choose where to save your video.'); return; }
+    if (demoModeEnabled) { setToast('Demo mode: rendering needs real generated scenes. Sign in to download your video.'); return; }
+    setExportState((st) => ({ ...st, phase: 'rendering', progress: 0, error: '', deliveries: [] }));
+    try {
+      const file = await renderFinishedVideoFile(project.id, {
+        clean,
+        onPhase: (phase) => setExportState((st) => ({ ...st, phase })),
+        onProgress: (progress) => setExportState((st) => ({ ...st, progress })),
+      });
+      renderedFile.current = file;
+      setExportState((st) => ({ ...st, result: file }));
+      if (file.credits) getAccount().then((account) => setCredits(Number(account.credits ?? 0))).catch(() => {});
+      await deliver(file, keys);
+    } catch (error) {
+      setExportState((st) => ({ ...st, phase: 'choose', error: error.message || 'Your video could not be rendered.', needsCredits: error.status === 402 }));
+    }
+  }
+
+  function closeExport() {
+    renderedFile.current = null; // release the video from memory
+    setExportState({ open: false, phase: 'idle', progress: 0 });
+  }
+
+  const hasAnyTake = scenes.some((s) => (s.versions || []).some((v) => v.output_url));
+  const exportBusy = ['rendering', 'downloading', 'delivering'].includes(exportState.phase);
+
   async function approveTake(version) {
     if (!scene) return;
     try {
@@ -848,6 +1052,7 @@ export default function Studio() {
             <span>{credits === null ? '—' : credits.toLocaleString()} credits{atCost ? ' · at cost' : ''}</span>
             <Icon.ChevronDown />
           </Link>
+          <button type="button" className="sx-btn sx-btn-ghost" onClick={openExport} disabled={(!hasAnyTake && !demoModeEnabled) || exportBusy} title="Download your finished video to this device"><Icon.Download /> <span className="sx-hide-xs">{exportBusy ? 'Rendering...' : 'Download'}</span></button>
           <button type="button" className="sx-btn sx-btn-ghost" onClick={playSequence} disabled={!scenes.length}><Icon.Play /> Preview</button>
           <button type="button" className="sx-btn sx-btn-gold" data-tour="generate" onClick={openGenerate} disabled={!scene || generating || genState === 'quoting'}>
             <Icon.Spark /> {generating ? 'Generating...' : genState === 'quoting' ? 'Pricing...' : 'Generate'}
@@ -1118,12 +1323,14 @@ export default function Studio() {
                 {scene?.versions?.length > 0 && (
                   <div className="sx-takes">
                     <p className="sx-menu-heading">Takes</p>
+                    <p className="sx-hint">When every scene is ready, use Download at the top to save your finished video to this device. Generated takes are kept by the video provider for a limited time, so download your finished video soon.</p>
                     {scene.versions.map((v) => (
                       <div key={v.id || v.version} className="sx-take">
                         <span>Take {v.version} · {v.status}</span>
                         {v.approved ? <span className="sx-status is-good">Approved</span> : v.status === 'completed' && <button type="button" className="sx-link-btn" onClick={() => approveTake(v.version)}>Approve</button>}
                       </div>
                     ))}
+
                   </div>
                 )}
               </Section>
@@ -1264,6 +1471,99 @@ export default function Studio() {
             <div className="sx-dialog-actions">
               <button type="button" className="sx-btn" onClick={() => { setHelpOpen(false); setTourOpen(true); }}>Replay the tour</button>
               <button type="button" className="sx-btn sx-btn-gold" autoFocus onClick={() => setHelpOpen(false)}>Got it</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {exportState.open && (
+        <div className="sx-backdrop" role="presentation" onClick={() => { if (!exportBusy) closeExport(); }}>
+          <section className="sx-dialog sx-export" role="dialog" aria-modal="true" aria-labelledby="sx-export-title" onClick={(e) => e.stopPropagation()}>
+            <p className="sx-kicker">Finished video</p>
+            <h2 id="sx-export-title">Get your video</h2>
+            {exportState.phase === 'quoting' && <p className="sx-hint">Checking your scenes...</p>}
+            {exportState.phase === 'choose' && (
+              <>
+                {exportState.free && !exportState.free.ready && (
+                  <div className="sx-readiness is-blocked" role="status">
+                    <strong>Finish every scene first</strong>
+                    {exportState.free.missing.map((m) => <span key={m} className="sx-problem">{m} needs a generated take</span>)}
+                  </div>
+                )}
+                {exportState.error && <div className="sx-readiness is-blocked" role="alert"><strong>{exportState.error}</strong>{exportState.needsCredits && <Link href="/account?buy=1" className="sx-link-btn">Buy credits</Link>}</div>}
+
+                <p className="sx-menu-heading">1 · Save to</p>
+                <div className="sx-dest-list">
+                  <label className="sx-dest">
+                    <input type="checkbox" checked={destinations.device} onChange={(e) => setDestinations((d) => ({ ...d, device: e.target.checked }))} />
+                    <span className="sx-dest-text"><strong>This device</strong><small>Mac, PC, iPhone, iPad or Android Downloads</small></span>
+                  </label>
+                  {googleDriveAvailable && (
+                    <div className="sx-dest">
+                      <input type="checkbox" aria-label="Save to Google Drive" checked={destinations.drive} disabled={!cloud.drive} onChange={(e) => setDestinations((d) => ({ ...d, drive: e.target.checked }))} />
+                      <span className="sx-dest-text"><strong>Google Drive</strong><small>{cloud.drive ? 'Connected · saves to My Drive › CineXVideo' : 'Only the files CineXVideo saves, nothing else'}</small></span>
+                      <button type="button" className="sx-btn sx-btn-ghost sx-dest-btn" disabled={cloud.busy === 'drive'} onClick={() => toggleCloud('drive')}>{cloud.busy === 'drive' ? 'Connecting...' : cloud.drive ? 'Disconnect' : 'Connect'}</button>
+                    </div>
+                  )}
+                  {dropboxAvailable && (
+                    <div className="sx-dest">
+                      <input type="checkbox" aria-label="Save to Dropbox" checked={destinations.dropbox} disabled={!cloud.dropbox} onChange={(e) => setDestinations((d) => ({ ...d, dropbox: e.target.checked }))} />
+                      <span className="sx-dest-text"><strong>Dropbox</strong><small>{cloud.dropbox ? 'Connected · saves to Apps › CineXVideo' : 'Only its own CineXVideo folder, nothing else'}</small></span>
+                      <button type="button" className="sx-btn sx-btn-ghost sx-dest-btn" disabled={cloud.busy === 'dropbox'} onClick={() => toggleCloud('dropbox')}>{cloud.busy === 'dropbox' ? 'Connecting...' : cloud.dropbox ? 'Disconnect' : 'Connect'}</button>
+                    </div>
+                  )}
+                </div>
+
+                <p className="sx-menu-heading">2 · Choose your version</p>
+                <div className="sx-export-options">
+                  <button type="button" className="sx-export-option" disabled={!exportState.free?.ready} onClick={() => runExport(false)}>
+                    <span className="sx-export-preview is-watermarked" aria-hidden="true"><i className="sx-wm-logo"><Logo /></i><i className="sx-wm-name">CINEXVIDEO</i></span>
+                    <strong>With watermark</strong>
+                    <span>Small logo top right, CINEXVIDEO bottom right</span>
+                    <em className="sx-export-price">Free</em>
+                  </button>
+                  <button type="button" className="sx-export-option is-premium" disabled={!exportState.clean?.ready} onClick={() => runExport(true)}>
+                    <span className="sx-export-preview" aria-hidden="true" />
+                    <strong>No watermark</strong>
+                    <span>{exportState.clean?.already_paid ? 'Already paid for this cut' : 'Paid with purchased credits'}</span>
+                    <em className="sx-export-price">
+                      {exportState.clean ? (exportState.clean.credits_required ? `${exportState.clean.credits_required} credits · $${(exportState.clean.credits_required / 100).toFixed(2)}` : 'Included') : '...'}
+                    </em>
+                  </button>
+                </div>
+                <p className="sx-hint">MP4 up to 1080p, with your uploaded track as the soundtrack. Credits are charged only when the video is ready, and downloading the same cut again within 7 days is free. CineXVideo does not keep a copy, so save it somewhere safe.</p>
+              </>
+            )}
+            {(exportState.phase === 'rendering' || exportState.phase === 'downloading') && (
+              <div className="sx-export-progress" role="status" aria-live="polite">
+                <div className="sx-export-bar"><span style={{ width: exportState.phase === 'downloading' ? `${Math.round(exportState.progress * 100)}%` : undefined }} className={exportState.phase === 'rendering' ? 'is-indeterminate' : ''} /></div>
+                <strong>{exportState.phase === 'rendering' ? 'Rendering your video...' : `Receiving your video... ${Math.round(exportState.progress * 100)}%`}</strong>
+                <span className="sx-hint">{exportState.phase === 'rendering' ? 'Joining your scenes, adding your soundtrack and finishing the picture. This usually takes under a minute. Keep this tab open.' : 'Almost there.'}</span>
+              </div>
+            )}
+            {(exportState.phase === 'delivering' || exportState.phase === 'done') && (
+              <div className="sx-export-progress" role="status" aria-live="polite">
+                <strong>{exportState.phase === 'done' ? <><Icon.CheckCircle /> Your video is ready</> : 'Saving your video...'}</strong>
+                <span className="sx-hint">{exportState.result?.name} · {((exportState.result?.size || 0) / 1048576).toFixed(1)} MB{exportState.result?.credits ? ` · ${exportState.result.credits} credits used` : ''}</span>
+                <ul className="sx-deliveries">
+                  {(exportState.deliveries || []).map((d) => (
+                    <li key={d.key} className={`is-${d.status}`}>
+                      <span>{DEST_LABEL[d.key]}</span>
+                      {d.status === 'working' && d.key !== 'device' && <span className="sx-export-bar is-small"><span style={{ width: `${Math.round(d.progress * 100)}%` }} /></span>}
+                      {d.status === 'done' && (d.link ? <a href={d.link} target="_blank" rel="noopener noreferrer" className="sx-link-btn">Open</a> : <span className="sx-status is-good">Saved</span>)}
+                      {d.status === 'failed' && <span className="sx-problem">{d.error}</span>}
+                      {d.status === 'waiting' && <span className="sx-hint">Waiting</span>}
+                    </li>
+                  ))}
+                </ul>
+                {exportState.phase === 'done' && <span className="sx-hint">On iPhone and iPad, device downloads go to Files › Downloads. On Android, to Downloads. On Mac and Windows, to your Downloads folder.</span>}
+              </div>
+            )}
+            <div className="sx-dialog-actions">
+              {exportState.phase === 'done' && renderedFile.current && (
+                <button type="button" className="sx-btn" onClick={() => saveBlobToDevice(renderedFile.current.blob, renderedFile.current.name)}><Icon.Download /> Save to this device again</button>
+              )}
+              <button type="button" className="sx-btn sx-btn-gold" disabled={exportBusy} onClick={closeExport}>{exportState.phase === 'done' ? 'Done' : 'Close'}</button>
             </div>
           </section>
         </div>

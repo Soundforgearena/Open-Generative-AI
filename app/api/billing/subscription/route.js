@@ -6,6 +6,7 @@ import {
 } from '../../../../lib/stripe-connect';
 import { currentPaymentMode } from '../../../../lib/billing/payment-mode-server';
 import { canCheckout } from '../../../../lib/billing/payment-mode';
+import { rateLimit } from '../../../../lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +47,8 @@ export async function GET(request) {
 export async function POST(request) {
   const { user, admin, error } = await guard(request);
   if (error) return error;
+  const limited = rateLimit(`subscribe:${user.id}`, { limit: 10, windowMs: 60_000 });
+  if (limited) return limited;
   const mode = await currentPaymentMode();
   if (!canCheckout(mode, { admin })) return safeError('Monthly plans open soon.', 503);
   if (!stripeEnabled(mode)) return safeError('Monthly plans are not available on this deployment yet.', 503);

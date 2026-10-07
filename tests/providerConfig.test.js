@@ -12,6 +12,8 @@ const FULL = {
   STRIPE_SECRET_KEY: 'sk_test_SENTINEL',
   STRIPE_WEBHOOK_SECRET: 'whsec_SENTINEL',
   CRON_SECRET: 'SENTINEL_CRON',
+  NEXT_PUBLIC_GOOGLE_CLIENT_ID: 'x.apps.googleusercontent.com',
+  NEXT_PUBLIC_DROPBOX_APP_KEY: 'dbx_SENTINEL',
 };
 
 function find(env, key) {

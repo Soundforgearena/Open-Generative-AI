@@ -1,4 +1,4 @@
-import { guard, insertRows, safeError } from '../../../../lib/cinexvideo-server';
+import { forgetSetting, guard, insertRows, safeError } from '../../../../lib/cinexvideo-server';
 import { PAYMENT_MODE_SETTING, PAYMENT_MODES, modeReadiness } from '../../../../lib/billing/payment-mode';
 import { currentPaymentMode } from '../../../../lib/billing/payment-mode-server';
 
@@ -39,5 +39,6 @@ export async function POST(request) {
     { upsert: true }
   );
   if (!saved.ok) return safeError('Payment mode could not be saved.', 500);
+  forgetSetting(PAYMENT_MODE_SETTING);
   return Response.json({ mode, test: modeReadiness('test'), live: modeReadiness('live') });
 }

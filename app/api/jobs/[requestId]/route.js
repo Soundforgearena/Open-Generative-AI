@@ -9,6 +9,7 @@ import {
 } from '../../../../lib/cinexvideo-server';
 import { normalizeMuapiCost } from '../../../../lib/providers/muapi-cost-adapter.js';
 import { settledGenerationCredits } from '../../../../lib/billing/at-cost.js';
+import { rateLimit } from '../../../../lib/rate-limit';
 
 function normaliseStatus(raw) {
   const value = String(raw || '').toLowerCase();
@@ -44,6 +45,8 @@ function firstUrl(output) {
 export async function GET(request, { params }) {
   const { user, error } = await guard(request);
   if (error) return error;
+  const limited = rateLimit(`jobs:${user.id}`, { limit: 120, windowMs: 60_000 });
+  if (limited) return limited;
   const { requestId } = await params;
 
   try {
