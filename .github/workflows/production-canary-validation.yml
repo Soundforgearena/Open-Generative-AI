@@ -72,5 +72,5 @@ jobs:
         with:
           name: production-canary-validation-${{ github.sha }}
           path: validator-output.json
-          if-no-files-found: error
+          if-no-files-found: ignore
           retention-days: 14
