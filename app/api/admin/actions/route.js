@@ -4,6 +4,7 @@ import {
   callRpcAsUser,
   selectRows,
   getSetting,
+  forgetSetting,
   safeError,
 } from '../../../../lib/cinexvideo-server';
 
@@ -28,6 +29,7 @@ export async function POST(request) {
         token
       );
       if (!result.ok) return safeError('Maintenance mode could not be changed.', 500);
+      forgetSetting('maintenance_mode');
       return Response.json({ maintenance_enabled: Boolean(body.enabled) });
     }
 
@@ -44,6 +46,7 @@ export async function POST(request) {
       // quote_generation still enforces the profitability floor, so a discount
       // can never take a price below the internal minimum.
       if (!result.ok) return safeError('Discount could not be changed.', 500);
+      forgetSetting('discount_mode');
       const discount = await getSetting('discount_mode');
       return Response.json({ discount });
     }

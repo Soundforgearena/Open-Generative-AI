@@ -556,3 +556,49 @@
 .sx-dir-buy { margin-top: 8px; display: inline-flex; text-decoration: none; }
 .sx-dir-charged { margin-top: 6px; font-size: 12px; opacity: .75; }
 .sx-dir-price { margin: 0 12px 8px; font-size: 12px; line-height: 1.45; color: rgba(255,255,255,.62); }
+
+/* Finished video download */
+.sx-export { width: min(560px, 100%); }
+.sx-export-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.sx-export-option { display: grid; gap: 4px; text-align: left; padding: 12px; border-radius: 12px; border: 1px solid var(--sx-line-2); background: #17181d; color: #e9e6df; cursor: pointer; transition: border-color .15s, transform .15s; min-height: 44px; }
+.sx-export-option:hover:not(:disabled) { border-color: var(--sx-gold); transform: translateY(-1px); }
+.sx-export-option:disabled { opacity: .5; cursor: not-allowed; }
+.sx-export-option strong { font-size: 15px; }
+.sx-export-option span { font-size: 13px; color: #a9a59c; }
+.sx-export-price { font-style: normal; font-weight: 700; color: var(--sx-gold); font-size: 14px; }
+.sx-export-preview { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: 8px; margin-bottom: 6px; background: linear-gradient(135deg, #3b2a55, #b5532f 55%, #f0b35a); overflow: hidden; }
+.sx-export-preview i { position: absolute; font-style: normal; }
+.sx-wm-logo { top: 6%; right: 4%; width: 13%; aspect-ratio: 1; display: grid; place-items: center; border-radius: 22%; background: rgba(10,10,14,.47); border: 1px solid rgba(231,183,95,.6); }
+.sx-wm-logo svg { width: 70%; height: 70%; }
+.sx-wm-name { bottom: 6%; right: 4%; font-family: var(--sx-serif); letter-spacing: .16em; font-size: 10px; color: #f8f4ec; text-shadow: 0 0 3px #000, 0 1px 6px #000; }
+.sx-export-progress { display: grid; gap: 8px; }
+.sx-export-progress strong { display: inline-flex; gap: 8px; align-items: center; }
+.sx-export-progress svg { width: 18px; height: 18px; color: var(--sx-gold); }
+.sx-export-bar { height: 8px; border-radius: 99px; background: #23252c; overflow: hidden; }
+.sx-export-bar span { display: block; height: 100%; background: linear-gradient(90deg, #b8862f, var(--sx-gold)); border-radius: inherit; transition: width .2s; }
+.sx-export-bar span.is-indeterminate { width: 35%; animation: sx-indeterminate 1.4s ease-in-out infinite; }
+@keyframes sx-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
+@media (max-width: 520px) { .sx-export-options { grid-template-columns: 1fr; } .sx-hide-xs { display: none; } }
+@media (prefers-reduced-motion: reduce) { .sx-export-bar span.is-indeterminate { animation: none; width: 100%; opacity: .6; } }
+.sx-dest-list { display: grid; gap: 8px; }
+.sx-dest { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--sx-line-2); border-radius: 10px; background: #17181d; min-height: 52px; }
+.sx-dest input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--sx-gold); flex: none; }
+.sx-dest-text { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.sx-dest-text strong { font-size: 14px; }
+.sx-dest-text small { font-size: 13px; color: #a9a59c; overflow-wrap: anywhere; }
+.sx-dest-btn { flex: none; min-height: 40px; }
+.sx-deliveries { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.sx-deliveries li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 8px; background: #17181d; font-size: 14px; flex-wrap: wrap; }
+.sx-export-bar.is-small { flex: 1; min-width: 80px; max-width: 200px; height: 6px; }
+@media (max-width: 360px) {
+  .sx-top-actions { gap: 4px; }
+  .sx-top-actions .sx-btn-ghost { width: 40px; }
+  .sx-top-actions .sx-btn-gold { padding-left: 12px; padding-right: 12px; }
+}
+.sx-export .sx-menu-heading { padding-left: 0; margin: 4px 0 0; }
+@media (max-width: 520px) {
+  .sx-export-option { grid-template-columns: 112px 1fr; column-gap: 12px; align-items: center; }
+  .sx-export-option .sx-export-preview { grid-row: span 3; margin: 0; }
+  .sx-wm-name { font-size: 6px; }
+}
+@media (max-width: 360px) { .sx-export { padding: 16px; } .sx-dest { gap: 10px; padding: 10px; } }

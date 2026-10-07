@@ -29,6 +29,13 @@ export async function GET(request, { params }) {
 
   const scenes = await selectRows('scenes', { project_id: `eq.${id}`, order: 'position.asc' });
   const assets = await selectRows('project_assets', { project_id: `eq.${id}`, order: 'created_at.asc' });
+  // Generations still running at the provider, so a refreshed studio can
+  // pick up where it left off instead of losing the job.
+  const activeJobs = await selectRows(
+    'generation_requests',
+    { project_id: `eq.${id}`, status: 'in.(queued,running)', provider_request_id: 'not.is.null', order: 'created_at.asc' },
+    'provider_request_id,scene_id,created_at'
+  );
 
   const versions = scenes.length
     ? await selectRows('scene_versions', {
@@ -53,7 +60,9 @@ export async function GET(request, { params }) {
       logline: project.logline,
       visual_identity: project.visual_identity,
       status: project.status,
+      updated_at: project.updated_at,
     },
+    active_jobs: activeJobs.map((job) => ({ request_id: job.provider_request_id, scene_id: job.scene_id, started_at: job.created_at })),
     scenes: scenes.map((scene) => ({
       ...scene,
       versions: versions.filter((version) => version.scene_id === scene.id),

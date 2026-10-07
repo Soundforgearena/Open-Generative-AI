@@ -19,6 +19,8 @@ export default function AccountPage() {
       .then(setAccount)
       .catch((loadError) => setError(loadError.message || 'Account details could not be loaded.'));
     getSubscription().then(setPlan).catch(() => {});
+    // /account?buy=1 (from "Buy credits" links in the studio) opens the store.
+    if (new URLSearchParams(window.location.search).get('buy') === '1') setStoreOpen(true);
   }, []);
 
   async function changePlan(action) {

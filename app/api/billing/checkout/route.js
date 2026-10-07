@@ -2,6 +2,7 @@ import { guard, selectOne, selectRows, safeError } from '../../../../lib/cinexvi
 import { stripeEnabled, createCheckoutSession } from '../../../../lib/stripe-connect';
 import { currentPaymentMode } from '../../../../lib/billing/payment-mode-server';
 import { canCheckout } from '../../../../lib/billing/payment-mode';
+import { rateLimit } from '../../../../lib/rate-limit';
 
 /** Customer-facing credit packs. Prices only — no cost or margin data. */
 export async function GET(request) {
@@ -28,6 +29,8 @@ export async function GET(request) {
 export async function POST(request) {
   const { user, admin, error } = await guard(request);
   if (error) return error;
+  const limited = rateLimit(`checkout:${user.id}`, { limit: 10, windowMs: 60_000 });
+  if (limited) return limited;
   const mode = await currentPaymentMode();
   if (!canCheckout(mode, { admin })) {
     return safeError('Credit purchases open soon.', 503);

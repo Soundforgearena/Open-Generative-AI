@@ -33,11 +33,14 @@ function addSecurityHeaders(response) {
         'Content-Security-Policy',
         [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+            "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://accounts.google.com",
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             'img-src \'self\' data: blob: https:',
             'media-src \'self\' data: blob: https:',
-            `connect-src 'self' https://muapi.ai https://*.muapi.ai${SUPABASE_ORIGIN ? ` ${SUPABASE_ORIGIN}` : ''}`,
+            // Google Drive and Dropbox uploads go straight from the browser to the
+            // user's own cloud account when they choose to save there.
+            `connect-src 'self' https://muapi.ai https://*.muapi.ai https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.dropboxapi.com https://content.dropboxapi.com${SUPABASE_ORIGIN ? ` ${SUPABASE_ORIGIN}` : ''}`,
+            'frame-src https://accounts.google.com',
             "font-src 'self' data: https://fonts.gstatic.com",
         ].join('; ')
     );

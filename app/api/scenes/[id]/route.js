@@ -1,5 +1,6 @@
 import { guard, selectOne, selectRows, updateRows, deleteRows, safeError } from '../../../../lib/cinexvideo-server';
 import { sceneIds, writeSceneOrder } from '../../../../lib/studio/scene-store';
+import { rateLimit } from '../../../../lib/rate-limit';
 
 async function ownedScene(id, user, admin) {
   const scene = await selectOne('scenes', { id: `eq.${id}` });
@@ -18,6 +19,8 @@ async function ownedScene(id, user, admin) {
 export async function PATCH(request, { params }) {
   const { user, admin, error } = await guard(request);
   if (error) return error;
+  const limited = rateLimit(`scene-save:${user.id}`, { limit: 240, windowMs: 60_000 });
+  if (limited) return limited;
   const { id } = await params;
 
   const scene = await ownedScene(id, user, admin);

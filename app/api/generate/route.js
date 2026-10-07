@@ -15,6 +15,7 @@ import { evaluateReservationRisk } from '../../../lib/billing/risk-policy.js';
 import { loadRuntimeSafetySignals } from '../../../lib/billing/runtime-safety-signals.js';
 import { buildPreflightReport } from '../../../lib/billing/generation-preflight.js';
 import { normalizeMuapiCost } from '../../../lib/providers/muapi-cost-adapter.js';
+import { rateLimit } from '../../../lib/rate-limit';
 
 const SAFE_PROVIDER_FIELDS = new Set([
   'prompt',
@@ -108,6 +109,8 @@ export async function POST(request) {
   // credits; everyone else pays the marked-up quote.
   const atCost = isAtCostUser({ superAdmin });
   if (error) return error;
+  const limited = rateLimit(`generate:${user.id}`, { limit: 120, windowMs: 60_000 });
+  if (limited) return limited;
 
   try {
     const body = await request.json();

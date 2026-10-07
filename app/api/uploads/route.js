@@ -1,6 +1,8 @@
 import {
   guard,
   selectOne,
+  selectRows,
+  callRpc,
   insertRows,
   deleteRows,
   createSignedUploadUrl,
@@ -9,8 +11,11 @@ import {
   safeError,
 } from '../../../lib/cinexvideo-server';
 import { validateUploadDetails } from '../../../lib/upload-validation';
+import { rateLimit } from '../../../lib/rate-limit';
 
 const BUCKET = 'cinexvideo-references';
+const MAX_FILES_PER_PROJECT = 30;
+const USER_QUOTA_BYTES = (Number(process.env.UPLOAD_QUOTA_MB) || 500) * 1024 * 1024;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -21,6 +26,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 export async function POST(request) {
   const { user, admin, error } = await guard(request, { blockOnMaintenance: true });
   if (error) return error;
+  const limited = rateLimit(`upload:${user.id}`, { limit: 30, windowMs: 60_000 });
+  if (limited) return limited;
   try {
     const body = await request.json();
     const {
@@ -41,6 +48,20 @@ export async function POST(request) {
 
     const project = await selectOne('projects', { id: `eq.${projectId}` }, 'id,owner_id');
     if (!project || (project.owner_id !== user.id && !admin)) return safeError('Project not found.', 404);
+
+    // Storage protection: cap files per project and total bytes per user so
+    // no single account can fill the storage the whole app depends on.
+    const existing = await selectRows('project_assets', { project_id: `eq.${projectId}` }, 'id');
+    if (existing.length >= MAX_FILES_PER_PROJECT) {
+      return safeError(`This project already has ${MAX_FILES_PER_PROJECT} references. Remove one to upload another.`, 409);
+    }
+    if (!admin) {
+      const used = await callRpc('storage_used_bytes', { p_user_id: user.id });
+      const usedBytes = used.ok ? Number(used.data) || 0 : 0;
+      if (usedBytes + (Number(sizeBytes) || 0) > USER_QUOTA_BYTES) {
+        return safeError(`You've used your ${Math.round(USER_QUOTA_BYTES / 1048576)} MB of reference storage. Remove references you no longer need to upload more.`, 413);
+      }
+    }
 
     const safeName = String(filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80);
     const path = `${user.id}/${projectId}/${Date.now()}-${safeName}`;

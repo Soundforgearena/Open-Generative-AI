@@ -17,6 +17,7 @@ import {
   actionRequiresExistingText,
   isDirectorAction,
 } from '../../../lib/director-actions';
+import { rateLimit } from '../../../lib/rate-limit';
 
 const DIRECTOR_MODEL = process.env.OPENAI_DIRECTOR_MODEL || 'gpt-5';
 
@@ -246,6 +247,8 @@ export async function GET(request) {
 export async function POST(request) {
   const { user, superAdmin, error } = await guard(request, { blockOnMaintenance: true });
   if (error) return error;
+  const limited = rateLimit(`director:${user.id}`, { limit: 20, windowMs: 60_000 });
+  if (limited) return limited;
   // Super admins pay cost (no margin); everyone else pays the marked-up price.
   // Both are paid with purchased credits only.
   const atCost = isAtCostUser({ superAdmin });
