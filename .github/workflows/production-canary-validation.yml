@@ -37,6 +37,8 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Run production canary tests
+        run: node --test tests/productionCanaryValidator.test.js
       - name: Validate production manifest
         env:
           APP_ENVIRONMENT: production
