@@ -2,7 +2,7 @@ import { execa } from 'execa';
 
 const COMMANDS = [
   ['lint', 'npm', ['run', 'lint']],
-  ['tests', 'npm', ['npm', 'test']],
+  ['tests', 'npm', ['test']],
   ['build', 'npm', ['run', 'build']],
 ];
 
@@ -61,7 +61,7 @@ async function runSmokeChecks({ previewUrl, incident }) {
 
 export function redact(value = '') {
   return String(value)
-    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [REDACTED]')
-    .replace(/\b(sk|pk)_(live|test)_[A-Za-z0-9]+/g, '[STRIPE_KEY_REDACTED]')
-    .replace(/(OPENAI_API_KEY|SUPABASE_SERVICE_ROLE_KEY|CRON_SECRET)=\S+/g, '$1=[REDACTED]');
+    .replace(/Bearer\\s+[A-Za-z0-9._-]+/gi, 'Bearer [REDACTED]')
+    .replace(/\\b(sk|pk)_(live|test)_[A-Za-z0-9]+/g, '[STRIPE_KEY_REDACTED]')
+    .replace(/(OPENAI_API_KEY|SUPABASE_SERVICE_ROLE_KEY|CRON_SECRET)=\\S+/g, '$1=[REDACTED]');
 }
