@@ -1,4 +1,4 @@
-import { guard, selectRows, updateRows, callRpcAsUser, bearerToken, safeError } from '../../../../lib/cinexvideo-server';
+import { guard, selectRows, updateRows, insertRows, callRpcAsUser, bearerToken, safeError } from '../../../../lib/cinexvideo-server';
 import { stripeEnabled, getAccount, summariseAccount } from '../../../../lib/stripe-connect';
 import { validateSplit } from '../../../../lib/billing/revenue-split.js';
 
@@ -63,7 +63,7 @@ export async function GET(request) {
 
 /** Update the platform share, the split basis, or an individual partner share. */
 export async function PATCH(request) {
-  const { error } = await guard(request, { requireSuperAdmin: true });
+  const { user, error } = await guard(request, { requireSuperAdmin: true });
   if (error) return error;
   try {
     const body = await request.json();
@@ -90,12 +90,16 @@ export async function PATCH(request) {
       if (!check.ok) return safeError(check.error);
     }
 
+    const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 200) || null : null;
+    const before = await selectRows('revenue_partners', { order: 'share_percent.desc' }, 'id,email,share_percent,active');
+
     if (body.config) {
-      await callRpcAsUser(
+      const result = await callRpcAsUser(
         'admin_set_revenue_split',
-        { p_platform_percent: Number(body.config.platform_percent), p_basis: 'net' },
+        { p_platform_percent: Number(body.config.platform_percent), p_basis: 'net', p_reason: reason },
         token
       );
+      if (!result.ok) return safeError('The platform share could not be saved. Nothing else was changed.', 500);
     }
 
     if (Array.isArray(body.partners)) {
@@ -110,6 +114,16 @@ export async function PATCH(request) {
           }
         );
       }
+    }
+
+    if (Array.isArray(body.partners)) {
+      const after = await selectRows('revenue_partners', { order: 'share_percent.desc' }, 'id,email,share_percent,active');
+      await insertRows('revenue_split_audit', {
+        changed_by: user.id,
+        old_split: { partners: before },
+        new_split: { partners: after, platform_percent: body.config ? Number(body.config.platform_percent) : null, basis: 'net' },
+        reason,
+      }).catch(() => null);
     }
 
     return Response.json({ ok: true });

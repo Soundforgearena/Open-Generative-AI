@@ -16,6 +16,8 @@ const STATUS = {
  * Self-serve Stripe Express setup for a revenue partner. Shows only the
  * partner's own payout status, never the revenue split.
  */
+const payoutMoney = (cents) => `$${(Number(cents || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 export default function PayoutSetup({ partnerId = null, compact = false }) {
   const [state, setState] = useState(null);
   const [country, setCountry] = useState('');
@@ -94,6 +96,19 @@ export default function PayoutSetup({ partnerId = null, compact = false }) {
         <strong>{state.display_name}</strong>
         <span className={`cinex-payout-status ${status.tone}`}>{status.label}</span>
       </div>
+
+      {!compact && Number.isFinite(Number(state.share_percent)) && (
+        <dl className="cinex-payout-earnings">
+          <div><dt>Your share</dt><dd>{Number(state.share_percent)}% <small>of net revenue</small></dd></div>
+          {state.earnings && (
+            <>
+              <div><dt>Earned to date</dt><dd>{payoutMoney(state.earnings.lifetime_earned_cents)}</dd></div>
+              <div><dt>Ready to pay</dt><dd>{payoutMoney(state.earnings.available_cents)}</dd></div>
+              <div><dt>Paid out</dt><dd>{payoutMoney(state.earnings.paid_out_cents)}</dd></div>
+            </>
+          )}
+        </dl>
+      )}
 
       {!state.stripe_configured && <p className="cinex-payout-note">Stripe payouts are not switched on yet. Your earnings are being recorded and will be paid once they are.</p>}
 
