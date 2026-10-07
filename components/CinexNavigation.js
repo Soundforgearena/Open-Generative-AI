@@ -120,6 +120,7 @@ export default function CinexNavigation({ showFeatures = false }) {
         <Link href="/create" onClick={closeMenu}>Create</Link>
         <Link href="/music-video" onClick={closeMenu}>Music Video</Link>
         <Link href="/pricing" onClick={closeMenu}>Pricing</Link>
+        <Link href="/premieres" onClick={closeMenu} className="cinex-nav-soon">Premieres <span>Soon</span></Link>
         {showFeatures && <a href="#features" onClick={closeMenu}>Features</a>}
         {authReady && user ? (
           <>

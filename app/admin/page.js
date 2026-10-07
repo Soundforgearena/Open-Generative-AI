@@ -4,6 +4,7 @@ import { selectRows } from '@/lib/cinexvideo-server';
 import { ADMIN_SECTIONS } from '@/lib/admin/sections';
 import SiteVisibilityToggle from '@/components/admin/SiteVisibilityToggle';
 import PaymentModeToggle from '@/components/admin/PaymentModeToggle';
+import PremieresReadiness from '@/components/admin/PremieresReadiness';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,6 +72,7 @@ export default async function AdminOverviewPage() {
 
       <SiteVisibilityToggle />
       <PaymentModeToggle />
+      <PremieresReadiness />
 
       {loadError ? <p className="cinex-form-error" role="alert">{loadError}</p> : null}
 
