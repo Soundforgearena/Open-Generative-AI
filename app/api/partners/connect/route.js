@@ -23,6 +23,24 @@ async function resolvePartner(request, user, superAdmin, partnerId) {
   return selectOne('revenue_partners', { user_id: `eq.${user.id}` });
 }
 
+async function ownEarnings(partnerId) {
+  try {
+    const row = await selectOne(
+      'partner_balances',
+      { partner_id: `eq.${partnerId}` },
+      'lifetime_earned_cents,available_cents,pending_payout_cents,paid_out_cents'
+    );
+    return {
+      lifetime_earned_cents: Number(row?.lifetime_earned_cents || 0),
+      available_cents: Number(row?.available_cents || 0),
+      pending_payout_cents: Number(row?.pending_payout_cents || 0),
+      paid_out_cents: Number(row?.paid_out_cents || 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Current onboarding + payout status for the calling partner. */
 export async function GET(request) {
   const { user, superAdmin, error } = await guard(request);
@@ -36,8 +54,10 @@ export async function GET(request) {
     is_partner: true,
     partner_id: partner.id,
     display_name: partner.display_name,
-    // The split is super admin only; partners see just their payout setup.
-    ...(superAdmin ? { share_percent: partner.share_percent } : {}),
+    // A partner only ever resolves to their own row (see resolvePartner), so
+    // they see their own share and balances, never anyone else's.
+    share_percent: Number(partner.share_percent),
+    earnings: await ownEarnings(partner.id),
     payout_provider: partner.payout_provider,
     payout_country: partner.payout_country || null,
     countries: payoutCountries(),

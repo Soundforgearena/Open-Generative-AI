@@ -6,6 +6,7 @@ import {
   getSetting,
   forgetSetting,
   safeError,
+  listAuthUsers,
 } from '../../../../lib/cinexvideo-server';
 
 /**
@@ -13,14 +14,21 @@ import {
  * using the admin's own token, so auth.uid() is real and each change is written
  * to user_admin_actions as an audit record.
  */
+// Actions that cost the platform money (free credits, price cuts) are
+// super admin only. Admins can moderate accounts and the site switch.
+const SUPER_ADMIN_ACTIONS = new Set(['grant_bonus', 'set_discount']);
+
 export async function POST(request) {
-  const { error } = await guard(request, { requireAdminRole: true });
+  const { user, superAdmin, error } = await guard(request, { requireAdminRole: true });
   if (error) return error;
   const token = bearerToken(request);
 
   try {
     const body = await request.json();
     const action = body.action;
+    if (SUPER_ADMIN_ACTIONS.has(action) && !superAdmin) {
+      return safeError('Only the super admin can do that.', 403);
+    }
 
     if (action === 'set_maintenance') {
       const result = await callRpcAsUser(
@@ -54,7 +62,8 @@ export async function POST(request) {
     if (action === 'grant_bonus') {
       const credits = Number(body.credits);
       if (!body.user_id) return safeError('A user id is required.');
-      if (!Number.isFinite(credits) || credits <= 0) return safeError('Credits must be positive.');
+      if (!Number.isInteger(credits) || credits <= 0) return safeError('Credits must be a whole number above zero.');
+      if (credits > 10000) return safeError('Grant at most 10,000 credits ($100) at a time.');
       const result = await callRpcAsUser(
         'admin_grant_bonus',
         { p_target_user_id: body.user_id, p_credits: credits, p_note: body.note || null },
@@ -66,6 +75,10 @@ export async function POST(request) {
 
     if (action === 'set_user_active') {
       if (!body.user_id) return safeError('A user id is required.');
+      if (body.user_id === user.id) return safeError('You cannot suspend your own account.');
+      const targetRole = await selectRows('admin_members', { user_id: `eq.${body.user_id}`, limit: 1 }, 'role');
+      if (targetRole.length && !superAdmin) return safeError('Only the super admin can suspend another admin.', 403);
+      if (targetRole[0]?.role === 'super_admin') return safeError('The super admin account cannot be suspended here.', 403);
       const result = await callRpcAsUser(
         'admin_set_user_active',
         {
@@ -88,23 +101,41 @@ export async function POST(request) {
 
 /** Roster for the user-management panel. */
 export async function GET(request) {
-  const { error } = await guard(request, { requireAdminRole: true });
+  const { superAdmin, error } = await guard(request, { requireAdminRole: true });
   if (error) return error;
 
-  const wallets = await selectRows(
-    'credit_wallets',
-    { order: 'updated_at.desc', limit: 200 },
-    'user_id,balance,lifetime_purchased,lifetime_consumed,updated_at'
-  );
-  const statuses = await selectRows('user_account_status', { limit: 500 }, 'user_id,active,reason');
-  const admins = await selectRows('admin_members', { limit: 200 }, 'user_id');
-  const adminIds = new Set(admins.map((row) => row.user_id));
+  try {
+    const [wallets, statuses, admins, auth] = await Promise.all([
+      selectRows('credit_wallets', { order: 'updated_at.desc', limit: 500 }, 'user_id,balance,lifetime_purchased,lifetime_consumed,updated_at'),
+      selectRows('user_account_status', { limit: 1000 }, 'user_id,active,reason'),
+      selectRows('admin_members', { limit: 200 }, 'user_id,role'),
+      listAuthUsers().catch(() => new Map()),
+    ]);
+    const roleById = new Map(admins.map((row) => [row.user_id, row.role || 'admin']));
+    const statusById = new Map(statuses.map((row) => [row.user_id, row]));
+    const ids = new Set([...wallets.map((w) => w.user_id), ...auth.keys()]);
+    const walletById = new Map(wallets.map((w) => [w.user_id, w]));
 
-  return Response.json({
-    users: wallets.map((wallet) => ({
-      ...wallet,
-      active: statuses.find((s) => s.user_id === wallet.user_id)?.active ?? true,
-      is_admin: adminIds.has(wallet.user_id),
-    })),
-  });
+    const users = [...ids].map((id) => {
+      const wallet = walletById.get(id) || {};
+      const info = auth.get(id) || {};
+      return {
+        user_id: id,
+        email: info.email || null,
+        created_at: info.created_at || null,
+        last_sign_in_at: info.last_sign_in_at || null,
+        balance: Number(wallet.balance || 0),
+        lifetime_purchased: Number(wallet.lifetime_purchased || 0),
+        lifetime_consumed: Number(wallet.lifetime_consumed || 0),
+        active: statusById.get(id)?.active ?? true,
+        role: roleById.get(id) || 'member',
+        is_admin: roleById.has(id),
+      };
+    }).sort((a, b) => String(b.last_sign_in_at || b.created_at || '').localeCompare(String(a.last_sign_in_at || a.created_at || '')));
+
+    return Response.json({ users, viewer: { super_admin: Boolean(superAdmin) } });
+  } catch (err) {
+    console.error('admin users', err);
+    return safeError('The user list is temporarily unavailable.', 500);
+  }
 }

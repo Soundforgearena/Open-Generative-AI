@@ -21,11 +21,16 @@ export async function GET(request) {
       is_admin: admin,
       is_super_admin: superAdmin,
       role: superAdmin ? 'super_admin' : admin ? 'admin' : 'member',
-      // Partners see only their own payout status. The split itself is super admin only.
+      // Each partner sees only their own share and payout status. The full
+      // split (everyone's shares) is available to the super admin only.
       partner: partner
-        ? superAdmin
-          ? partner
-          : { id: partner.id, display_name: partner.display_name, payouts_enabled: partner.payouts_enabled, onboarding_status: partner.onboarding_status }
+        ? {
+            id: partner.id,
+            display_name: partner.display_name,
+            share_percent: Number(partner.share_percent),
+            payouts_enabled: partner.payouts_enabled,
+            onboarding_status: partner.onboarding_status,
+          }
         : null,
       credits: wallet?.balance ?? 0,
       // Super admins pay cost (no markup) from purchased credits.

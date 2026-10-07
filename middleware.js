@@ -68,10 +68,14 @@ export async function middleware(request) {
         url.pathname.startsWith('/create') ||
         url.pathname.startsWith('/studio') ||
         url.pathname.startsWith('/account');
+    // /admin is gated twice: here (before anything renders) and again by the
+    // server-side requireAdmin() in the admin layout and every admin page.
+    const adminPath = url.pathname === '/admin' || url.pathname.startsWith('/admin/');
+    let adminVerified = false;
 
     // API routes authenticate their own Bearer tokens. OAuth callback handles
     // its own cookie exchange. Only refresh browser sessions for protected UI.
-    if (protectedAppPath && !demoMode && supabaseUrl && publishableKey) {
+    if ((protectedAppPath || adminPath) && supabaseUrl && publishableKey && (!demoMode || adminPath)) {
         try {
             const supabase = createServerClient(supabaseUrl, publishableKey, {
                 cookies: {
@@ -92,9 +96,24 @@ export async function middleware(request) {
             });
             const result = await supabase.auth.getUser();
             user = result.data.user;
+            if (adminPath && user) {
+                const { data: isAdmin, error: roleError } = await supabase.rpc('is_cinex_admin', { p_user_id: user.id });
+                adminVerified = !roleError && isAdmin === true;
+            }
         } catch (error) {
             console.error('CineXVideo middleware auth refresh failed', { message: error.message, path: url.pathname });
         }
+    }
+
+    // Regular users (and signed-out visitors) never reach any admin page.
+    // Fails closed: if the role check cannot run, access is refused.
+    if (adminPath && !adminVerified) {
+        if (!user) {
+            const signInUrl = new URL('/auth', request.url);
+            signInUrl.searchParams.set('next', `${url.pathname}${url.search}`);
+            return addSecurityHeaders(NextResponse.redirect(signInUrl));
+        }
+        return addSecurityHeaders(NextResponse.redirect(new URL('/dashboard', request.url)));
     }
 
     if (protectedAppPath && !user && !demoMode) {

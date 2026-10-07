@@ -53,7 +53,15 @@ export async function POST(request) {
   try {
     const records = await selectRows(
       'payment_records',
-      { provider: 'eq.stripe', order: 'created_at.asc', limit: 100 },
+      {
+        provider: 'eq.stripe',
+        provider_payment_id: 'not.is.null',
+        // Only rows still missing settlement data, so newer payments are never
+        // starved behind the first 100 already-reconciled ones.
+        or: '(fee_cents.is.null,fee_cents.eq.0,settled_amount_cents.is.null,settled_currency.is.null)',
+        order: 'created_at.asc',
+        limit: 100,
+      },
       'id,provider_payment_id,fee_cents,settled_amount_cents,settled_currency'
     );
 

@@ -3349,3 +3349,72 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .cinex-split-summary span { padding: 6px 12px; border-radius: 99px; background: rgba(255,255,255,.06); font-size: 14px; }
 .cinex-split-summary span.is-platform { background: rgba(231,183,95,.16); color: #f4ca78; font-weight: 700; }
 .cinex-partner-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 16px; }
+.cinex-payout-earnings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0 0 14px; }
+.cinex-payout-earnings div { padding: 10px; border-radius: 10px; background: rgba(255,255,255,.04); min-width: 0; }
+.cinex-payout-earnings dt { font-size: 13px; color: #a9a59c; }
+.cinex-payout-earnings dd { margin: 2px 0 0; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.cinex-payout-earnings dd small { font-weight: 400; font-size: 13px; color: #a9a59c; }
+@media (max-width: 600px) { .cinex-payout-earnings { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---------- Admin kit (users, revenue partners, audit log, cockpit) ---------- */
+.cinex-admin-stack { display: grid; gap: 18px; margin-top: 18px; min-width: 0; }
+.cinex-admin-panel { min-width: 0; margin: 18px 0; padding: 20px; border: 1px solid var(--cinex-line); border-radius: 14px; background: rgba(12, 16, 24, 0.94); }
+.cinex-admin-stack > .cinex-admin-panel { margin: 0; }
+.cinex-admin-panel-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 18px; margin-bottom: 14px; }
+.cinex-admin-panel-head > div { flex: 1 1 280px; min-width: 0; }
+.cinex-admin-panel-head h2 { margin: 0 0 4px; color: var(--cinex-gold-light); font-family: 'Barlow Condensed', sans-serif; font-size: 1.35rem; text-transform: uppercase; letter-spacing: .02em; }
+.cinex-admin-panel-head p { margin: 0; color: var(--cinex-muted); font-size: 14px; line-height: 1.5; }
+.cinex-admin-subhead { margin: 22px 0 10px; color: var(--cinex-gold-light); font-family: 'Barlow Condensed', sans-serif; font-size: 1.15rem; text-transform: uppercase; }
+.cinex-admin-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-top: 14px; }
+.cinex-admin-field { display: grid; gap: 6px; flex: 0 1 140px; min-width: 0; font-size: 14px; color: var(--cinex-muted); }
+.cinex-admin-field.is-wide { flex: 1 1 240px; }
+.cinex-admin-field > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cinex-admin-field input, .cinex-admin-field select { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid rgba(255, 205, 113, 0.3); border-radius: 10px; background: rgba(4, 6, 10, 0.9); color: #f5f1e8; font: inherit; font-size: 16px; }
+.cinex-admin-field input:focus-visible, .cinex-admin-field select:focus-visible { outline: 2px solid var(--cinex-gold-light); outline-offset: 1px; }
+.cinex-admin-input-suffix { position: relative; display: block; }
+.cinex-admin-input-suffix input { padding-right: 30px; }
+.cinex-admin-input-suffix em { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-style: normal; color: var(--cinex-muted); pointer-events: none; }
+.cinex-admin-search { flex: 0 1 280px; }
+.cinex-split-editor { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)); gap: 12px; }
+.cinex-split-editor .cinex-admin-field { flex: none; }
+.cinex-split-editor .cinex-admin-field.is-platform > span:first-child { color: #f4ca78; font-weight: 700; }
+.cinex-admin-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 16px; border: 1px solid rgba(255, 205, 113, 0.45); border-radius: 10px; background: rgba(255, 205, 113, 0.08); color: #f5f1e8; font: inherit; font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
+.cinex-admin-btn:hover:not(:disabled) { background: rgba(255, 205, 113, 0.16); border-color: var(--cinex-gold-light); }
+.cinex-admin-btn:focus-visible { outline: 2px solid var(--cinex-gold-light); outline-offset: 2px; }
+.cinex-admin-btn:disabled { opacity: .45; cursor: not-allowed; }
+.cinex-admin-btn.is-primary { background: linear-gradient(180deg, #f4ca78, #d79b3c); border-color: transparent; color: #17110a; }
+.cinex-admin-btn.is-primary:hover:not(:disabled) { background: linear-gradient(180deg, #ffd88f, #e3a84a); }
+.cinex-admin-btn.is-danger { border-color: rgba(255, 120, 110, 0.5); background: rgba(255, 90, 80, 0.08); color: #ffb4ac; }
+.cinex-admin-btn.is-danger:hover:not(:disabled) { background: rgba(255, 90, 80, 0.18); border-color: #ff8a80; }
+.cinex-admin-row-actions { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.cinex-admin-table-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; }
+.cinex-admin-table-wrap .cinex-admin-table { display: table; min-width: 100%; }
+.cinex-admin-table td { font-variant-numeric: tabular-nums; }
+.cinex-admin-table td.cinex-admin-cell-wrap { white-space: normal; overflow-wrap: anywhere; min-width: 160px; }
+.cinex-status-tag { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; font-size: 13px; font-weight: 600; line-height: 1.5; white-space: nowrap; background: rgba(255,255,255,.06); color: #d8d3c8; }
+.cinex-status-tag::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .9; }
+.cinex-status-tag.is-ok { background: rgba(80, 200, 120, 0.14); color: #8be3a8; }
+.cinex-status-tag.is-warn { background: rgba(244, 190, 90, 0.14); color: #f4ca78; }
+.cinex-status-tag.is-bad { background: rgba(255, 100, 90, 0.14); color: #ffa39a; }
+.cinex-status-tag.is-muted { color: #a9a59c; }
+.cinex-admin-note { margin: 12px 0 0; padding: 12px 14px; border-radius: 10px; background: rgba(255,255,255,.04); color: var(--cinex-muted); font-size: 14px; line-height: 1.5; }
+.cinex-admin-note.is-ok { background: rgba(80, 200, 120, 0.1); color: #a6ebbc; }
+.cinex-admin-note.is-bad { background: rgba(255, 100, 90, 0.1); color: #ffb4ac; }
+.cinex-admin-note a { color: var(--cinex-gold-light); }
+.cinex-economics-cards.is-compact { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cinex-economics-cards > div { min-width: 0; }
+.cinex-economics-cards strong { overflow-wrap: anywhere; }
+.cinex-economics-status { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; color: var(--cinex-muted); font-size: 14px; }
+.cinex-economics-status strong { color: #f5f1e8; }
+.cinex-economics-source { align-items: center; }
+.cinex-economics-source span.cinex-status-tag { text-transform: none; }
+@media (max-width: 1024px) { .cinex-economics-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .cinex-admin-panel { padding: 16px; }
+  .cinex-economics-cards, .cinex-economics-cards.is-compact { grid-template-columns: 1fr; }
+  .cinex-admin-toolbar > .cinex-admin-btn { width: 100%; }
+  .cinex-admin-field, .cinex-admin-search { flex: 1 1 100%; }
+}
+.cinex-admin-overview .cinex-economics-section h2,
+.cinex-admin-overview .cinex-admin-panel h2 { margin-top: 0; }
+.cinex-admin-overview .cinex-admin-subhead { margin: 22px 0 10px; }

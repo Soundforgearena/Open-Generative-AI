@@ -1,2 +1,6 @@
-import AdminCockpitPage from '../cockpit/page';
-export default AdminCockpitPage;
+import { redirect } from 'next/navigation';
+
+// Operations (jobs, reservations, scheduler) live on the overview and cockpit.
+export default function Page() {
+  redirect('/admin');
+}

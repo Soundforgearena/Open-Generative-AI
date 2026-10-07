@@ -1,5 +1,6 @@
 import { guard, selectRows, selectOne, getSetting, safeError } from '../../../../lib/cinexvideo-server';
 import { describeProviderConfiguration } from '../../../../lib/admin/provider-config';
+import { MARGIN_POLICY } from '../../../../lib/billing/margin-policy.js';
 
 /**
  * Admin cockpit data. Margin, provider cost and revenue are returned here and
@@ -46,8 +47,8 @@ export async function GET(request) {
               revenue_24h_cents: revenue,
               provider_cost_24h_cents: providerCost,
               realised_margin_percent: marginPercent === null ? null : Number(marginPercent.toFixed(1)),
-              margin_floor_percent: 45,
-              margin_floor_met: marginPercent === null ? null : marginPercent >= 45,
+              margin_floor_percent: MARGIN_POLICY.minimumContributionMarginBps / 100,
+              margin_floor_met: marginPercent === null ? null : marginPercent >= MARGIN_POLICY.minimumContributionMarginBps / 100,
             }
           : {}),
         total_users: wallets.length,

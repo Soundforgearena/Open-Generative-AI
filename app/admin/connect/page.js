@@ -4,21 +4,26 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getAccount, getPartners } from '../../../lib/cinexvideo-client';
 import PartnerOnboardingCard from '../../../components/admin/PartnerOnboardingCard';
+import RevenueSplitManager from '../../../components/admin/RevenueSplitManager';
 
 export default function AdminConnectPage() {
   const router = useRouter();
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [partners, setPartners] = useState([]);
   const [config, setConfig] = useState(null);
+  const [totals, setTotals] = useState(null);
+  const [stripeConfigured, setStripeConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const loadPartners = useCallback(async () => {
-    setLoading(true);
+  const loadPartners = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setLoading(true);
     setError(null);
     try {
       const data = await getPartners();
       setConfig(data.config || null);
+      setTotals(data.totals || null);
+      setStripeConfigured(Boolean(data.stripe_configured));
       // /api/admin/partners reads the partner_balances view, which keys rows on
       // partner_id; the card renders on `id`.
       setPartners(
@@ -91,6 +96,15 @@ export default function AdminConnectPage() {
 
       {error && <p className="cinex-form-error" role="alert">{error}</p>}
 
+      <RevenueSplitManager
+        partners={partners}
+        config={config}
+        totals={totals}
+        stripeConfigured={stripeConfigured}
+        onChanged={() => loadPartners({ quiet: true })}
+      />
+
+      <h2 className="cinex-admin-subhead">Stripe connections</h2>
       <div className="cinex-partner-grid">
         {partners.map((partner) => (
           <PartnerOnboardingCard key={partner.id} partner={partner} onRefresh={loadPartners} />
