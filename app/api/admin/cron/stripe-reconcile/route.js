@@ -6,43 +6,11 @@ import {
 } from '../../../../../lib/cinexvideo-server';
 import { getStripe, stripeEnabled } from '../../../../../lib/stripe-connect';
 import {
-  extractStripeSettlement,
-  looksLikeStripeCharge,
-  looksLikeStripeCheckoutSession,
-  looksLikeStripePaymentIntent,
+  reconcileStripeRecords,
+  sanitizeStripeError,
 } from '../../../../../lib/billing/stripe-reconciliation.js';
 
 export const dynamic = 'force-dynamic';
-
-async function fetchStripeSettlement(providerPaymentId) {
-  const stripe = getStripe();
-
-  if (looksLikeStripePaymentIntent(providerPaymentId)) {
-    const paymentIntent = await stripe.paymentIntents.retrieve(providerPaymentId, {
-      expand: ['latest_charge.balance_transaction'],
-    });
-    return extractStripeSettlement({ paymentIntent });
-  }
-
-  if (looksLikeStripeCheckoutSession(providerPaymentId)) {
-    const session = await stripe.checkout.sessions.retrieve(providerPaymentId, {
-      expand: ['payment_intent.latest_charge.balance_transaction'],
-    });
-    return extractStripeSettlement({
-      checkoutSession: session,
-      paymentIntent: session.payment_intent,
-    });
-  }
-
-  if (looksLikeStripeCharge(providerPaymentId)) {
-    const charge = await stripe.charges.retrieve(providerPaymentId, {
-      expand: ['balance_transaction'],
-    });
-    return extractStripeSettlement({ charge });
-  }
-
-  throw new Error('Unsupported Stripe payment reference');
-}
 
 export async function POST(request) {
   const expected = process.env.CRON_SECRET;
@@ -84,49 +52,15 @@ export async function POST(request) {
       errors: 0,
     };
 
-    for (const record of targets) {
-      try {
-        const settlement = await fetchStripeSettlement(record.provider_payment_id);
-        if (
-          !settlement.balanceTransactionId
-          || settlement.amountCents === null
-          || settlement.feeCents === null
-          || !settlement.currency
-        ) {
-          summary.pending += 1;
-          continue;
-        }
-
-        const feeWrite = await insertRows(
-          'payment_fee_records',
-          {
-            payment_record_id: record.id,
-            stripe_balance_transaction_id: settlement.balanceTransactionId,
-            fee_cents: settlement.feeCents,
-            net_cents: settlement.netCents ?? settlement.amountCents - settlement.feeCents,
-            currency: settlement.currency,
-          },
-          { upsert: true }
-        );
-        if (!feeWrite.ok) throw new Error('fee record write failed');
-
-        const paymentUpdate = await updateRows(
-          'payment_records',
-          { id: `eq.${record.id}` },
-          {
-            fee_cents: settlement.feeCents,
-            settled_amount_cents: settlement.amountCents,
-            settled_currency: settlement.currency,
-          }
-        );
-        if (!paymentUpdate.ok) throw new Error('payment record update failed');
-
-        summary.updated += 1;
-      } catch (error) {
-        summary.errors += 1;
-        console.error('stripe reconciliation failed', record.id, error);
-      }
-    }
+    const result = await reconcileStripeRecords({
+      targets,
+      stripe: getStripe(),
+      insertRows,
+      updateRows,
+    });
+    summary.updated = result.updated;
+    summary.pending = result.pending;
+    summary.errors = result.errors;
 
     summary.unchanged = Math.max(0, summary.checked - summary.targeted);
 
@@ -137,7 +71,7 @@ export async function POST(request) {
 
     return Response.json({ status: summary.errors ? 'partial' : 'ok', ...summary });
   } catch (error) {
-    console.error('stripe reconcile cron', error);
+    console.error('stripe reconcile cron', sanitizeStripeError(error));
     return safeError('Stripe reconciliation failed.', 500);
   }
 }

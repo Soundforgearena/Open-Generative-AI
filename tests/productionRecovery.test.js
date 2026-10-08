@@ -112,7 +112,8 @@ test('durable reconciliation settles jobs without a browser poll', async () => {
 });
 
 test('Stripe reconciliation cron is implemented instead of returning a stub', async () => {
-  const cron = await read('app/api/admin/cron/stripe-reconcile/route.js');
+  const cron = (await read('app/api/admin/cron/stripe-reconcile/route.js'))
+    + (await read('lib/billing/stripe-reconciliation.js'));
   assert.match(cron, /CRON_SECRET/);
   assert.match(cron, /stripeEnabled/);
   assert.match(cron, /getStripe/);
