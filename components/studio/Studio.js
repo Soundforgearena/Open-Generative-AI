@@ -42,6 +42,7 @@ import {
   formatClock,
   normalizeTags,
   parseShotDirection,
+  previewTake,
   resolutionsFor,
   sceneHealth,
   serializeShotDirection,
@@ -67,9 +68,7 @@ function safeUrl(value) {
 
 function mapScene(scene) {
   const versions = scene.versions || [];
-  const approved = versions.find((v) => v.approved);
-  const latest = versions[0] || null;
-  const take = approved || latest;
+  const take = previewTake(versions);
   const output = safeUrl(take?.output_url || '');
   const thumb = safeUrl(take?.thumbnail_url || '');
   return {
@@ -849,8 +848,7 @@ export default function Studio() {
   /* ------------------------------------------------ finished video */
   async function openExport() {
     if (demoModeEnabled) {
-      // Demo: show the real dialog with sample prices; nothing renders.
-      setExportState({ open: true, phase: 'choose', progress: 0, error: '', free: { ready: true, missing: [] }, clean: { ready: true, credits_required: 80 } });
+      setExportState({ open: true, phase: 'choose', progress: 0, demo: true });
       return;
     }
     await flush();
@@ -1483,7 +1481,13 @@ export default function Studio() {
             <h2 id="sx-export-title">Get your video</h2>
             {exportState.phase === 'quoting' && <p className="sx-hint">Checking your scenes...</p>}
             {exportState.phase === 'choose' && (
-              <>
+              exportState.demo ? (
+                <div className="sx-readiness is-blocked" role="status">
+                  <strong>Demo preview only</strong>
+                  <span>Rendering and downloads are unavailable in demo mode. No credits will be charged.</span>
+                </div>
+              ) : (
+                <>
                 {exportState.free && !exportState.free.ready && (
                   <div className="sx-readiness is-blocked" role="status">
                     <strong>Finish every scene first</strong>
@@ -1532,7 +1536,8 @@ export default function Studio() {
                   </button>
                 </div>
                 <p className="sx-hint">MP4 up to 1080p, with your uploaded track as the soundtrack. Credits are charged only when the video is ready, and downloading the same cut again within 7 days is free. CineXVideo does not keep a copy, so save it somewhere safe.</p>
-              </>
+                </>
+              )
             )}
             {(exportState.phase === 'rendering' || exportState.phase === 'downloading') && (
               <div className="sx-export-progress" role="status" aria-live="polite">

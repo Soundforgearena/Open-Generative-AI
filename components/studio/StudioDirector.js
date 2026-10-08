@@ -43,6 +43,7 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
   const [needsCredits, setNeedsCredits] = useState(false);
   const [instruction, setInstruction] = useState('');
   const wrapRef = useRef(null);
+  const actionLock = useRef(false);
   const hasText = Boolean(scene?.prompt?.trim());
 
   useEffect(() => { setResult(null); setError(''); }, [scene?.id]);
@@ -76,7 +77,9 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
       onOpenChange(false);
       return;
     }
-    setBusy(action + custom);
+    if (actionLock.current) return;
+    actionLock.current = true;
+    setBusy(action);
     try {
       if (demoModeEnabled) {
         await new Promise((r) => setTimeout(r, 700));
@@ -107,6 +110,7 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
       setError(e.status === 402 ? (e.message || `The AI Director runs on purchased credits. Add credits to keep directing.`) : `${e.message || 'The Director is unavailable right now.'} No credits were charged.`);
     } finally {
       setBusy('');
+      actionLock.current = false;
     }
   }
 
@@ -127,7 +131,9 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
           ))}
           <form className="sx-dir-custom" onSubmit={(e) => { e.preventDefault(); if (instruction.trim()) run('applyDirectorInstruction', instruction.trim()); }}>
             <input value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Or tell the Director what you want..." maxLength={400} aria-label="Director instruction" />
-            <button type="submit" aria-label="Ask the Director" disabled={!instruction.trim() || Boolean(busy)}><Icon.ChevronRight /></button>
+            <button type="submit" aria-label="Ask the Director" disabled={!instruction.trim() || Boolean(busy)}>
+              {busy === 'applyDirectorInstruction' ? <span className="sx-mini-spin" aria-hidden="true" /> : <Icon.ChevronRight />}
+            </button>
           </form>
         </div>
       )}

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   parseShotDirection, serializeShotDirection, buildProviderPrompt, sceneHealth,
-  continuityBetween, resolutionsFor, normalizeTags, timelineOffsets, waveformBars, formatClock,
+  continuityBetween, previewTake, resolutionsFor, normalizeTags, timelineOffsets, waveformBars, formatClock,
 } from '../lib/studio/studio-model.js';
 
 test('shot controls round-trip and reject unknown values', () => {
@@ -25,6 +25,13 @@ test('scene health maps to Flight Path colours', () => {
   assert.equal(sceneHealth({ status: 'approved', continuity_locked: true }), 'good');
   assert.equal(sceneHealth({ status: 'needs_review' }), 'warning');
   assert.equal(sceneHealth({ status: 'draft' }), 'pending');
+});
+test('review preview uses the newest available take, then falls back to approved', () => {
+  const approved = { version: 1, approved: true, output_url: 'take-1.mp4' };
+  const latest = { version: 2, approved: false, output_url: 'take-2.mp4' };
+  assert.equal(previewTake([latest, approved]), latest);
+  assert.equal(previewTake([{ version: 3, status: 'generating' }, approved]), approved);
+  assert.equal(previewTake([]), null);
 });
 test('continuity is good only when both scenes are locked', () => {
   assert.equal(continuityBetween({ continuity_locked: true }, { continuity_locked: true }).state, 'good');
@@ -52,6 +59,22 @@ test('studio generation always quotes and confirms before spending', async () =>
 test('demo studio data never ships to production', async () => {
   const mode = await readFile(new URL('../lib/demo-mode.js', import.meta.url), 'utf8');
   assert.match(mode, /NODE_ENV !== 'production'/);
+});
+test('Director actions lock while a paid request is in flight', async () => {
+  const src = await readFile(new URL('../components/studio/StudioDirector.js', import.meta.url), 'utf8');
+  assert.match(src, /const actionLock = useRef\(false\)/);
+  assert.match(src, /if \(actionLock\.current\) return;/);
+  assert.match(src, /actionLock\.current = false;/);
+  assert.match(src, /setBusy\(action\)/);
+  assert.match(src, /busy === 'applyDirectorInstruction'/);
+  assert.doesNotMatch(src, /setBusy\(action \+ custom\)/);
+});
+test('demo export never displays sample prices or offers rendering', async () => {
+  const src = await readFile(new URL('../components/studio/Studio.js', import.meta.url), 'utf8');
+  assert.match(src, /demo: true/);
+  assert.match(src, /Demo preview only/);
+  assert.match(src, /exportState\.demo \?/);
+  assert.doesNotMatch(src, /credits_required: 80/);
 });
 test('studio route is session-protected', async () => {
   const mw = await readFile(new URL('../middleware.js', import.meta.url), 'utf8');
