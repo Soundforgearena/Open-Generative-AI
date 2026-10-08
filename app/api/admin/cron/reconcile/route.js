@@ -10,6 +10,7 @@ import {
 } from '../../../../../lib/cinexvideo-server';
 import { normalizeMuapiCost } from '../../../../../lib/providers/muapi-cost-adapter.js';
 import { settledGenerationCredits } from '../../../../../lib/billing/at-cost.js';
+import { runChainedMaintenance } from '../../../../../lib/admin/chained-maintenance.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -144,54 +145,8 @@ async function failJob(job, reason = 'provider_failed') {
   }
 }
 
-const STRIPE_RECONCILE_EVERY_MS = 15 * 60 * 1000;
-const HEARTBEAT_RETENTION_DAYS = 7;
-
-/**
- * Work that rides on the every-minute scheduler call, so no extra cron
- * needs to be set up on the host:
- * - Stripe fee reconciliation every 15 minutes (read-only on Stripe).
- * - Pruning scheduler heartbeat rows older than 7 days, so the events table
- *   cannot grow without limit and eat database storage.
- * Failures here never fail the generation reconciliation itself.
- */
-async function chainedMaintenance(request, summary) {
-  try {
-    const last = await selectOne(
-      'admin_metric_events',
-      { event_type: 'eq.stripe_reconciliation', order: 'created_at.desc' },
-      'created_at'
-    );
-    const due = !last || Date.now() - new Date(last.created_at).getTime() >= STRIPE_RECONCILE_EVERY_MS;
-    if (due) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 20000);
-      try {
-        const response = await fetch(new URL('/api/admin/cron/stripe-reconcile', request.url), {
-          method: 'POST',
-          headers: { authorization: request.headers.get('authorization') || '' },
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        summary.stripe_reconcile = response.status;
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-  } catch (error) {
-    summary.stripe_reconcile = 'error';
-    console.error('chained stripe reconcile', error?.message || error);
-  }
-
-  try {
-    const cutoff = new Date(Date.now() - HEARTBEAT_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
-    await deleteRows('admin_metric_events', {
-      event_type: 'in.(generation_reconciliation,stripe_reconciliation)',
-      created_at: `lt.${cutoff}`,
-    });
-  } catch (error) {
-    console.error('heartbeat prune', error?.message || error);
-  }
+function chainedMaintenance(request, summary) {
+  return runChainedMaintenance(request, summary, { selectOne, insertRows, deleteRows });
 }
 
 export async function POST(request) {
