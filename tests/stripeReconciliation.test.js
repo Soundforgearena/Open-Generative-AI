@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  assertStripeResponseStatus,
   extractStripeSettlement,
   looksLikeStripePaymentIntent,
   looksLikeStripeCheckoutSession,
@@ -67,4 +68,17 @@ test('stripe reconciliation falls back through checkout session and charge field
   assert.equal(settlement.amountCents, 1000);
   assert.equal(settlement.feeCents, 59);
   assert.equal(settlement.netCents, 941);
+});
+
+test('Stripe response status validation accepts successful responses and rejects 203 and non-2xx', () => {
+  const response = { lastResponse: { statusCode: 200 } };
+  assert.equal(assertStripeResponseStatus(response, 'Stripe'), response);
+  assert.doesNotThrow(() => assertStripeResponseStatus({ lastResponse: { statusCode: 201 } }, 'Stripe'));
+
+  for (const status of [199, 203, 300, 503]) {
+    assert.throws(
+      () => assertStripeResponseStatus({ lastResponse: { statusCode: status } }, 'Stripe'),
+      /non-success status/
+    );
+  }
 });
