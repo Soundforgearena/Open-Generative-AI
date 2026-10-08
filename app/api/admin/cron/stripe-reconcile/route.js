@@ -6,6 +6,7 @@ import {
 } from '../../../../../lib/cinexvideo-server';
 import { getStripe, stripeEnabled } from '../../../../../lib/stripe-connect';
 import {
+  assertStripeResponseStatus,
   extractStripeSettlement,
   looksLikeStripeCharge,
   looksLikeStripeCheckoutSession,
@@ -18,16 +19,22 @@ async function fetchStripeSettlement(providerPaymentId) {
   const stripe = getStripe();
 
   if (looksLikeStripePaymentIntent(providerPaymentId)) {
-    const paymentIntent = await stripe.paymentIntents.retrieve(providerPaymentId, {
-      expand: ['latest_charge.balance_transaction'],
-    });
+    const paymentIntent = assertStripeResponseStatus(
+      await stripe.paymentIntents.retrieve(providerPaymentId, {
+        expand: ['latest_charge.balance_transaction'],
+      }),
+      'Stripe payment intent'
+    );
     return extractStripeSettlement({ paymentIntent });
   }
 
   if (looksLikeStripeCheckoutSession(providerPaymentId)) {
-    const session = await stripe.checkout.sessions.retrieve(providerPaymentId, {
-      expand: ['payment_intent.latest_charge.balance_transaction'],
-    });
+    const session = assertStripeResponseStatus(
+      await stripe.checkout.sessions.retrieve(providerPaymentId, {
+        expand: ['payment_intent.latest_charge.balance_transaction'],
+      }),
+      'Stripe checkout session'
+    );
     return extractStripeSettlement({
       checkoutSession: session,
       paymentIntent: session.payment_intent,
@@ -35,9 +42,12 @@ async function fetchStripeSettlement(providerPaymentId) {
   }
 
   if (looksLikeStripeCharge(providerPaymentId)) {
-    const charge = await stripe.charges.retrieve(providerPaymentId, {
-      expand: ['balance_transaction'],
-    });
+    const charge = assertStripeResponseStatus(
+      await stripe.charges.retrieve(providerPaymentId, {
+        expand: ['balance_transaction'],
+      }),
+      'Stripe charge'
+    );
     return extractStripeSettlement({ charge });
   }
 
