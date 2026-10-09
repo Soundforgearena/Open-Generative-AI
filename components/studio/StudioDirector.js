@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { demoModeEnabled } from '@/lib/demo-mode';
 import { maxDirectorCredits, typicalDirectorCredits } from '@/lib/billing/director-pricing';
 import { getDirectorPricing } from '@/lib/cinexvideo-client';
+import { createStaleGuard } from '@/lib/studio/async-guard';
 
 // Shown until the live price list loads (default model).
 const FALLBACK = { max_credits: maxDirectorCredits('assist', 'gpt-5'), typical_credits: typicalDirectorCredits('assist', 'gpt-5') };
@@ -43,6 +44,16 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
   const [needsCredits, setNeedsCredits] = useState(false);
   const [instruction, setInstruction] = useState('');
   const wrapRef = useRef(null);
+  const actionLock = useRef(false);
+  const sceneIdRef = useRef(scene?.id);
+  sceneIdRef.current = scene?.id;
+  const guardRef = useRef(null);
+  if (!guardRef.current) guardRef.current = createStaleGuard(() => sceneIdRef.current);
+  useEffect(() => {
+    const guard = guardRef.current;
+    guard.start();
+    return () => guard.stop();
+  }, []);
   const hasText = Boolean(scene?.prompt?.trim());
 
   useEffect(() => { setResult(null); setError(''); }, [scene?.id]);
@@ -76,10 +87,14 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
       onOpenChange(false);
       return;
     }
-    setBusy(action + custom);
+    if (actionLock.current) return;
+    actionLock.current = true;
+    const isCurrent = guardRef.current.capture();
+    setBusy(action);
     try {
       if (demoModeEnabled) {
         await new Promise((r) => setTimeout(r, 700));
+        if (!isCurrent()) return;
         setResult(demoSuggestion(scene));
       } else {
         const data = await requestDirectorAssist({
@@ -95,17 +110,20 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
             duration: scene?.duration_seconds,
           },
         });
-        setResult(data);
         if (data?.credits_charged) {
           onCharged?.(data.credits_charged);
           setPaidCredits((c) => (c === null ? c : Math.max(0, c - data.credits_charged)));
         }
+        if (!isCurrent()) return;
+        setResult(data);
       }
       onOpenChange(false);
     } catch (e) {
+      if (!isCurrent()) return;
       if (e.status === 402) setNeedsCredits(true);
       setError(e.status === 402 ? (e.message || `The AI Director runs on purchased credits. Add credits to keep directing.`) : `${e.message || 'The Director is unavailable right now.'} No credits were charged.`);
     } finally {
+      actionLock.current = false;
       setBusy('');
     }
   }
@@ -127,7 +145,7 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
           ))}
           <form className="sx-dir-custom" onSubmit={(e) => { e.preventDefault(); if (instruction.trim()) run('applyDirectorInstruction', instruction.trim()); }}>
             <input value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Or tell the Director what you want..." maxLength={400} aria-label="Director instruction" />
-            <button type="submit" aria-label="Ask the Director" disabled={!instruction.trim() || Boolean(busy)}><Icon.ChevronRight /></button>
+            <button type="submit" aria-label="Ask the Director" disabled={!instruction.trim() || Boolean(busy)}>{busy === 'applyDirectorInstruction' ? <span className="sx-mini-spin" aria-hidden="true" /> : <Icon.ChevronRight />}</button>
           </form>
         </div>
       )}

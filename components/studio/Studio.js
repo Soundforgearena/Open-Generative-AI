@@ -41,7 +41,9 @@ import {
   continuityBetween,
   formatClock,
   normalizeTags,
+  orderVersions,
   parseShotDirection,
+  previewTake,
   resolutionsFor,
   sceneHealth,
   serializeShotDirection,
@@ -49,6 +51,7 @@ import {
   waveformBars,
 } from '@/lib/studio/studio-model';
 import { demoStudioData } from '@/lib/studio/demo-studio';
+import { createStaleGuard } from '@/lib/studio/async-guard';
 
 const LANE_LABEL = { music_video: 'Music Video', episode: 'Episode', short_film: 'Short Film', film: 'Short Film' };
 const HEALTH_LABEL = { good: 'Good', warning: 'Warning', issue: 'Continuity Issue', pending: 'Not generated' };
@@ -66,10 +69,8 @@ function safeUrl(value) {
 }
 
 function mapScene(scene) {
-  const versions = scene.versions || [];
-  const approved = versions.find((v) => v.approved);
-  const latest = versions[0] || null;
-  const take = approved || latest;
+  const versions = orderVersions(scene.versions);
+  const take = previewTake(versions);
   const output = safeUrl(take?.output_url || '');
   const thumb = safeUrl(take?.thumbnail_url || '');
   return {
@@ -215,6 +216,13 @@ export default function Studio() {
   const saveTimer = useRef(null);
   const genLock = useRef(false);
   const projectIdRef = useRef('');
+  const guardRef = useRef(null);
+  if (!guardRef.current) guardRef.current = createStaleGuard(() => projectIdRef.current);
+  useEffect(() => {
+    const guard = guardRef.current;
+    guard.start();
+    return () => guard.stop();
+  }, []);
   const resumed = useRef(new Set());
 
   /* ------------------------------------------------------------- loading */
@@ -481,6 +489,7 @@ export default function Studio() {
     if (!jobs.length) return undefined;
     jobs.forEach((job) => resumed.current.add(job.request_id));
     let cancelled = false;
+    const isCurrent = guardRef.current.capture();
     const ids = jobs.map((job) => job.scene_id);
     setScenes((cur) => cur.map((x) => (ids.includes(x.id) ? { ...x, status: 'generating' } : x)));
     setGenState('running');
@@ -495,12 +504,14 @@ export default function Studio() {
           if (result.status === 'completed') lastDone = job.scene_id; else failed += 1;
         } catch { failed += 1; }
       }));
-      if (cancelled) return;
+      if (cancelled || !isCurrent()) return;
       try {
         const [fresh, account] = await Promise.all([getProject(project.id), getAccount()]);
+        if (!isCurrent()) return;
         applyProject(fresh);
         setCredits(Number(account.credits ?? 0));
       } catch { /* keep local state */ }
+      if (!isCurrent()) return;
       if (lastDone) { setSelectedId(lastDone); setCelebrate(lastDone); }
       setToast(failed ? 'Some generations did not finish. Credits for failed scenes were returned.' : 'Generation complete. New takes are ready to review.');
       setGenState('idle');
@@ -640,7 +651,9 @@ export default function Studio() {
   /* ---------------------------------------------------------- scene ops */
 
   async function refreshProject(focusId) {
+    const isCurrent = guardRef.current.capture();
     const fresh = await getProject(project.id);
+    if (!isCurrent()) return;
     applyProject(fresh);
     if (focusId) setSelectedId(focusId);
   }
@@ -803,6 +816,7 @@ export default function Studio() {
       return;
     }
     genLock.current = true;
+    const isCurrent = guardRef.current.capture();
     const dialog = genDialog;
     setGenDialog(null);
     setGenState('running');
@@ -816,18 +830,24 @@ export default function Studio() {
         const job = await startGeneration({ ...payloadFor(s), confirmed_max_credits: dialog.byScene[s.id] });
         const result = await waitForJob(job.request_id);
         if (result.status !== 'completed') failed += 1; else lastDone = s.id;
+        if (!isCurrent()) return;
       }
       const [fresh, account] = await Promise.all([getProject(project.id), getAccount()]);
+      if (!isCurrent()) return;
       applyProject(fresh);
       setCredits(Number(account.credits ?? 0));
       if (lastDone) { setSelectedId(lastDone); setCelebrate(lastDone); }
       setToast(failed ? `${failed} scene${failed > 1 ? 's' : ''} failed. Credits for failed scenes were returned.` : 'Generation complete. New takes are ready to review.');
     } catch (error) {
+      if (!isCurrent()) return;
       setToast(error.status === 402 ? 'Not enough credits. Open Account and billing to add more.' : error.message || 'Generation could not be started.');
-      try { applyProject(await getProject(project.id)); } catch { /* keep local state */ }
+      try {
+        const fresh = await getProject(project.id);
+        if (isCurrent()) applyProject(fresh);
+      } catch { /* keep local state */ }
     } finally {
       genLock.current = false;
-      setGenState('idle');
+      if (isCurrent()) setGenState('idle');
     }
   }
 
@@ -849,8 +869,7 @@ export default function Studio() {
   /* ------------------------------------------------ finished video */
   async function openExport() {
     if (demoModeEnabled) {
-      // Demo: show the real dialog with sample prices; nothing renders.
-      setExportState({ open: true, phase: 'choose', progress: 0, error: '', free: { ready: true, missing: [] }, clean: { ready: true, credits_required: 80 } });
+      setExportState({ open: true, phase: 'choose', progress: 0, demo: true });
       return;
     }
     await flush();
@@ -913,6 +932,7 @@ export default function Studio() {
     const keys = Object.keys(destinations).filter((k) => destinations[k]);
     if (!keys.length) { setToast('Choose where to save your video.'); return; }
     if (demoModeEnabled) { setToast('Demo mode: rendering needs real generated scenes. Sign in to download your video.'); return; }
+    const isCurrent = guardRef.current.capture();
     setExportState((st) => ({ ...st, phase: 'rendering', progress: 0, error: '', deliveries: [] }));
     try {
       const file = await renderFinishedVideoFile(project.id, {
@@ -920,11 +940,13 @@ export default function Studio() {
         onPhase: (phase) => setExportState((st) => ({ ...st, phase })),
         onProgress: (progress) => setExportState((st) => ({ ...st, progress })),
       });
+      if (!isCurrent()) return;
       renderedFile.current = file;
       setExportState((st) => ({ ...st, result: file }));
       if (file.credits) getAccount().then((account) => setCredits(Number(account.credits ?? 0))).catch(() => {});
       await deliver(file, keys);
     } catch (error) {
+      if (!isCurrent()) return;
       setExportState((st) => ({ ...st, phase: 'choose', error: error.message || 'Your video could not be rendered.', needsCredits: error.status === 402 }));
     }
   }
@@ -939,10 +961,13 @@ export default function Studio() {
 
   async function approveTake(version) {
     if (!scene) return;
+    const isCurrent = guardRef.current.capture();
     try {
       if (!demoModeEnabled) {
         await updateScene(scene.id, { approve_version: version });
-        applyProject(await getProject(project.id));
+        const fresh = await getProject(project.id);
+        if (!isCurrent()) return;
+        applyProject(fresh);
       }
       setToast(`Take ${version} approved for ${scene.title}.`);
     } catch (error) {
@@ -958,8 +983,10 @@ export default function Studio() {
     setUploading(true);
     try {
       const kind = file.type.startsWith('audio/') ? 'audio' : 'reference';
+      const isCurrent = guardRef.current.capture();
       await uploadReference(project.id, file, { kind, name: file.name });
       const fresh = await getProject(project.id);
+      if (!isCurrent()) return;
       setAssets(fresh.assets || []);
       setToast(`${file.name} uploaded.`);
     } catch (error) {
@@ -1482,7 +1509,14 @@ export default function Studio() {
             <p className="sx-kicker">Finished video</p>
             <h2 id="sx-export-title">Get your video</h2>
             {exportState.phase === 'quoting' && <p className="sx-hint">Checking your scenes...</p>}
-            {exportState.phase === 'choose' && (
+            {exportState.phase === 'choose' && exportState.demo && (
+              <div className="sx-readiness is-blocked" role="status">
+                <strong>Demo preview only</strong>
+                <span>Rendering and downloads are unavailable in demo mode. No credits are charged.</span>
+                <button type="button" className="sx-btn" onClick={closeExport}>Close</button>
+              </div>
+            )}
+            {exportState.phase === 'choose' && !exportState.demo && (
               <>
                 {exportState.free && !exportState.free.ready && (
                   <div className="sx-readiness is-blocked" role="status">
