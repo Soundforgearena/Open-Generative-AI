@@ -57,6 +57,12 @@ test('studio route is session-protected', async () => {
   const mw = await readFile(new URL('../middleware.js', import.meta.url), 'utf8');
   assert.match(mw, /startsWith\('\/studio'\)/);
 });
+test('studio load errors can retry loading the project', async () => {
+  const src = await readFile(new URL('../components/studio/Studio.js', import.meta.url), 'utf8');
+  assert.match(src, /loadState === 'error' && <button/);
+  assert.match(src, />Try again<\/button>/);
+  assert.match(src, /\[projectParam, applyProject, loadAttempt\]/);
+});
 import { moveId, newSceneFields, MAX_SCENES } from '../lib/studio/scene-order.js';
 import { buildMusicVideoPlan } from '../lib/studio/music-video-plan.js';
 import { actionRequiresExistingText, isDirectorAction } from '../lib/director-actions.js';
