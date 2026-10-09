@@ -56,40 +56,27 @@ test('Director action lock admits one in-flight request and releases for retry',
 
 test('Director retry reuses one idempotency key until a definitive response', () => {
   const retryKey = createRetryIdempotencyKey();
-
   const firstKey = retryKey.begin();
   assert.equal(retryKey.current(), firstKey);
-
-  // Ambiguous transport failure: retain the same key for retry.
   assert.equal(retryKey.retryKey(), firstKey);
   assert.equal(retryKey.begin(firstKey), firstKey);
   assert.equal(retryKey.current(), firstKey);
-
-  // Definitive success: clear the key so the next request is new.
   retryKey.complete();
   assert.equal(retryKey.current(), null);
-
   const nextKey = retryKey.begin();
   assert.notEqual(nextKey, firstKey);
-
-  // Definitive payment failure: clear the key; do not reuse a rejected request.
   retryKey.complete();
   assert.equal(retryKey.current(), null);
 });
 
-test('Director uses the retry-key helper and preserves its request contract', async () => {
-  const source = await readFile(
-    new URL('../components/studio/StudioDirector.js', import.meta.url),
-    'utf8',
-  );
-
+test('Director uses retry-key helper and preserves request/result contract', async () => {
+  const source = await readFile(new URL('../components/studio/StudioDirector.js', import.meta.url), 'utf8');
   assert.match(source, /createRetryIdempotencyKey\(\)/);
-  assert.match(source, /retryKey\.begin\(retryIdempotencyKey\)/);
+  assert.match(source, /retryKey\.current\.begin\(retryIdempotencyKey\)/);
   assert.match(source, /idempotencyKey,/);
-  assert.match(source, /retryKey\.complete\(\)/);
+  assert.match(source, /retryKey\.current\.complete\(\)/);
   assert.match(source, /setRetryAction\(\{ action, custom, idempotencyKey \}\)/);
   assert.match(source, /run\(retryAction\.action, retryAction\.custom, retryAction\.idempotencyKey\)/);
-
   assert.match(source, /requestDirectorAssist\(\{/);
   assert.match(source, /action: custom \? 'applyDirectorInstruction' : action,/);
   assert.match(source, /fieldType: 'videoPrompt',/);
@@ -100,28 +87,17 @@ test('Director uses the retry-key helper and preserves its request contract', as
 });
 
 test('Studio guards async work and never exposes paid demo export controls', async () => {
-  const source = await readFile(
-    new URL('../components/studio/Studio.js', import.meta.url),
-    'utf8',
-  );
+  const source = await readFile(new URL('../components/studio/Studio.js', import.meta.url), 'utf8');
   assert.ok((source.match(/guardRef\.current\.capture\(\)/g) || []).length >= 6);
-  const exportHandler = source.slice(
-    source.indexOf('async function runExport'),
-    source.indexOf('function closeExport'),
-  );
-  assert.ok(
-    exportHandler.indexOf('demoModeEnabled') < exportHandler.indexOf('renderFinishedVideoFile'),
-  );
+  const exportHandler = source.slice(source.indexOf('async function runExport'), source.indexOf('function closeExport'));
+  assert.ok(exportHandler.indexOf('demoModeEnabled') < exportHandler.indexOf('renderFinishedVideoFile'));
   assert.match(source, /exportState\.phase === 'choose' && !exportState\.demo/);
   assert.match(source, /Demo preview only/);
   assert.doesNotMatch(source, /credits_required: 80/);
 });
 
 test('Director uses the tested lock and offers retry after request errors', async () => {
-  const source = await readFile(
-    new URL('../components/studio/StudioDirector.js', import.meta.url),
-    'utf8',
-  );
+  const source = await readFile(new URL('../components/studio/StudioDirector.js', import.meta.url), 'utf8');
   assert.match(source, /actionLock\.current\.tryAcquire\(\)/);
   assert.match(source, /actionLock\.current\.release\(\)/);
   assert.match(source, /if \(!isCurrent\(\)\) return;/);
@@ -129,10 +105,7 @@ test('Director uses the tested lock and offers retry after request errors', asyn
 });
 
 test('Studio load errors provide a real retry trigger for the loading effect', async () => {
-  const source = await readFile(
-    new URL('../components/studio/Studio.js', import.meta.url),
-    'utf8',
-  );
+  const source = await readFile(new URL('../components/studio/Studio.js', import.meta.url), 'utf8');
   assert.match(source, /loadState === 'error' && <button/);
   assert.match(source, />Try again<\/button>/);
   assert.match(source, /\[projectParam, applyProject, loadAttempt\]/);
