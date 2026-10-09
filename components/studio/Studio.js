@@ -41,7 +41,9 @@ import {
   continuityBetween,
   formatClock,
   normalizeTags,
+  orderVersions,
   parseShotDirection,
+  previewTake,
   resolutionsFor,
   sceneHealth,
   serializeShotDirection,
@@ -49,6 +51,7 @@ import {
   waveformBars,
 } from '@/lib/studio/studio-model';
 import { demoStudioData } from '@/lib/studio/demo-studio';
+import { createStaleGuard } from '@/lib/studio/async-guard';
 
 const LANE_LABEL = { music_video: 'Music Video', episode: 'Episode', short_film: 'Short Film', film: 'Short Film' };
 const HEALTH_LABEL = { good: 'Good', warning: 'Warning', issue: 'Continuity Issue', pending: 'Not generated' };
@@ -66,10 +69,8 @@ function safeUrl(value) {
 }
 
 function mapScene(scene) {
-  const versions = scene.versions || [];
-  const approved = versions.find((v) => v.approved);
-  const latest = versions[0] || null;
-  const take = approved || latest;
+  const versions = orderVersions(scene.versions);
+  const take = previewTake(versions);
   const output = safeUrl(take?.output_url || '');
   const thumb = safeUrl(take?.thumbnail_url || '');
   return {
@@ -160,6 +161,7 @@ export default function Studio() {
 
   const [loadState, setLoadState] = useState('loading');
   const [loadError, setLoadError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [project, setProject] = useState(null);
   const [scenes, setScenes] = useState([]);
   const [assets, setAssets] = useState([]);
@@ -215,12 +217,26 @@ export default function Studio() {
   const saveTimer = useRef(null);
   const genLock = useRef(false);
   const projectIdRef = useRef('');
+  const guardRef = useRef(null);
+  if (!guardRef.current) guardRef.current = createStaleGuard(() => projectIdRef.current);
+  const projectParamRef = useRef(projectParam);
+  if (projectParamRef.current !== projectParam) {
+    projectParamRef.current = projectParam;
+    projectIdRef.current = projectParam || '';
+    guardRef.current.invalidate();
+  }
+  useEffect(() => {
+    const guard = guardRef.current;
+    guard.start();
+    return () => guard.stop();
+  }, []);
   const resumed = useRef(new Set());
 
   /* ------------------------------------------------------------- loading */
 
   const applyProject = useCallback((result) => {
     const mapped = (result.scenes || []).map(mapScene).sort((a, b) => a.position - b.position);
+    if (projectIdRef.current && projectIdRef.current !== result.project.id) guardRef.current.invalidate();
     setProject({
       id: result.project.id,
       title: result.project.title || 'Untitled project',
@@ -247,6 +263,9 @@ export default function Studio() {
     let cancelled = false;
     async function load() {
       setLoadState('loading');
+      setSaving(false);
+      setUploading(false);
+      setGenState('idle');
       try {
         if (demoModeEnabled) {
           const demo = demoStudioData();
@@ -309,7 +328,7 @@ export default function Studio() {
     }
     load();
     return () => { cancelled = true; };
-  }, [projectParam, applyProject]);
+  }, [projectParam, applyProject, loadAttempt]);
 
   useEffect(() => {
     if (loadState !== 'ready') return;
@@ -412,22 +431,32 @@ export default function Studio() {
 
   const flush = useCallback(async ({ keepalive = false } = {}) => {
     window.clearTimeout(saveTimer.current);
+    const isCurrent = guardRef.current.capture();
+    const savingProjectId = project?.id;
     const scenePatches = [...dirty.current.entries()];
     const projectPatch = projectDirty.current;
     dirty.current.clear();
     projectDirty.current = null;
     if (!scenePatches.length && !projectPatch) return;
-    if (demoModeEnabled) { setSavedAt(new Date()); return; }
+    if (demoModeEnabled) { if (isCurrent()) setSavedAt(new Date()); return; }
     setSaving(true);
     try {
       await Promise.all([
         ...scenePatches.map(([id, patch]) => updateScene(id, patch, { keepalive })),
-        projectPatch ? updateProject(project.id, projectPatch, { keepalive }) : null,
+        projectPatch ? updateProject(savingProjectId, projectPatch, { keepalive }) : null,
       ]);
+      if (!isCurrent()) return;
       setSavedAt(new Date());
       // Only edits made after this save are still pending locally.
       persistJournal();
     } catch (error) {
+      if (!isCurrent()) {
+        writeJournal(savingProjectId, {
+          scenes: Object.fromEntries(scenePatches),
+          project: projectPatch,
+        });
+        return;
+      }
       scenePatches.forEach(([id, patch]) => dirty.current.set(id, { ...patch, ...(dirty.current.get(id) || {}) }));
       if (projectPatch) projectDirty.current = { ...projectPatch, ...(projectDirty.current || {}) };
       persistJournal();
@@ -436,7 +465,7 @@ export default function Studio() {
         : error.message || 'Autosave failed. Retrying shortly.');
       saveTimer.current = window.setTimeout(() => flush(), 5000);
     } finally {
-      setSaving(false);
+      if (isCurrent()) setSaving(false);
     }
   }, [project?.id, persistJournal]);
   flushRef.current = flush;
@@ -481,6 +510,7 @@ export default function Studio() {
     if (!jobs.length) return undefined;
     jobs.forEach((job) => resumed.current.add(job.request_id));
     let cancelled = false;
+    const isCurrent = guardRef.current.capture();
     const ids = jobs.map((job) => job.scene_id);
     setScenes((cur) => cur.map((x) => (ids.includes(x.id) ? { ...x, status: 'generating' } : x)));
     setGenState('running');
@@ -495,12 +525,14 @@ export default function Studio() {
           if (result.status === 'completed') lastDone = job.scene_id; else failed += 1;
         } catch { failed += 1; }
       }));
-      if (cancelled) return;
+      if (cancelled || !isCurrent()) return;
       try {
         const [fresh, account] = await Promise.all([getProject(project.id), getAccount()]);
+        if (!isCurrent()) return;
         applyProject(fresh);
         setCredits(Number(account.credits ?? 0));
       } catch { /* keep local state */ }
+      if (!isCurrent()) return;
       if (lastDone) { setSelectedId(lastDone); setCelebrate(lastDone); }
       setToast(failed ? 'Some generations did not finish. Credits for failed scenes were returned.' : 'Generation complete. New takes are ready to review.');
       setGenState('idle');
@@ -640,15 +672,19 @@ export default function Studio() {
   /* ---------------------------------------------------------- scene ops */
 
   async function refreshProject(focusId) {
+    const isCurrent = guardRef.current.capture();
     const fresh = await getProject(project.id);
+    if (!isCurrent()) return;
     applyProject(fresh);
     if (focusId) setSelectedId(focusId);
   }
 
   async function addScene({ afterId, duplicateOf } = {}) {
     if (sceneBusy || !project) return;
+    const isCurrent = guardRef.current.capture();
     setSceneMenu('');
     await flush();
+    if (!isCurrent()) return;
     if (demoModeEnabled) {
       const source = duplicateOf ? scenes.find((s) => s.id === duplicateOf) : null;
       const id = `demo-scene-${Date.now()}`;
@@ -664,12 +700,14 @@ export default function Studio() {
     setSceneBusy(true);
     try {
       const created = await createScene(project.id, { after_scene_id: afterId || undefined, duplicate_of: duplicateOf || undefined });
+      if (!isCurrent()) return;
       await refreshProject(created.scene?.id);
+      if (!isCurrent()) return;
       setToast(duplicateOf ? 'Scene duplicated.' : 'New scene added. Describe the shot, or ask the Director.');
     } catch (error) {
-      setToast(error.message || 'The scene could not be added.');
+      if (isCurrent()) setToast(error.message || 'The scene could not be added.');
     } finally {
-      setSceneBusy(false);
+      if (isCurrent()) setSceneBusy(false);
     }
   }
 
@@ -678,6 +716,7 @@ export default function Studio() {
     if (from < 0) return;
     const target = Math.max(0, Math.min(scenes.length - 1, toIndex));
     if (target === from) return;
+    const isCurrent = guardRef.current.capture();
     const next = scenes.slice();
     const [moved] = next.splice(from, 1);
     next.splice(target, 0, moved);
@@ -688,9 +727,11 @@ export default function Studio() {
     if (demoModeEnabled) return;
     try {
       await flush();
+      if (!isCurrent()) return;
       await reorderScenes(project.id, renumbered.map((s) => s.id));
-      setSavedAt(new Date());
+      if (isCurrent()) setSavedAt(new Date());
     } catch (error) {
+      if (!isCurrent()) return;
       setScenes(previous);
       setToast(error.message || 'The new order could not be saved.');
     }
@@ -702,6 +743,7 @@ export default function Studio() {
     if (!target) return;
     if (scenes.length <= 1) { setToast('A project needs at least one scene.'); return; }
     if (!confirmTakes && !deleteDialog) { setDeleteDialog({ id, title: target.title, takes: target.versions?.filter((v) => v.status === 'completed').length || 0 }); return; }
+    const isCurrent = guardRef.current.capture();
     setDeleteDialog(null);
     const idx = scenes.findIndex((s) => s.id === id);
     const neighbour = scenes[idx + 1] || scenes[idx - 1];
@@ -713,14 +755,17 @@ export default function Studio() {
     setSceneBusy(true);
     try {
       await flush();
+      if (!isCurrent()) return;
       dirty.current.delete(id);
       await deleteScene(id, { confirmTakes: true });
+      if (!isCurrent()) return;
       await refreshProject(neighbour.id);
+      if (!isCurrent()) return;
       setToast(`${target.title} deleted.`);
     } catch (error) {
-      setToast(error.message || 'The scene could not be deleted.');
+      if (isCurrent()) setToast(error.message || 'The scene could not be deleted.');
     } finally {
-      setSceneBusy(false);
+      if (isCurrent()) setSceneBusy(false);
     }
   }
 
@@ -772,17 +817,20 @@ export default function Studio() {
       setDirectorOpen(true);
       return;
     }
+    const isCurrent = guardRef.current.capture();
     await flush();
+    if (!isCurrent()) return;
     if (demoModeEnabled) { setGenDialog({ scope: 'scene', byScene: { [scene.id]: 8 }, total: 8, all: { total: 8 * scenes.length } }); return; }
     setGenState('quoting');
     try {
       const quotes = await Promise.all(scenes.map(async (s) => [s.id, Number((await quoteGeneration(payloadFor(s))).credits_required)]));
+      if (!isCurrent()) return;
       const byScene = Object.fromEntries(quotes);
       setGenDialog({ scope: 'scene', byScene, total: byScene[scene.id], all: { total: quotes.reduce((t, [, c]) => t + c, 0) } });
     } catch (error) {
-      setToast(error.message || 'The generation price could not be calculated.');
+      if (isCurrent()) setToast(error.message || 'The generation price could not be calculated.');
     } finally {
-      setGenState('idle');
+      if (isCurrent()) setGenState('idle');
     }
   }
 
@@ -793,9 +841,11 @@ export default function Studio() {
     if (credits !== null && needed > credits) { setToast(`You need ${needed} credits and have ${credits}. Add credits from Account and billing.`); return; }
     if (demoModeEnabled) {
       const ids = targets.map((t) => t.id);
+      const isCurrent = guardRef.current.capture();
       setGenDialog(null); setGenState('running'); setGenStartedAt(Date.now());
       setScenes((cur) => cur.map((x) => (ids.includes(x.id) ? { ...x, status: 'generating' } : x)));
       window.setTimeout(() => {
+        if (!isCurrent()) return;
         setScenes((cur) => cur.map((x) => (ids.includes(x.id) ? { ...x, status: 'needs_review' } : x)));
         setGenState('idle'); setCelebrate(ids[ids.length - 1]);
         setToast('Demo mode: generation simulated. Nothing was spent.');
@@ -803,6 +853,7 @@ export default function Studio() {
       return;
     }
     genLock.current = true;
+    const isCurrent = guardRef.current.capture();
     const dialog = genDialog;
     setGenDialog(null);
     setGenState('running');
@@ -816,44 +867,53 @@ export default function Studio() {
         const job = await startGeneration({ ...payloadFor(s), confirmed_max_credits: dialog.byScene[s.id] });
         const result = await waitForJob(job.request_id);
         if (result.status !== 'completed') failed += 1; else lastDone = s.id;
+        if (!isCurrent()) return;
       }
       const [fresh, account] = await Promise.all([getProject(project.id), getAccount()]);
+      if (!isCurrent()) return;
       applyProject(fresh);
       setCredits(Number(account.credits ?? 0));
       if (lastDone) { setSelectedId(lastDone); setCelebrate(lastDone); }
       setToast(failed ? `${failed} scene${failed > 1 ? 's' : ''} failed. Credits for failed scenes were returned.` : 'Generation complete. New takes are ready to review.');
     } catch (error) {
+      if (!isCurrent()) return;
       setToast(error.status === 402 ? 'Not enough credits. Open Account and billing to add more.' : error.message || 'Generation could not be started.');
-      try { applyProject(await getProject(project.id)); } catch { /* keep local state */ }
+      try {
+        const fresh = await getProject(project.id);
+        if (isCurrent()) applyProject(fresh);
+      } catch { /* keep local state */ }
     } finally {
       genLock.current = false;
-      setGenState('idle');
+      if (isCurrent()) setGenState('idle');
     }
   }
 
   async function checkReadiness() {
     if (!videoOption || !scenes.length) return;
+    const isCurrent = guardRef.current.capture();
     await flush();
+    if (!isCurrent()) return;
     if (demoModeEnabled) { setReadiness({ ready: true, totalCredits: 8 * scenes.length, balance: credits, problems: [] }); return; }
     setGenState('checking');
     try {
       const reports = await Promise.all(scenes.map((s) => preflightGeneration(payloadFor(s))));
-      setReadiness(summarizeProjectReadiness(reports));
+      if (isCurrent()) setReadiness(summarizeProjectReadiness(reports));
     } catch (error) {
-      setReadiness({ ready: false, totalCredits: null, balance: credits, problems: [error.message || 'Readiness could not be checked.'] });
+      if (isCurrent()) setReadiness({ ready: false, totalCredits: null, balance: credits, problems: [error.message || 'Readiness could not be checked.'] });
     } finally {
-      setGenState('idle');
+      if (isCurrent()) setGenState('idle');
     }
   }
 
   /* ------------------------------------------------ finished video */
   async function openExport() {
     if (demoModeEnabled) {
-      // Demo: show the real dialog with sample prices; nothing renders.
-      setExportState({ open: true, phase: 'choose', progress: 0, error: '', free: { ready: true, missing: [] }, clean: { ready: true, credits_required: 80 } });
+      setExportState({ open: true, phase: 'choose', progress: 0, demo: true });
       return;
     }
+    const isCurrent = guardRef.current.capture();
     await flush();
+    if (!isCurrent()) return;
     preloadGoogleDrive();
     const connected = { drive: googleDriveConnected(), dropbox: dropboxConnected() };
     setCloud({ ...connected, busy: '' });
@@ -861,9 +921,9 @@ export default function Studio() {
     setExportState({ open: true, phase: 'quoting', progress: 0, error: '' });
     try {
       const [free, clean] = await Promise.all([quoteFinishedVideo(project.id, false), quoteFinishedVideo(project.id, true)]);
-      setExportState((st) => ({ ...st, phase: 'choose', free, clean }));
+      if (isCurrent()) setExportState((st) => ({ ...st, phase: 'choose', free, clean }));
     } catch (error) {
-      setExportState((st) => ({ ...st, phase: 'choose', error: error.message || 'Could not check your video.' }));
+      if (isCurrent()) setExportState((st) => ({ ...st, phase: 'choose', error: error.message || 'Could not check your video.' }));
     }
   }
 
@@ -888,43 +948,49 @@ export default function Studio() {
 
   const DEST_LABEL = { device: 'This device', drive: 'Google Drive', dropbox: 'Dropbox' };
 
-  async function deliver(file, keys) {
+  async function deliver(file, keys, isCurrent) {
     const results = keys.map((key) => ({ key, status: 'waiting', progress: 0 }));
     const update = (key, patch) => {
+      if (!isCurrent()) return;
       const row = results.find((r) => r.key === key);
       Object.assign(row, patch);
       setExportState((st) => ({ ...st, deliveries: results.map((r) => ({ ...r })) }));
     };
     setExportState((st) => ({ ...st, phase: 'delivering', deliveries: results.map((r) => ({ ...r })) }));
     for (const key of keys) {
+      if (!isCurrent()) return;
       update(key, { status: 'working' });
       try {
         if (key === 'device') { saveBlobToDevice(file.blob, file.name); update(key, { status: 'done', progress: 1 }); }
-        if (key === 'drive') { const r = await uploadToGoogleDrive(file.blob, file.name, { onProgress: (p) => update(key, { progress: p }) }); update(key, { status: 'done', progress: 1, link: r.link }); }
-        if (key === 'dropbox') { const r = await uploadToDropbox(file.blob, file.name, { onProgress: (p) => update(key, { progress: p }) }); update(key, { status: 'done', progress: 1, link: r.link }); }
+        if (key === 'drive') { const r = await uploadToGoogleDrive(file.blob, file.name, { onProgress: (p) => update(key, { progress: p }) }); if (!isCurrent()) return; update(key, { status: 'done', progress: 1, link: r.link }); }
+        if (key === 'dropbox') { const r = await uploadToDropbox(file.blob, file.name, { onProgress: (p) => update(key, { progress: p }) }); if (!isCurrent()) return; update(key, { status: 'done', progress: 1, link: r.link }); }
       } catch (error) {
+        if (!isCurrent()) return;
         update(key, { status: 'failed', error: error.message });
       }
     }
-    setExportState((st) => ({ ...st, phase: 'done' }));
+    if (isCurrent()) setExportState((st) => ({ ...st, phase: 'done' }));
   }
 
   async function runExport(clean) {
     const keys = Object.keys(destinations).filter((k) => destinations[k]);
     if (!keys.length) { setToast('Choose where to save your video.'); return; }
     if (demoModeEnabled) { setToast('Demo mode: rendering needs real generated scenes. Sign in to download your video.'); return; }
+    const isCurrent = guardRef.current.capture();
     setExportState((st) => ({ ...st, phase: 'rendering', progress: 0, error: '', deliveries: [] }));
     try {
       const file = await renderFinishedVideoFile(project.id, {
         clean,
-        onPhase: (phase) => setExportState((st) => ({ ...st, phase })),
-        onProgress: (progress) => setExportState((st) => ({ ...st, progress })),
+        onPhase: (phase) => { if (isCurrent()) setExportState((st) => ({ ...st, phase })); },
+        onProgress: (progress) => { if (isCurrent()) setExportState((st) => ({ ...st, progress })); },
       });
+      if (!isCurrent()) return;
       renderedFile.current = file;
       setExportState((st) => ({ ...st, result: file }));
-      if (file.credits) getAccount().then((account) => setCredits(Number(account.credits ?? 0))).catch(() => {});
-      await deliver(file, keys);
+      if (file.credits) getAccount().then((account) => { if (isCurrent()) setCredits(Number(account.credits ?? 0)); }).catch(() => {});
+      await deliver(file, keys, isCurrent);
     } catch (error) {
+      if (!isCurrent()) return;
       setExportState((st) => ({ ...st, phase: 'choose', error: error.message || 'Your video could not be rendered.', needsCredits: error.status === 402 }));
     }
   }
@@ -939,13 +1005,18 @@ export default function Studio() {
 
   async function approveTake(version) {
     if (!scene) return;
+    const isCurrent = guardRef.current.capture();
     try {
       if (!demoModeEnabled) {
         await updateScene(scene.id, { approve_version: version });
-        applyProject(await getProject(project.id));
+        const fresh = await getProject(project.id);
+        if (!isCurrent()) return;
+        applyProject(fresh);
       }
+      if (!isCurrent()) return;
       setToast(`Take ${version} approved for ${scene.title}.`);
     } catch (error) {
+      if (!isCurrent()) return;
       setToast(error.message || 'That take could not be approved.');
     }
   }
@@ -955,17 +1026,20 @@ export default function Studio() {
     event.target.value = '';
     if (!file || !project) return;
     if (demoModeEnabled) { setToast('Demo mode: uploads are disabled.'); return; }
+    const isCurrent = guardRef.current.capture();
     setUploading(true);
     try {
       const kind = file.type.startsWith('audio/') ? 'audio' : 'reference';
       await uploadReference(project.id, file, { kind, name: file.name });
       const fresh = await getProject(project.id);
+      if (!isCurrent()) return;
       setAssets(fresh.assets || []);
       setToast(`${file.name} uploaded.`);
     } catch (error) {
+      if (!isCurrent()) return;
       setToast(error.message || 'Upload failed.');
     } finally {
-      setUploading(false);
+      if (isCurrent()) setUploading(false);
     }
   }
 
@@ -995,6 +1069,7 @@ export default function Studio() {
           {loadState === 'loading' ? <span className="sx-spinner" aria-hidden="true" /> : (
             <div className="sx-state-actions">
               {loadState === 'signin' && <Link className="sx-btn sx-btn-gold" href="/auth?next=/studio">Sign in</Link>}
+              {loadState === 'error' && <button type="button" className="sx-btn sx-btn-gold" onClick={() => { setLoadError(''); setLoadState('loading'); setLoadAttempt((attempt) => attempt + 1); }}>Try again</button>}
               <Link className="sx-btn" href="/create">Start a project</Link>
               <Link className="sx-btn" href="/dashboard">Dashboard</Link>
             </div>
@@ -1482,7 +1557,14 @@ export default function Studio() {
             <p className="sx-kicker">Finished video</p>
             <h2 id="sx-export-title">Get your video</h2>
             {exportState.phase === 'quoting' && <p className="sx-hint">Checking your scenes...</p>}
-            {exportState.phase === 'choose' && (
+            {exportState.phase === 'choose' && exportState.demo && (
+              <div className="sx-readiness is-blocked" role="status">
+                <strong>Demo preview only</strong>
+                <span>Rendering and downloads are unavailable in demo mode. No credits will be charged.</span>
+                <button type="button" className="sx-btn" onClick={closeExport}>Close</button>
+              </div>
+            )}
+            {exportState.phase === 'choose' && !exportState.demo && (
               <>
                 {exportState.free && !exportState.free.ready && (
                   <div className="sx-readiness is-blocked" role="status">

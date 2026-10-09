@@ -16,6 +16,16 @@ const SUPABASE_ORIGIN = (() => {
     }
 })();
 
+const STORAGE_ORIGIN = (() => {
+    try {
+        const endpoint = process.env.STORAGE_S3_ENDPOINT;
+        const url = endpoint ? new URL(endpoint) : null;
+        return url?.protocol === 'https:' ? url.origin : '';
+    } catch {
+        return '';
+    }
+})();
+
 function addSecurityHeaders(response) {
     // Prevent MIME type sniffing (CWE-693)
     response.headers.set('X-Content-Type-Options', 'nosniff');
@@ -39,7 +49,7 @@ function addSecurityHeaders(response) {
             'media-src \'self\' data: blob: https:',
             // Google Drive and Dropbox uploads go straight from the browser to the
             // user's own cloud account when they choose to save there.
-            `connect-src 'self' https://muapi.ai https://*.muapi.ai https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.dropboxapi.com https://content.dropboxapi.com${SUPABASE_ORIGIN ? ` ${SUPABASE_ORIGIN}` : ''}`,
+            `connect-src 'self' https://muapi.ai https://*.muapi.ai https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.dropboxapi.com https://content.dropboxapi.com${SUPABASE_ORIGIN ? ` ${SUPABASE_ORIGIN}` : ''}${STORAGE_ORIGIN ? ` ${STORAGE_ORIGIN}` : ''}`,
             'frame-src https://accounts.google.com',
             "font-src 'self' data: https://fonts.gstatic.com",
         ].join('; ')

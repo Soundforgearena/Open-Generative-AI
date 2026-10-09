@@ -7,6 +7,9 @@ import Link from 'next/link';
 import { demoModeEnabled } from '@/lib/demo-mode';
 import { maxDirectorCredits, typicalDirectorCredits } from '@/lib/billing/director-pricing';
 import { getDirectorPricing } from '@/lib/cinexvideo-client';
+import { createStaleGuard } from '@/lib/studio/async-guard';
+import { createActionLock } from '@/lib/studio/action-lock';
+import { createRetryIdempotencyKey } from '@/lib/studio/retry-idempotency-key';
 
 // Shown until the live price list loads (default model).
 const FALLBACK = { max_credits: maxDirectorCredits('assist', 'gpt-5'), typical_credits: typicalDirectorCredits('assist', 'gpt-5') };
@@ -40,12 +43,30 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
   const [busy, setBusy] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [retryAction, setRetryAction] = useState(null);
   const [needsCredits, setNeedsCredits] = useState(false);
   const [instruction, setInstruction] = useState('');
   const wrapRef = useRef(null);
+  const actionLock = useRef(null);
+  if (!actionLock.current) actionLock.current = createActionLock();
+  const retryKey = useRef(null);
+  if (!retryKey.current) retryKey.current = createRetryIdempotencyKey();
+  const sceneIdRef = useRef(scene?.id);
+  const guardRef = useRef(null);
+  if (!guardRef.current) guardRef.current = createStaleGuard(() => sceneIdRef.current);
+  if (sceneIdRef.current !== scene?.id) {
+    sceneIdRef.current = scene?.id;
+    guardRef.current.invalidate();
+    retryKey.current.complete();
+  }
+  useEffect(() => {
+    const guard = guardRef.current;
+    guard.start();
+    return () => guard.stop();
+  }, []);
   const hasText = Boolean(scene?.prompt?.trim());
 
-  useEffect(() => { setResult(null); setError(''); }, [scene?.id]);
+  useEffect(() => { setResult(null); setError(''); setRetryAction(null); setNeedsCredits(false); retryKey.current.complete(); }, [scene?.id]);
 
   useEffect(() => {
     if (demoModeEnabled) return;
@@ -68,21 +89,26 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
     return () => document.removeEventListener('pointerdown', close);
   }, [open, onOpenChange]);
 
-  async function run(action, custom = '') {
-    setError(''); setResult(null); setNeedsCredits(false);
+  async function run(action, custom = '', retryIdempotencyKey = null) {
+    setError(''); setResult(null); setNeedsCredits(false); setRetryAction(null);
     if (!demoModeEnabled && paidCredits !== null && paidCredits < price.max_credits) {
       setNeedsCredits(true);
       setError(`The AI Director runs on purchased credits. A request can cost up to ${price.max_credits} credits (${usd(price.max_credits)}) and you have ${paidCredits} purchased credits. Sign-up bonus credits can't be used for the Director.`);
       onOpenChange(false);
       return;
     }
+    if (!actionLock.current.tryAcquire()) return;
+    const isCurrent = guardRef.current.capture();
+    const idempotencyKey = retryKey.current.begin(retryIdempotencyKey);
     setBusy(action + custom);
     try {
       if (demoModeEnabled) {
         await new Promise((r) => setTimeout(r, 700));
+        if (!isCurrent()) return;
         setResult(demoSuggestion(scene));
       } else {
         const data = await requestDirectorAssist({
+          idempotencyKey,
           action: custom ? 'applyDirectorInstruction' : action,
           fieldType: 'videoPrompt',
           value: scene?.prompt || '',
@@ -95,18 +121,27 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
             duration: scene?.duration_seconds,
           },
         });
-        setResult(data);
         if (data?.credits_charged) {
           onCharged?.(data.credits_charged);
           setPaidCredits((c) => (c === null ? c : Math.max(0, c - data.credits_charged)));
         }
+        if (!isCurrent()) return;
+        setResult(data);
+        retryKey.current.complete();
       }
       onOpenChange(false);
     } catch (e) {
-      if (e.status === 402) setNeedsCredits(true);
+      if (!isCurrent()) return;
+      if (e.status === 402) {
+        setNeedsCredits(true);
+        retryKey.current.complete();
+      } else {
+        setRetryAction({ action, custom, idempotencyKey });
+      }
       setError(e.status === 402 ? (e.message || `The AI Director runs on purchased credits. Add credits to keep directing.`) : `${e.message || 'The Director is unavailable right now.'} No credits were charged.`);
     } finally {
       setBusy('');
+      actionLock.current.release();
     }
   }
 
@@ -135,9 +170,10 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
         <div className={`sx-dir-card ${busy ? 'is-busy' : ''}`} role="status" aria-live="polite">
           {busy && <div className="sx-dir-thinking"><span className="sx-dir-orb" aria-hidden="true" /> The Director is framing your shot...</div>}
           {error && <p className="sx-problem">{error}</p>}
+          {retryAction && error && <button type="button" className="sx-btn sx-btn-sm" disabled={Boolean(busy)} onClick={() => run(retryAction.action, retryAction.custom, retryAction.idempotencyKey)}>Try again</button>}
           {result && (
             <>
-              <p className="sx-kicker">Director&apos;s draft</p>
+              <p className="sx-kicker">Director's draft</p>
               <p className="sx-dir-suggestion">{result.suggestion}</p>
               {result.whatChanged && <p className="sx-hint"><strong>What changed:</strong> {result.whatChanged}</p>}
               {result.craftNote && <p className="sx-hint sx-craft">“{result.craftNote}”</p>}
@@ -149,8 +185,8 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
             </>
           )}
           {needsCredits && <Link href="/account" className="sx-btn sx-btn-gold sx-btn-sm sx-dir-buy">Add credits</Link>}
-          {error && <button type="button" className="sx-link-btn" onClick={() => { setError(''); setNeedsCredits(false); }}>Dismiss</button>}
-                    {result && !demoModeEnabled && result.credits_charged > 0 && <p className="sx-hint sx-dir-charged">{result.credits_charged} credits used ({usd(result.credits_charged || 0)}) · max was {result.credits_max}</p>}
+          {error && <button type="button" className="sx-link-btn" onClick={() => { setError(''); setNeedsCredits(false); setRetryAction(null); retryKey.current.complete(); }}>Dismiss</button>}
+          {result && !demoModeEnabled && result.credits_charged > 0 && <p className="sx-hint sx-dir-charged">{result.credits_charged} credits used ({usd(result.credits_charged || 0)}) · max was {result.credits_max}</p>}
         </div>
       )}
     </div>
