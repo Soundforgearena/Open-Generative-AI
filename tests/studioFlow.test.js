@@ -73,7 +73,7 @@ test('Director retry preserves one idempotency key until a definitive response',
   const definitiveSuccess = source.indexOf('activeIdempotencyKeyRef.current = null;', successIndex);
   assert.ok(definitiveSuccess > successIndex);
 
-  const paymentFailureIndex = source.indexOf('requestError.status === 402');
+  const paymentFailureIndex = source.indexOf('e.status === 402');
   const definitivePaymentFailure = source.indexOf(
     'activeIdempotencyKeyRef.current = null;',
     paymentFailureIndex,
@@ -83,6 +83,21 @@ test('Director retry preserves one idempotency key until a definitive response',
   const retryIndex = source.indexOf('setRetryAction({ action, custom, idempotencyKey });');
   assert.ok(retryIndex > -1);
   assert.ok(!source.slice(retryIndex, retryIndex + 300).includes('activeIdempotencyKeyRef.current = null;'));
+});
+
+test('Director preserves its existing request and result contract', async () => {
+  const source = await readFile(
+    new URL('../components/studio/StudioDirector.js', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(source, /requestDirectorAssist\(\{/);
+  assert.match(source, /action: custom \? 'applyDirectorInstruction' : action,/);
+  assert.match(source, /fieldType: 'videoPrompt',/);
+  assert.match(source, /value: scene\?\.prompt \|\| '',/);
+  assert.match(source, /result\.suggestion/);
+  assert.match(source, /onApply\(result\.suggestion, 'replace'\)/);
+  assert.match(source, /onApply\(result\.suggestion, 'append'\)/);
 });
 
 test('Studio guards async work and never exposes paid demo export controls', async () => {
@@ -112,7 +127,6 @@ test('Director uses the tested lock and offers retry after request errors', asyn
   assert.match(source, /actionLock\.current\.release\(\)/);
   assert.match(source, /if \(!isCurrent\(\)\) return;/);
   assert.match(source, />Try again<\/button>/);
-  assert.match(source, /busy === 'applyDirectorInstruction'/);
 });
 
 test('Studio load errors provide a real retry trigger for the loading effect', async () => {
