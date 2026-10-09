@@ -1,5 +1,6 @@
 'use client';
 
+import { retryLoad } from '../../lib/studio/load-retry';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -996,7 +997,7 @@ export default function Studio() {
           {loadState === 'loading' ? <span className="sx-spinner" aria-hidden="true" /> : (
             <div className="sx-state-actions">
               {loadState === 'signin' && <Link className="sx-btn sx-btn-gold" href="/auth?next=/studio">Sign in</Link>}
-              {loadState === 'error' && <button type="button" className="sx-btn sx-btn-gold" onClick={() => { setLoadError(''); setLoadState('loading'); setLoadAttempt((attempt) => attempt + 1); }}>Try again</button>}
+              {loadState === 'error' && <button type="button" className="sx-btn sx-btn-gold" onClick={() => { const next = retryLoad(loadAttempt); setLoadError(next.loadError); setLoadState(next.loadState); setLoadAttempt(next.loadAttempt); }}>Try again</button>}
               <Link className="sx-btn" href="/create">Start a project</Link>
               <Link className="sx-btn" href="/dashboard">Dashboard</Link>
             </div>

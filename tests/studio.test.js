@@ -58,17 +58,25 @@ test('studio route is session-protected', async () => {
   assert.match(mw, /startsWith\('\/studio'\)/);
 });
 test('studio load errors can retry loading the project', async () => {
+  const { retryLoad } = await import('../lib/studio/load-retry.js');
+  assert.deepEqual(retryLoad(0), { loadState: 'loading', loadError: '', loadAttempt: 1 });
+  assert.equal(retryLoad(4).loadAttempt, 5);
   const src = await readFile(new URL('../components/studio/Studio.js', import.meta.url), 'utf8');
   assert.match(src, /loadState === 'error' && <button/);
-  assert.match(src, />Try again<\/button>/);
+  assert.match(src, /retryLoad\(loadAttempt\)/);
   assert.match(src, /\[projectParam, applyProject, loadAttempt\]/);
 });
 test('CSP allows only a configured HTTPS storage endpoint without changing upload routing', async () => {
-  const middleware = await readFile(new URL('../middleware.js', import.meta.url), 'utf8');
+  const { buildContentSecurityPolicy } = await import('../lib/csp.js');
+  const connect = (env) => buildContentSecurityPolicy(env).split('; ').find((d) => d.startsWith('connect-src ')).split(' ');
+  assert.ok(connect({ STORAGE_S3_ENDPOINT: 'https://acct.r2.cloudflarestorage.com/bucket' }).includes('https://acct.r2.cloudflarestorage.com'));
+  assert.ok(!connect({ STORAGE_S3_ENDPOINT: 'http://storage.example.com' }).includes('http://storage.example.com'));
+  assert.ok(!connect({ STORAGE_S3_ENDPOINT: 'not a url' }).some((s) => s.includes('not')));
+  assert.ok(!connect({}).some((s) => s.startsWith('https://acct')));
+  assert.ok(connect({ NEXT_PUBLIC_SUPABASE_URL: 'https://abc.supabase.co/' }).includes('https://abc.supabase.co'));
+  const mw = await readFile(new URL('../middleware.js', import.meta.url), 'utf8');
+  assert.match(mw, /buildContentSecurityPolicy\(\)/);
   const uploads = await readFile(new URL('../app/api/uploads/route.js', import.meta.url), 'utf8');
-  assert.match(middleware, /process\.env\.STORAGE_S3_ENDPOINT/);
-  assert.match(middleware, /url\?\.protocol === 'https:'/);
-  assert.match(middleware, /\$\{STORAGE_ORIGIN \? ` \$\{STORAGE_ORIGIN\}` : ''\}/);
   assert.match(uploads, /createSignedUploadUrl/);
 });
 import { moveId, newSceneFields, MAX_SCENES } from '../lib/studio/scene-order.js';

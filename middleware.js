@@ -2,29 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { getLocaleFromPathname } from './lib/locales';
 import { isDemoModeEnabled } from './lib/demo-mode';
-
-// Supabase Auth, REST and Storage are called directly from the browser, so the
-// project origin must be allow-listed in connect-src or every sign-in, upload
-// and signed-URL fetch is silently blocked by the CSP.
-const SUPABASE_ORIGIN = (() => {
-    try {
-        return process.env.NEXT_PUBLIC_SUPABASE_URL
-            ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin
-            : '';
-    } catch {
-        return '';
-    }
-})();
-
-const STORAGE_ORIGIN = (() => {
-    try {
-        const endpoint = process.env.STORAGE_S3_ENDPOINT;
-        const url = endpoint ? new URL(endpoint) : null;
-        return url?.protocol === 'https:' ? url.origin : '';
-    } catch {
-        return '';
-    }
-})();
+import { buildContentSecurityPolicy } from './lib/csp';
 
 function addSecurityHeaders(response) {
     // Prevent MIME type sniffing (CWE-693)
@@ -39,21 +17,7 @@ function addSecurityHeaders(response) {
     // connect-src covers *.muapi.ai (not just api.muapi.ai) because generated
     // media, model thumbnails, and other assets are served from cdn.muapi.ai
     // and other muapi subdomains that the renderer fetches directly.
-    response.headers.set(
-        'Content-Security-Policy',
-        [
-            "default-src 'self'",
-            "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://accounts.google.com",
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-            'img-src \'self\' data: blob: https:',
-            'media-src \'self\' data: blob: https:',
-            // Google Drive and Dropbox uploads go straight from the browser to the
-            // user's own cloud account when they choose to save there.
-            `connect-src 'self' https://muapi.ai https://*.muapi.ai https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.dropboxapi.com https://content.dropboxapi.com${SUPABASE_ORIGIN ? ` ${SUPABASE_ORIGIN}` : ''}${STORAGE_ORIGIN ? ` ${STORAGE_ORIGIN}` : ''}`,
-            'frame-src https://accounts.google.com',
-            "font-src 'self' data: https://fonts.gstatic.com",
-        ].join('; ')
-    );
+    response.headers.set('Content-Security-Policy', buildContentSecurityPolicy());
     return response;
 }
 
