@@ -9,6 +9,7 @@ import { maxDirectorCredits, typicalDirectorCredits } from '@/lib/billing/direct
 import { getDirectorPricing } from '@/lib/cinexvideo-client';
 import { createStaleGuard } from '@/lib/studio/async-guard';
 import { createActionLock } from '@/lib/studio/action-lock';
+import { createRetryIdempotencyKey } from '@/lib/studio/retry-idempotency-key';
 
 // Shown until the live price list loads (default model).
 const FALLBACK = { max_credits: maxDirectorCredits('assist', 'gpt-5'), typical_credits: typicalDirectorCredits('assist', 'gpt-5') };
@@ -48,14 +49,15 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
   const wrapRef = useRef(null);
   const actionLock = useRef(null);
   if (!actionLock.current) actionLock.current = createActionLock();
-  const activeIdempotencyKeyRef = useRef(null);
+  const retryKey = useRef(null);
+  if (!retryKey.current) retryKey.current = createRetryIdempotencyKey();
   const sceneIdRef = useRef(scene?.id);
   const guardRef = useRef(null);
   if (!guardRef.current) guardRef.current = createStaleGuard(() => sceneIdRef.current);
   if (sceneIdRef.current !== scene?.id) {
     sceneIdRef.current = scene?.id;
     guardRef.current.invalidate();
-    activeIdempotencyKeyRef.current = null;
+    retryKey.current.complete();
   }
   useEffect(() => {
     const guard = guardRef.current;
@@ -64,7 +66,7 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
   }, []);
   const hasText = Boolean(scene?.prompt?.trim());
 
-  useEffect(() => { setResult(null); setError(''); setRetryAction(null); setNeedsCredits(false); activeIdempotencyKeyRef.current = null; }, [scene?.id]);
+  useEffect(() => { setResult(null); setError(''); setRetryAction(null); setNeedsCredits(false); retryKey.current.complete(); }, [scene?.id]);
 
   useEffect(() => {
     if (demoModeEnabled) return;
@@ -97,8 +99,7 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
     }
     if (!actionLock.current.tryAcquire()) return;
     const isCurrent = guardRef.current.capture();
-    const idempotencyKey = retryIdempotencyKey || crypto.randomUUID();
-    activeIdempotencyKeyRef.current = idempotencyKey;
+    const idempotencyKey = retryKey.current.begin(retryIdempotencyKey);
     setBusy(action + custom);
     try {
       if (demoModeEnabled) {
@@ -126,14 +127,14 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
         }
         if (!isCurrent()) return;
         setResult(data);
-        activeIdempotencyKeyRef.current = null;
+        retryKey.current.complete();
       }
       onOpenChange(false);
     } catch (e) {
       if (!isCurrent()) return;
       if (e.status === 402) {
         setNeedsCredits(true);
-        activeIdempotencyKeyRef.current = null;
+        retryKey.current.complete();
       } else {
         setRetryAction({ action, custom, idempotencyKey });
       }
@@ -184,7 +185,7 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
             </>
           )}
           {needsCredits && <Link href="/account" className="sx-btn sx-btn-gold sx-btn-sm sx-dir-buy">Add credits</Link>}
-          {error && <button type="button" className="sx-link-btn" onClick={() => { setError(''); setNeedsCredits(false); setRetryAction(null); activeIdempotencyKeyRef.current = null; }}>Dismiss</button>}
+          {error && <button type="button" className="sx-link-btn" onClick={() => { setError(''); setNeedsCredits(false); setRetryAction(null); retryKey.current.complete(); }}>Dismiss</button>}
           {result && !demoModeEnabled && result.credits_charged > 0 && <p className="sx-hint sx-dir-charged">{result.credits_charged} credits used ({usd(result.credits_charged || 0)}) · max was {result.credits_max}</p>}
         </div>
       )}

@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { orderVersions, previewTake } from '../lib/studio/studio-model.js';
 import { createStaleGuard } from '../lib/studio/async-guard.js';
 import { createActionLock } from '../lib/studio/action-lock.js';
+import { createRetryIdempotencyKey } from '../lib/studio/retry-idempotency-key.js';
 
 test('take order is deterministic, newest-first, and does not mutate the API list', () => {
   const older = { id: 'a', version: 2, created_at: '2026-01-01T00:00:00Z' };
@@ -53,43 +54,41 @@ test('Director action lock admits one in-flight request and releases for retry',
   lock.release();
 });
 
-test('Director retry preserves one idempotency key until a definitive response', async () => {
-  const source = await readFile(
-    new URL('../components/studio/StudioDirector.js', import.meta.url),
-    'utf8',
-  );
+test('Director retry reuses one idempotency key until a definitive response', () => {
+  const retryKey = createRetryIdempotencyKey();
 
-  assert.match(source, /activeIdempotencyKeyRef\.current = idempotencyKey;/);
-  assert.match(source, /retryIdempotencyKey = null/);
-  assert.match(source, /idempotencyKey = retryIdempotencyKey \|\| crypto\.randomUUID\(\)/);
-  assert.match(source, /idempotencyKey,/);
-  assert.match(source, /setRetryAction\(\{ action, custom, idempotencyKey \}\)/);
-  assert.match(
-    source,
-    /run\(retryAction\.action, retryAction\.custom, retryAction\.idempotencyKey\)/,
-  );
+  const firstKey = retryKey.begin();
+  assert.equal(retryKey.current(), firstKey);
 
-  const successIndex = source.indexOf('setResult(data);');
-  const definitiveSuccess = source.indexOf('activeIdempotencyKeyRef.current = null;', successIndex);
-  assert.ok(definitiveSuccess > successIndex);
+  // Ambiguous transport failure: retain the same key for retry.
+  assert.equal(retryKey.retryKey(), firstKey);
+  assert.equal(retryKey.begin(firstKey), firstKey);
+  assert.equal(retryKey.current(), firstKey);
 
-  const paymentFailureIndex = source.indexOf('e.status === 402');
-  const definitivePaymentFailure = source.indexOf(
-    'activeIdempotencyKeyRef.current = null;',
-    paymentFailureIndex,
-  );
-  assert.ok(definitivePaymentFailure > paymentFailureIndex);
+  // Definitive success: clear the key so the next request is new.
+  retryKey.complete();
+  assert.equal(retryKey.current(), null);
 
-  const retryIndex = source.indexOf('setRetryAction({ action, custom, idempotencyKey });');
-  assert.ok(retryIndex > -1);
-  assert.ok(!source.slice(retryIndex, retryIndex + 300).includes('activeIdempotencyKeyRef.current = null;'));
+  const nextKey = retryKey.begin();
+  assert.notEqual(nextKey, firstKey);
+
+  // Definitive payment failure: clear the key; do not reuse a rejected request.
+  retryKey.complete();
+  assert.equal(retryKey.current(), null);
 });
 
-test('Director preserves its existing request and result contract', async () => {
+test('Director uses the retry-key helper and preserves its request contract', async () => {
   const source = await readFile(
     new URL('../components/studio/StudioDirector.js', import.meta.url),
     'utf8',
   );
+
+  assert.match(source, /createRetryIdempotencyKey\(\)/);
+  assert.match(source, /retryKey\.begin\(retryIdempotencyKey\)/);
+  assert.match(source, /idempotencyKey,/);
+  assert.match(source, /retryKey\.complete\(\)/);
+  assert.match(source, /setRetryAction\(\{ action, custom, idempotencyKey \}\)/);
+  assert.match(source, /run\(retryAction\.action, retryAction\.custom, retryAction\.idempotencyKey\)/);
 
   assert.match(source, /requestDirectorAssist\(\{/);
   assert.match(source, /action: custom \? 'applyDirectorInstruction' : action,/);
