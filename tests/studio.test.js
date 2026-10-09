@@ -57,6 +57,20 @@ test('studio route is session-protected', async () => {
   const mw = await readFile(new URL('../middleware.js', import.meta.url), 'utf8');
   assert.match(mw, /startsWith\('\/studio'\)/);
 });
+test('studio load errors can retry loading the project', async () => {
+  const src = await readFile(new URL('../components/studio/Studio.js', import.meta.url), 'utf8');
+  assert.match(src, /loadState === 'error' && <button/);
+  assert.match(src, />Try again<\/button>/);
+  assert.match(src, /\[projectParam, applyProject, loadAttempt\]/);
+});
+test('CSP allows only a configured HTTPS storage endpoint without changing upload routing', async () => {
+  const middleware = await readFile(new URL('../middleware.js', import.meta.url), 'utf8');
+  const uploads = await readFile(new URL('../app/api/uploads/route.js', import.meta.url), 'utf8');
+  assert.match(middleware, /process\.env\.STORAGE_S3_ENDPOINT/);
+  assert.match(middleware, /url\?\.protocol === 'https:'/);
+  assert.match(middleware, /\$\{STORAGE_ORIGIN \? ` \$\{STORAGE_ORIGIN\}` : ''\}/);
+  assert.match(uploads, /createSignedUploadUrl/);
+});
 import { moveId, newSceneFields, MAX_SCENES } from '../lib/studio/scene-order.js';
 import { buildMusicVideoPlan } from '../lib/studio/music-video-plan.js';
 import { actionRequiresExistingText, isDirectorAction } from '../lib/director-actions.js';

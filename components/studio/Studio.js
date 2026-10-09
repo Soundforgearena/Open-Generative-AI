@@ -160,6 +160,7 @@ export default function Studio() {
 
   const [loadState, setLoadState] = useState('loading');
   const [loadError, setLoadError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [project, setProject] = useState(null);
   const [scenes, setScenes] = useState([]);
   const [assets, setAssets] = useState([]);
@@ -309,7 +310,7 @@ export default function Studio() {
     }
     load();
     return () => { cancelled = true; };
-  }, [projectParam, applyProject]);
+  }, [projectParam, applyProject, loadAttempt]);
 
   useEffect(() => {
     if (loadState !== 'ready') return;
@@ -995,6 +996,7 @@ export default function Studio() {
           {loadState === 'loading' ? <span className="sx-spinner" aria-hidden="true" /> : (
             <div className="sx-state-actions">
               {loadState === 'signin' && <Link className="sx-btn sx-btn-gold" href="/auth?next=/studio">Sign in</Link>}
+              {loadState === 'error' && <button type="button" className="sx-btn sx-btn-gold" onClick={() => { setLoadError(''); setLoadState('loading'); setLoadAttempt((attempt) => attempt + 1); }}>Try again</button>}
               <Link className="sx-btn" href="/create">Start a project</Link>
               <Link className="sx-btn" href="/dashboard">Dashboard</Link>
             </div>
