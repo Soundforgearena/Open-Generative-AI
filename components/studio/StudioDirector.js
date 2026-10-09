@@ -173,7 +173,7 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
           {retryAction && error && <button type="button" className="sx-btn sx-btn-sm" disabled={Boolean(busy)} onClick={() => run(retryAction.action, retryAction.custom, retryAction.idempotencyKey)}>Try again</button>}
           {result && (
             <>
-              <p className="sx-kicker">Director's draft</p>
+              <p className="sx-kicker">Director&apos;s draft</p>
               <p className="sx-dir-suggestion">{result.suggestion}</p>
               {result.whatChanged && <p className="sx-hint"><strong>What changed:</strong> {result.whatChanged}</p>}
               {result.craftNote && <p className="sx-hint sx-craft">“{result.craftNote}”</p>}
