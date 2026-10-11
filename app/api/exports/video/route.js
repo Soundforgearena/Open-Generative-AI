@@ -13,6 +13,7 @@ import {
 } from '../../../../lib/cinexvideo-server';
 import { RenderBusyError, RenderDiskError, renderFinishedVideo, renderQueueState, safeFileName } from '../../../../lib/exports/render-video.js';
 import { rateLimit } from '../../../../lib/rate-limit';
+import { r2AssetPathMatches } from '../../../../lib/storage/media-tokens';
 import { chooseTakes } from '../../../../lib/exports/choose-takes.js';
 
 export const dynamic = 'force-dynamic';
@@ -141,8 +142,9 @@ export async function POST(request) {
     }
   }
 
-  const audio = await selectRows('project_assets', { project_id: `eq.${project.id}`, kind: 'eq.audio', order: 'created_at.desc', limit: '1' }, 'storage_path');
-  const soundtrackUrl = audio[0]?.storage_path ? await createSignedDownloadUrl(BUCKET, audio[0].storage_path, 3600) : null;
+  const audio = await selectRows('project_assets', { project_id: `eq.${project.id}`, kind: 'eq.audio', upload_state: 'eq.ready', order: 'created_at.desc', limit: '1' }, 'id,project_id,storage_path');
+  if (audio[0]?.storage_path?.startsWith('r2://') && !r2AssetPathMatches(audio[0], project.owner_id)) return safeError('This soundtrack has an invalid storage reference.', 409);
+  const soundtrackUrl = audio[0]?.storage_path ? await createSignedDownloadUrl(BUCKET, audio[0].storage_path, 3600, { direct: true }) : null;
 
   let rendered;
   try {

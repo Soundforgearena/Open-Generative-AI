@@ -119,6 +119,7 @@
     "@electric-sql/pglite": "^0.5.8",
     "@eslint/eslintrc": "^3",
     "@playwright/test": "^1.64.0",
+    "esbuild": "^0.28.2",
     "@tailwindcss/vite": "^4.1.18",
     "autoprefixer": "^10.4.24",
     "electron": "^41.7.1",

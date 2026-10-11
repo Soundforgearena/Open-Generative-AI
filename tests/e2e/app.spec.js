@@ -59,11 +59,11 @@ test('admin pages remain protected even in demo mode', async ({ page }) => {
 });
 
 test('protected API routes reject anonymous calls', async ({ request }) => {
-  for (const path of ['/api/me', '/api/projects', '/api/admin/summary']) {
+  for (const path of ['/api/me', '/api/projects', '/api/admin/summary', '/api/admin/storage/connection']) {
     const response = await request.get(path);
     expect(response.status(), path).toBe(401);
   }
-  for (const path of ['/api/director', '/api/generate', '/api/exports/video']) {
+  for (const path of ['/api/director', '/api/generate', '/api/exports/video', '/api/admin/storage/connection']) {
     const response = await request.post(path, { data: {} });
     expect(response.status(), path).toBe(401);
   }

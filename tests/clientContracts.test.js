@@ -60,3 +60,19 @@ test('legacy writing animation cannot submit a paid request twice', async () => 
   assert.match(source, /idempotencyKey: crypto\.randomUUID\(\)/);
   assert.doesNotMatch(source, /No credits were charged/);
 });
+
+test('R2 uploads attach auth only to the same-origin proxy and return confirmed metadata', async (t) => {
+  globalThis.__testSupabase = { auth: { getSession: async () => ({ data: { session: { access_token: 'test-only' } } }) } };
+  t.after(() => { delete globalThis.__testSupabase; });
+  const id = '00000000-0000-4000-8000-000000000003';
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    calls.push({ url, options });
+    if (url === '/api/uploads') return Response.json({ transport: 'r2-proxy', upload_url: `/api/uploads/${id}/content`, content_type: 'image/png', asset: { id, upload_state: 'pending' } });
+    return Response.json({ asset: { id, upload_state: 'ready', preview_url: '/api/storage/media?signed' } });
+  });
+  const result = await client.uploadReference('project', new File(['abc'], 'photo.png', { type: 'image/png' }));
+  assert.equal(result.upload_state, 'ready');
+  assert.equal(calls[1].options.headers.Authorization, 'Bearer test-only');
+  assert.match(calls[1].url, /^\/api\/uploads\//);
+});

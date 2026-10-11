@@ -51,7 +51,7 @@ export default function PremieresReadiness() {
             <Row ok={storage?.configured} title="Storage server">
               {storage?.configured
                 ? `${storage.provider} · bucket ${storage.bucket}${storage.cdn ? ' · CDN on' : ''}`
-                : <>Add in Railway: <code>{storage?.missing.join(', ')}</code>. Works with Cloudflare R2 (recommended, no viewer bandwidth fees), Backblaze B2, Wasabi, AWS S3 or your own server running MinIO.</>}
+                : <>Connect Cloudflare R2 with your two keys in <Link href="/admin/settings">Admin settings</Link>.</>}
             </Row>
             <Row ok={moderation?.configured} title="Safety scanning">
               {moderation?.configured ? `Connected: ${moderation.provider}` : <>Add <code>MODERATION_PROVIDER</code> (sightengine, hive or rekognition) and its keys. Until then every upload would need manual review.</>}

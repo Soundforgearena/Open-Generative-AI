@@ -16,7 +16,7 @@ export default defineConfig({
       ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
       : {},
   },
-  webServer: {
+  webServer: [{
     command: 'npm run dev -- --hostname 127.0.0.1 --port 3100',
     url: 'http://127.0.0.1:3100/studio',
     reuseExistingServer: false,
@@ -26,5 +26,10 @@ export default defineConfig({
       NEXT_TELEMETRY_DISABLED: '1',
       NEXT_DIST_DIR: '.next-e2e',
     },
-  },
+  }, {
+    command: 'node scripts/serve-ui-fixtures.mjs',
+    url: 'http://127.0.0.1:3110',
+    reuseExistingServer: false,
+    timeout: 30000,
+  }],
 });
