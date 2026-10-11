@@ -1,5 +1,6 @@
 const { app, BrowserWindow, shell, dialog } = require('electron');
 const path = require('path');
+const { safeExternalUrl } = require('./lib/externalNavigation');
 const { register: registerLocalInference } = require('./lib/localInference');
 const { register: registerWan2gp } = require('./lib/wan2gpProvider');
 
@@ -54,8 +55,14 @@ function createWindow() {
     });
 
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-        shell.openExternal(url);
+        if (safeExternalUrl(url)) shell.openExternal(url);
         return { action: 'deny' };
+    });
+
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+        // Never give a remote document the desktop preload's IPC surface.
+        event.preventDefault();
+        if (safeExternalUrl(url)) shell.openExternal(url);
     });
 
     mainWindow.once('ready-to-show', () => {

@@ -29,6 +29,11 @@ release/
 
 # Next.js
 .next/
+.next-e2e/
+.next-production/
+.next-preview/
+playwright-report/
+test-results/
 out/
 
 # Misc

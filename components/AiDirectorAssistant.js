@@ -33,6 +33,9 @@ const BLANK_FIELD_ACTIONS = {
 export default function AiDirectorAssistant({ fieldType, fieldLabel, value, context, onApply, onClose }) {
   const closeRef = useRef(null);
   const resultRef = useRef(null);
+  const requestRef = useRef(null);
+  const submittingRef = useRef(false);
+  const mountedRef = useRef(false);
   const [result, setResult] = useState(null);
   const [instruction, setInstruction] = useState('');
   const [status, setStatus] = useState('');
@@ -44,6 +47,10 @@ export default function AiDirectorAssistant({ fieldType, fieldLabel, value, cont
     ? BLANK_FIELD_ACTIONS[fieldType] || BLANK_FIELD_ACTIONS.scene
     : ACTIONS[fieldType] || ACTIONS.scene;
   const busy = isWriting || pendingAction !== null;
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -70,7 +77,9 @@ export default function AiDirectorAssistant({ fieldType, fieldLabel, value, cont
   }, [result]);
 
   const completeWriting = useCallback(async () => {
-    if (!pendingAction) return;
+    const request = requestRef.current;
+    if (!pendingAction || !request || submittingRef.current) return;
+    submittingRef.current = true;
 
     if (demoModeEnabled) {
       const next = pendingAction === 'applyDirectorInstruction'
@@ -80,32 +89,39 @@ export default function AiDirectorAssistant({ fieldType, fieldLabel, value, cont
       setPendingAction(null);
       setIsWriting(false);
       setStatus('Director draft is ready.');
+      submittingRef.current = false;
+      requestRef.current = null;
       return;
     }
 
     try {
-      const next = await requestDirectorAssist({
-        action: pendingAction,
-        fieldType,
-        value,
-        instruction,
-        context: { ...context, fieldLabel },
-      });
+      const next = await requestDirectorAssist(request);
+      if (!mountedRef.current || requestRef.current !== request) return;
       setResult(next);
       setStatus(next?.credits_charged ? `Director draft is ready · ${next.credits_charged} credits used.` : 'Director draft is ready.');
     } catch (assistError) {
+      if (!mountedRef.current || requestRef.current !== request) return;
       setResult(null);
       setStatus(assistError.status === 402
         ? `${assistError.message || 'Not enough credits for the AI Director.'} Sign-up bonus credits can't be used for the Director. Add credits from Account and billing.`
-        : `${assistError.message || 'The Director could not respond just now. Please try again.'} No credits were charged.`);
+        : `${assistError.message || 'The Director could not respond just now.'} The outcome could not be confirmed. Check your credit balance before starting a new request.`);
     } finally {
-      setPendingAction(null);
-      setIsWriting(false);
+      submittingRef.current = false;
+      if (mountedRef.current && requestRef.current === request) {
+        requestRef.current = null;
+        setPendingAction(null);
+        setIsWriting(false);
+      }
     }
-  }, [context, fieldType, instruction, pendingAction, value]);
+  }, [context, instruction, pendingAction, value]);
 
   function runAction(action) {
-    if (busy) return;
+    if (busy || requestRef.current || submittingRef.current) return;
+    requestRef.current = {
+      action, fieldType, value, instruction,
+      context: { ...context, fieldLabel },
+      idempotencyKey: crypto.randomUUID(),
+    };
     setPendingAction(action);
     setIsWriting(true);
     setResult(null);
@@ -152,7 +168,14 @@ export default function AiDirectorAssistant({ fieldType, fieldLabel, value, cont
         genre={context.genre}
         visualStyle={context.style}
         isDemoMode={demoModeEnabled}
-        onCancel={() => { setPendingAction(null); setIsWriting(false); }}
+        onCancel={() => {
+          if (submittingRef.current) {
+            setStatus('The Director request has already started. Waiting for its result.');
+            return;
+          }
+          requestRef.current = null;
+          setPendingAction(null); setIsWriting(false);
+        }}
         onSkip={completeWriting}
         onComplete={completeWriting}
       />
