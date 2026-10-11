@@ -45,6 +45,16 @@ There is no need to change DNS, expose `r2.dev`, make a bucket public, change St
 
 Local validation: 280 automated tests passed, 33 browser/API checks passed, the production Next.js build passed, lint reported no errors, and the production dependency audit reported zero vulnerabilities. The four storage-settings browser checks were also rerun against the final production stylesheet.
 
+Both GitHub application CI runs passed. The separate Supabase Preview integration
+failed while replaying the older `20260903_cinexvideo_creative_schema.sql`, before
+the new R2 migration: `public.is_cinex_admin(uuid)` is absent from the fresh
+database baseline. The parent `main` Supabase branch already reports
+`MIGRATIONS_FAILED`. This is an existing full-schema bootstrap gap, not a passing
+preview deployment; this release does not bypass required repository checks or
+rewrite historical billing migrations to hide it. The new R2 migration itself
+passes its isolated PostgreSQL-compatible test and still requires explicit
+approval before application to the existing production database.
+
 Unit and executable route tests cover encryption/tampering, safe status serialization, permissions, failed key rotation, connection cleanup, URL signing, token expiry, namespace isolation, exact byte limits, duplicate writes and client upload authorization. An isolated PostgreSQL-compatible test applies the migration twice and verifies quota, owner, file-count and privilege restrictions.
 
 Browser tests exercise the actual settings component with synthetic keys and mocked responses. They verify the two-field flow, masked/cleared inputs, no browser credential persistence, failure feedback, super-admin gating, missing-encryption gating and mobile layout. Production API guards remain separately tested; no unauthenticated test route is shipped.
