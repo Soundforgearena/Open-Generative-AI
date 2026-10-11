@@ -89,17 +89,35 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
     return () => document.removeEventListener('pointerdown', close);
   }, [open, onOpenChange]);
 
-  async function run(action, custom = '', retryIdempotencyKey = null) {
+  async function run(action, custom = '', retryIdempotencyKey = null, retryRequest = null) {
+    // Acquire before clearing feedback so a duplicate click cannot erase the
+    // active request's recovery state.
+    if (!actionLock.current.tryAcquire()) return;
     setError(''); setResult(null); setNeedsCredits(false); setRetryAction(null);
-    if (!demoModeEnabled && paidCredits !== null && paidCredits < price.max_credits) {
+    if (!retryIdempotencyKey && !demoModeEnabled && paidCredits !== null && paidCredits < price.max_credits) {
       setNeedsCredits(true);
       setError(`The AI Director runs on purchased credits. A request can cost up to ${price.max_credits} credits (${usd(price.max_credits)}) and you have ${paidCredits} purchased credits. Sign-up bonus credits can't be used for the Director.`);
       onOpenChange(false);
+      actionLock.current.release();
       return;
     }
-    if (!actionLock.current.tryAcquire()) return;
     const isCurrent = guardRef.current.capture();
     const idempotencyKey = retryKey.current.begin(retryIdempotencyKey);
+    // A retry must resend the original payload, even if the prompt was edited
+    // while the original response was lost.
+    const request = retryRequest || {
+      action: custom ? 'applyDirectorInstruction' : action,
+      fieldType: 'videoPrompt',
+      value: scene?.prompt || '',
+      instruction: custom,
+      context: {
+        projectTitle: project?.title,
+        fieldLabel: `Shot prompt for scene ${scene?.position}: ${scene?.title}`,
+        style: styleName,
+        sceneContext: scene?.purpose || '',
+        duration: scene?.duration_seconds,
+      },
+    };
     setBusy(action + custom);
     try {
       if (demoModeEnabled) {
@@ -109,18 +127,9 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
       } else {
         const data = await requestDirectorAssist({
           idempotencyKey,
-          action: custom ? 'applyDirectorInstruction' : action,
-          fieldType: 'videoPrompt',
-          value: scene?.prompt || '',
-          instruction: custom,
-          context: {
-            projectTitle: project?.title,
-            fieldLabel: `Shot prompt for scene ${scene?.position}: ${scene?.title}`,
-            style: styleName,
-            sceneContext: scene?.purpose || '',
-            duration: scene?.duration_seconds,
-          },
+          ...request,
         });
+        if (!isCurrent()) return;
         if (data?.credits_charged) {
           onCharged?.(data.credits_charged);
           setPaidCredits((c) => (c === null ? c : Math.max(0, c - data.credits_charged)));
@@ -136,11 +145,11 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
         setNeedsCredits(true);
         retryKey.current.complete();
       } else {
-        setRetryAction({ action, custom, idempotencyKey });
+        setRetryAction({ action, custom, idempotencyKey, request });
       }
-      setError(e.status === 402 ? (e.message || `The AI Director runs on purchased credits. Add credits to keep directing.`) : `${e.message || 'The Director is unavailable right now.'} No credits were charged.`);
+      setError(e.status === 402 ? (e.message || `The AI Director runs on purchased credits. Add credits to keep directing.`) : `${e.message || 'The Director is unavailable right now.'} The request outcome may be unknown. Try again safely with the same request, or check your credit balance before starting a new one.`);
     } finally {
-      setBusy('');
+      if (isCurrent()) setBusy('');
       actionLock.current.release();
     }
   }
@@ -170,7 +179,7 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
         <div className={`sx-dir-card ${busy ? 'is-busy' : ''}`} role="status" aria-live="polite">
           {busy && <div className="sx-dir-thinking"><span className="sx-dir-orb" aria-hidden="true" /> The Director is framing your shot...</div>}
           {error && <p className="sx-problem">{error}</p>}
-          {retryAction && error && <button type="button" className="sx-btn sx-btn-sm" disabled={Boolean(busy)} onClick={() => run(retryAction.action, retryAction.custom, retryAction.idempotencyKey)}>Try again</button>}
+          {retryAction && error && <button type="button" className="sx-btn sx-btn-sm" disabled={Boolean(busy)} onClick={() => run(retryAction.action, retryAction.custom, retryAction.idempotencyKey, retryAction.request)}>Try again</button>}
           {result && (
             <>
               <p className="sx-kicker">Director&apos;s draft</p>

@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 test('CI runs npm test, lint, and build on PRs and main/Copilot pushes', async () => {
   const workflow = await readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
   assert.match(workflow, /^name: CI$/m);
+  assert.match(workflow, /^\s{2}workflow_dispatch:\s*$/m);
   assert.match(workflow, /^\s{2}pull_request:\s*$/m);
   assert.match(workflow, /^\s{6}- main\s*$/m);
   assert.match(workflow, /^\s{6}- 'copilot\/\*\*'\s*$/m);

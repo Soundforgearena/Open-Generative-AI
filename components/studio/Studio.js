@@ -155,6 +155,13 @@ function Waveform({ peaks, progress = -1, className = '' }) {
 /* --------------------------------------------------------------- studio */
 
 export default function Studio() {
+  const search = useSearchParams();
+  // A project owns its drafts, dialogs, locks and async work. Remount that
+  // scope on navigation instead of carrying mutable state to another project.
+  return <StudioWorkspace key={search.get('project') || ''} />;
+}
+
+function StudioWorkspace() {
   const router = useRouter();
   const search = useSearchParams();
   const projectParam = search.get('project') || '';
@@ -228,7 +235,10 @@ export default function Studio() {
   useEffect(() => {
     const guard = guardRef.current;
     guard.start();
-    return () => guard.stop();
+    return () => {
+      guard.stop();
+      window.clearTimeout(saveTimer.current);
+    };
   }, []);
   const resumed = useRef(new Set());
 
@@ -263,8 +273,15 @@ export default function Studio() {
     let cancelled = false;
     async function load() {
       setLoadState('loading');
+      setLoadError('');
       setSaving(false);
       setUploading(false);
+      setSceneBusy(false);
+      setGenDialog(null);
+      setDeleteDialog(null);
+      setReadiness(null);
+      setExportState({ open: false, phase: 'idle', progress: 0 });
+      renderedFile.current = null;
       setGenState('idle');
       try {
         if (demoModeEnabled) {
@@ -313,7 +330,7 @@ export default function Studio() {
             }));
           }
           setToast('Restored your unsaved changes.');
-          window.setTimeout(() => flushRef.current?.(), 600);
+          saveTimer.current = window.setTimeout(() => flushRef.current?.(), 600);
         } else {
           clearJournal(result.project.id);
         }
@@ -370,6 +387,9 @@ export default function Studio() {
   const ordered = useMemo(() => (sortDesc ? [...scenes].reverse() : scenes), [scenes, sortDesc]);
   const index = Math.max(0, scenes.findIndex((s) => s.id === selectedId));
   const scene = scenes[index] || null;
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  useEffect(() => { setGenDialog(null); }, [selectedId]);
   const controls = useMemo(() => parseShotDirection(scene?.shot_direction), [scene?.shot_direction]);
   const offsets = useMemo(() => timelineOffsets(scenes), [scenes]);
   const total = offsets.length ? offsets[offsets.length - 1].end : 0;
@@ -654,6 +674,7 @@ export default function Studio() {
       const tag = e.target?.tagName;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || e.target?.isContentEditable) return;
       if (tourOpen) return;
+      if (loadState !== 'ready' || genDialog || deleteDialog || exportState.open) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
       if (e.key === 'ArrowRight') step(1);
@@ -818,13 +839,14 @@ export default function Studio() {
       return;
     }
     const isCurrent = guardRef.current.capture();
+    const quotedSceneId = scene.id;
     await flush();
     if (!isCurrent()) return;
     if (demoModeEnabled) { setGenDialog({ scope: 'scene', byScene: { [scene.id]: 8 }, total: 8, all: { total: 8 * scenes.length } }); return; }
     setGenState('quoting');
     try {
       const quotes = await Promise.all(scenes.map(async (s) => [s.id, Number((await quoteGeneration(payloadFor(s))).credits_required)]));
-      if (!isCurrent()) return;
+      if (!isCurrent() || selectedIdRef.current !== quotedSceneId) return;
       const byScene = Object.fromEntries(quotes);
       setGenDialog({ scope: 'scene', byScene, total: byScene[scene.id], all: { total: quotes.reduce((t, [, c]) => t + c, 0) } });
     } catch (error) {
@@ -1007,7 +1029,11 @@ export default function Studio() {
     if (!scene) return;
     const isCurrent = guardRef.current.capture();
     try {
-      if (!demoModeEnabled) {
+      if (demoModeEnabled) {
+        setScenes((current) => current.map((item) => item.id === scene.id
+          ? { ...item, status: 'approved', versions: item.versions.map((take) => ({ ...take, approved: take.version === version })) }
+          : item));
+      } else {
         await updateScene(scene.id, { approve_version: version });
         const fresh = await getProject(project.id);
         if (!isCurrent()) return;
@@ -1262,7 +1288,7 @@ export default function Studio() {
               <div className="sx-panel-head sx-panel-head-sm">
                 <h3><Icon.Spark /> AI PROMPT</h3>
                 <div className="sx-head-right">
-                  <StudioDirector scene={scene} project={project} styleName={styleName} onApply={applyDirector} open={directorOpen} onOpenChange={setDirectorOpen} onCharged={(n) => setCredits((c) => (c === null ? c : Math.max(0, c - n)))} />
+                  <StudioDirector key={scene?.id || 'empty-scene'} scene={scene} project={project} styleName={styleName} onApply={applyDirector} open={directorOpen} onOpenChange={setDirectorOpen} onCharged={(n) => setCredits((c) => (c === null ? c : Math.max(0, c - n)))} />
                   <button type="button" className="sx-head-icon" aria-label={promptOpen ? 'Collapse prompt' : 'Expand prompt'} onClick={() => setPromptOpen((v) => !v)}>{promptOpen ? <Icon.Close /> : <Icon.ChevronDown />}</button>
                 </div>
               </div>

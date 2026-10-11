@@ -1,4 +1,5 @@
-import { callRpc, guard, requireSecret, safeError } from '../../../lib/cinexvideo-server';
+import { callRpc, guard, requireSecret, safeError, insertRows, selectOne, updateRows } from '../../../lib/cinexvideo-server';
+import { runDirectorOnce } from '../../../lib/director-idempotency';
 import { AT_COST_POLICY, isAtCostUser } from '../../../lib/billing/at-cost';
 import {
   CHARS_PER_TOKEN,
@@ -213,7 +214,7 @@ async function chargeDirector(user, kind, idempotencyKey, run, { atCost = false 
     const settled = await callRpc('settle_reservation_v2', { p_reservation_id: row.id, p_settled_credits: charged, p_generation_job_id: null });
     if (!settled.ok) console.error('director settle failed', row.id, errorMessage(settled));
     const data = await outcome.response.json();
-    return Response.json({ ...data, credits_charged: charged, credits_max: maxCredits, at_cost: atCost });
+    return Response.json({ ...data, credits_charged: settled.ok ? charged : null, settlement_pending: !settled.ok, credits_max: maxCredits, at_cost: atCost });
   }
   const released = await callRpc('release_reservation_v2', { p_reservation_id: row.id, p_reason: 'director_failed' });
   if (!released.ok) console.error('director release failed', row.id, errorMessage(released));
@@ -255,15 +256,25 @@ export async function POST(request) {
   const charge = (kind, key, run) => chargeDirector(user, kind, key, run, { atCost });
   try {
     const body = await request.json();
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return safeError('Director input must be an object.');
     const idempotencyKey = request.headers.get('idempotency-key') || crypto.randomUUID();
+    const once = (run) => runDirectorOnce({
+      userId: user.id, key: idempotencyKey, body,
+      store: {
+        insert: (row) => insertRows('director_requests', row),
+        find: (filters) => selectOne('director_requests', filters),
+        update: (filters, patch) => updateRows('director_requests', filters, patch),
+      },
+      run,
+    });
     if (body.action) {
       const invalid = validateAssist(body);
       if (invalid) return invalid;
-      return await charge('assist', idempotencyKey, () => handleAssist(body));
+      return await once(() => charge('assist', idempotencyKey, () => handleAssist(body)));
     }
-    if (!body.prompt?.trim()) return safeError('Please enter a creative idea.');
+    if (typeof body.prompt !== 'string' || !body.prompt.trim()) return safeError('Please enter a creative idea.');
     const laneBrief = LANE_BRIEF[body.lane] || LANE_BRIEF.episode;
-    return await charge('plan', idempotencyKey, async () => {
+    return await once(() => charge('plan', idempotencyKey, async () => {
       const model = await callDirectorModel({
         kind: 'plan',
         system: `${DIRECTOR_PERSONA} ${laneBrief} Return concise production-ready direction as JSON with creative_title, logline, visual_identity, characters, locations, outfits, and scenes. Plan between 4 and 12 scenes. Do not mention vendors, APIs, costs, or internal business rules.`,
@@ -273,7 +284,7 @@ export async function POST(request) {
       });
       if (!model) return { response: safeError('Director service is temporarily unavailable.', 502) };
       return { usage: model.usage, response: Response.json({ plan: model.data }) };
-    });
+    }));
   } catch (error) {
     console.error('director route', error);
     return safeError('Director service is temporarily unavailable.', 500);

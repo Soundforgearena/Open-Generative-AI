@@ -75,8 +75,8 @@ test('Director uses retry-key helper and preserves request/result contract', asy
   assert.match(source, /retryKey\.current\.begin\(retryIdempotencyKey\)/);
   assert.match(source, /idempotencyKey,/);
   assert.match(source, /retryKey\.current\.complete\(\)/);
-  assert.match(source, /setRetryAction\(\{ action, custom, idempotencyKey \}\)/);
-  assert.match(source, /run\(retryAction\.action, retryAction\.custom, retryAction\.idempotencyKey\)/);
+  assert.match(source, /setRetryAction\(\{ action, custom, idempotencyKey, request \}\)/);
+  assert.match(source, /run\(retryAction\.action, retryAction\.custom, retryAction\.idempotencyKey, retryAction\.request\)/);
   assert.match(source, /requestDirectorAssist\(\{/);
   assert.match(source, /action: custom \? 'applyDirectorInstruction' : action,/);
   assert.match(source, /fieldType: 'videoPrompt',/);
