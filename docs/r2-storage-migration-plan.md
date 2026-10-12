@@ -1,5 +1,9 @@
 # Cloudflare R2 storage migration plan
 
+Historical planning baseline. The admin-connection implementation and its current
+rollout requirements are documented in `r2-admin-storage.md`; this older document
+describes the pre-implementation state and a possible future bulk backfill.
+
 **Status: planning only.** Supabase Storage remains the active and default backend. This plan does not create buckets or tokens, change Cloudflare DNS/SSL/cache/security settings, migrate media, apply schema changes, or alter billing/database contracts.
 
 ## Current Supabase Storage behavior

@@ -6,6 +6,7 @@ import {
   createSignedDownloadUrl,
   safeError,
 } from '../../../../lib/cinexvideo-server';
+import { r2AssetPathMatches } from '../../../../lib/storage/media-tokens';
 
 const BUCKET = 'cinexvideo-references';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -28,7 +29,7 @@ export async function GET(request, { params }) {
   if (!project) return safeError('Project not found.', 404);
 
   const scenes = await selectRows('scenes', { project_id: `eq.${id}`, order: 'position.asc' });
-  const assets = await selectRows('project_assets', { project_id: `eq.${id}`, order: 'created_at.asc' });
+  const assets = await selectRows('project_assets', { project_id: `eq.${id}`, upload_state: 'eq.ready', order: 'created_at.asc' });
   // Generations still running at the provider, so a refreshed studio can
   // pick up where it left off instead of losing the job.
   const activeJobs = await selectRows(
@@ -48,7 +49,8 @@ export async function GET(request, { params }) {
   const library = await Promise.all(
     assets.map(async (asset) => ({
       ...asset,
-      preview_url: asset.storage_path ? await createSignedDownloadUrl(BUCKET, asset.storage_path) : null,
+      preview_url: asset.storage_path && (!asset.storage_path.startsWith('r2://') || r2AssetPathMatches(asset, project.owner_id))
+        ? await createSignedDownloadUrl(BUCKET, asset.storage_path) : null,
     }))
   );
 

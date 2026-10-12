@@ -25,11 +25,14 @@ test('R2 plan covers Supabase behavior, safe migration, dual reads and rollback 
   assert.doesNotMatch(plan, /AKIA[0-9A-Z]{12,}|-----BEGIN [A-Z ]*PRIVATE KEY-----/);
 });
 
-test('CSP only adds a configured HTTPS S3 storage origin and uploads still use Supabase', async () => {
+test('CSP only adds configured HTTPS origins and new uploads reserve private R2 media', async () => {
   const middleware = await readFile(new URL('../middleware.js', import.meta.url), 'utf8');
   const uploads = await readFile(new URL('../app/api/uploads/route.js', import.meta.url), 'utf8');
   assert.match(middleware, /process\.env\.STORAGE_S3_ENDPOINT/);
   assert.match(middleware, /url\?\.protocol === 'https:'/);
   assert.match(middleware, /\$\{STORAGE_ORIGIN \? ` \$\{STORAGE_ORIGIN\}` : ''\}/);
-  assert.match(uploads, /createSignedUploadUrl\(BUCKET, path\)/);
+  assert.match(uploads, /activeR2Environment\(\)/);
+  assert.match(uploads, /reserve_r2_reference_upload/);
+  assert.match(uploads, /transport: 'r2-proxy'/);
+  assert.doesNotMatch(uploads, /createSignedUploadUrl\(BUCKET, path\)/);
 });
