@@ -10,6 +10,7 @@ import {
 import { normalizeMuapiCost } from '../../../../lib/providers/muapi-cost-adapter.js';
 import { settledGenerationCredits } from '../../../../lib/billing/at-cost.js';
 import { rateLimit } from '../../../../lib/rate-limit';
+import { muapiOutput, firstOutputUrl } from '../../../../lib/providers/muapi-output.js';
 
 function normaliseStatus(raw) {
   const value = String(raw || '').toLowerCase();
@@ -28,12 +29,7 @@ async function findCreditReservation(referenceId) {
   return selectOne('credit_reservations', { id: `eq.${referenceId}` }, 'id,status,max_reservation_credits,pricing_policy_version');
 }
 
-function firstUrl(output) {
-  if (!output) return null;
-  if (typeof output === 'string') return output;
-  if (Array.isArray(output)) return firstUrl(output[0]);
-  return output.url || output.video_url || output.image_url || output.output_url || null;
-}
+const firstUrl = firstOutputUrl;
 
 /**
  * Poll a generation and settle it exactly once.
@@ -76,14 +72,16 @@ export async function GET(request, { params }) {
     if (!response.ok) return safeError('Generation status is temporarily unavailable.', 502);
 
     const status = normaliseStatus(data?.status || data?.state);
-    const output = data?.output || data?.result || null;
+    const output = muapiOutput(data);
     const outputUrl = firstUrl(output);
 
     if (status === 'running') {
       return Response.json({ status: 'running', output_url: null, scene_version: job.scene_version });
     }
 
-    if (status === 'completed') {
+    // A "completed" result with no usable video link is treated as a failure:
+    // the customer gets their credits back instead of paying for nothing.
+    if (status === 'completed' && outputUrl) {
       const costNormalized = normalizeMuapiCost({
         response: data,
         headers: Object.fromEntries(response.headers.entries()),

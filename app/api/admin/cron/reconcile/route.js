@@ -11,6 +11,7 @@ import {
 import { normalizeMuapiCost } from '../../../../../lib/providers/muapi-cost-adapter.js';
 import { settledGenerationCredits } from '../../../../../lib/billing/at-cost.js';
 import { runChainedMaintenance } from '../../../../../lib/admin/chained-maintenance.js';
+import { muapiOutput, firstOutputUrl } from '../../../../../lib/providers/muapi-output.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,12 +22,7 @@ function normaliseStatus(raw) {
   return 'running';
 }
 
-function firstUrl(output) {
-  if (!output) return null;
-  if (typeof output === 'string') return output;
-  if (Array.isArray(output)) return firstUrl(output[0]);
-  return output.url || output.video_url || output.image_url || output.output_url || null;
-}
+const firstUrl = firstOutputUrl;
 
 async function reservationFor(job) {
   if (!job.reservation_reference) return null;
@@ -38,7 +34,7 @@ async function reservationFor(job) {
 }
 
 async function completeJob(job, data, headers = {}) {
-  const output = data?.output || data?.result || null;
+  const output = muapiOutput(data);
   const outputUrl = firstUrl(output);
   const platformJob = job.funding_source === 'platform';
   const reservation = platformJob ? null : await reservationFor(job);
@@ -226,7 +222,7 @@ export async function POST(request) {
         }
         if (status === 'running') {
           summary.running += 1;
-        } else if (status === 'completed') {
+        } else if (status === 'completed' && firstUrl(muapiOutput(data))) {
           await completeJob(job, data, responseHeaders);
           summary.completed += 1;
         } else {
