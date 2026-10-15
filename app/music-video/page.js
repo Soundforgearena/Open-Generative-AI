@@ -3,11 +3,11 @@ import CinexRoutePage from '@/components/CinexRoutePage';
 import { demoModeEnabled } from '@/lib/demo-mode';
 
 const cards = [
-  ['Upload My Song', 'Start from an MP3, WAV, or M4A when account storage is connected.', '/music-video/new'],
-  ['Start With Lyrics', 'Build a visual world around official lyrics or editable timing.', '/music-video/new?lyrics=official'],
+  ['Upload My Song', 'Upload your track. Every scene is timed to it and sung lines are lip-synced.', '/music-video/new'],
+  ['Start With Lyrics', 'Paste your lyrics with singer tags. Each line is timed to the vocal.', '/music-video/new?lyrics=official'],
   ['Make an Instrumental Visual', 'Let energy and sections guide an abstract visual plan.', '/music-video/new?lyrics=instrumental'],
   ['Import an Authorized Track', 'Use only music you created or are authorized to use.', '/music-video/new?source=authorized-import'],
-  ['Let AI Director Pitch a Concept', 'Explore three local demo concepts before choosing a direction.', '/music-video/new?director=1'],
+  ['Let AI Director Pitch a Concept', 'Describe the vibe and let the AI Director shape the treatment.', '/music-video/new?director=1'],
 ];
 
 export default function MusicVideoPage() {

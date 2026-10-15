@@ -61,6 +61,8 @@ export async function GET(request, { params }) {
       visual_identity: project.visual_identity,
       status: project.status,
       updated_at: project.updated_at,
+      music: project.director_plan?.music || null,
+      has_lyrics: Boolean(String(project.director_plan?.lyrics || '').trim()),
     },
     active_jobs: activeJobs.map((job) => ({ request_id: job.provider_request_id, scene_id: job.scene_id, started_at: job.created_at })),
     scenes: scenes.map((scene) => ({

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Icon, Logo } from './StudioIcons';
 import StudioDirector from './StudioDirector';
+import SongSync from './SongSync';
 import StudioTour, { SHORTCUTS, TOUR_KEY } from './StudioTour';
 import { demoModeEnabled } from '@/lib/demo-mode';
 import {
@@ -68,6 +69,15 @@ function safeUrl(value) {
   }
 }
 
+function timedWindow(scene) {
+  return scene.start_ms !== null && scene.start_ms !== undefined && Number(scene.end_ms) > Number(scene.start_ms);
+}
+
+/** Newest finished video (not lip-synced) take: the input for lip sync. */
+function baseTake(s) {
+  return (s?.versions || []).find((v) => v.status === 'completed' && v.output_url && v.kind !== 'lip_sync') || null;
+}
+
 function mapScene(scene) {
   const versions = orderVersions(scene.versions);
   const take = previewTake(versions);
@@ -80,7 +90,14 @@ function mapScene(scene) {
     purpose: scene.purpose || '',
     prompt: scene.prompt || '',
     shot_direction: scene.shot_direction || '',
-    duration_seconds: Number(scene.duration_seconds || 8),
+    // Song-timed scenes last exactly their window of the song.
+    duration_seconds: timedWindow(scene) ? (scene.end_ms - scene.start_ms) / 1000 : Number(scene.duration_seconds || 8),
+    start_ms: timedWindow(scene) ? Number(scene.start_ms) : null,
+    end_ms: timedWindow(scene) ? Number(scene.end_ms) : null,
+    lyric_text: scene.lyric_text || '',
+    vocalist: scene.vocalist || '',
+    lip_sync: Boolean(scene.lip_sync),
+    has_synced_take: versions.some((v) => v.kind === 'lip_sync' && v.status === 'completed' && v.output_url),
     continuity_locked: Boolean(scene.continuity_locked),
     status: scene.status || 'draft',
     updated_at: scene.updated_at || null,
@@ -174,6 +191,7 @@ function StudioWorkspace() {
   const [assets, setAssets] = useState([]);
   const [projects, setProjects] = useState([]);
   const [videoOptions, setVideoOptions] = useState([]);
+  const [lipSyncOption, setLipSyncOption] = useState(null);
   const [credits, setCredits] = useState(null);
   const [atCost, setAtCost] = useState(false);
   const [selectedId, setSelectedId] = useState('');
@@ -183,7 +201,7 @@ function StudioWorkspace() {
   const [now, setNow] = useState(() => Date.now());
   const [toast, setToast] = useState('');
   const [tab, setTab] = useState('inspector');
-  const [open, setOpen] = useState({ visual: true, camera: true, continuity: true, audio: true, generation: true });
+  const [open, setOpen] = useState({ sync: true, visual: true, camera: true, continuity: true, audio: true, generation: true });
   const [promptOpen, setPromptOpen] = useState(true);
   const [tagDraft, setTagDraft] = useState(null);
   const [playing, setPlaying] = useState(false);
@@ -195,6 +213,7 @@ function StudioWorkspace() {
   const [menu, setMenu] = useState('');
   const [modelKey, setModelKey] = useState('');
   const [genDialog, setGenDialog] = useState(null);
+  const [lipDialog, setLipDialog] = useState(null);
   const [genState, setGenState] = useState('idle');
   const [readiness, setReadiness] = useState(null);
   const [audioPeaks, setAudioPeaks] = useState(null);
@@ -252,6 +271,8 @@ function StudioWorkspace() {
       title: result.project.title || 'Untitled project',
       lane: result.project.lane,
       visual_identity: result.project.visual_identity || {},
+      music: result.project.music || null,
+      has_lyrics: Boolean(result.project.has_lyrics),
     });
     setAspect(result.project.visual_identity?.aspect_ratio || '16:9');
     setScenes(mapped);
@@ -303,6 +324,7 @@ function StudioWorkspace() {
         setAtCost(Boolean(account.at_cost));
         const opts = (catalog.options || []).filter((o) => o.operation === 'video');
         setVideoOptions(opts);
+        setLipSyncOption((catalog.options || []).find((o) => o.operation === 'lip_sync') || null);
         setModelKey((k) => k || opts[0]?.model || '');
         const targetId = projectParam || all[0]?.id;
         if (!targetId) { setLoadState('empty'); return; }
@@ -352,6 +374,7 @@ function StudioWorkspace() {
     let seen = false;
     try { seen = window.localStorage.getItem(TOUR_KEY) === 'done'; } catch { /* private mode */ }
     if (search.get('upload') === 'audio') { setTab('assets'); setToast('Upload your track to sync the Flight Path to your song.'); }
+    if (search.get('sync') === '1') { setTab('inspector'); setToast('Your song is uploaded. Open Song Sync to time your lyrics.'); }
     if (search.get('welcome') === '1' || !seen) {
       const t = window.setTimeout(() => setTourOpen(true), 500);
       return () => window.clearTimeout(t);
@@ -791,6 +814,7 @@ function StudioWorkspace() {
   }
 
   function onDragStart(e, id) {
+    if (scenes.some((s) => s.start_ms !== null)) { e.preventDefault(); setToast('These scenes follow your song. Rebuild them from Song Sync to change the order.'); return; }
     setDragId(id);
     e.dataTransfer.effectAllowed = 'move';
     try { e.dataTransfer.setData('text/plain', id); } catch { /* Safari */ }
@@ -814,7 +838,7 @@ function StudioWorkspace() {
 
   function payloadFor(s) {
     const c = parseShotDirection(s.shot_direction);
-    const duration = Math.min(Number(s.duration_seconds || 5), Number(videoOption?.max_duration_seconds || 10));
+    const duration = Math.min(Math.ceil(Number(s.duration_seconds || 5)), Number(videoOption?.max_duration_seconds || 10));
     return {
       model: videoOption.model,
       operation: 'video',
@@ -831,6 +855,76 @@ function StudioWorkspace() {
     };
   }
 
+  function lipSyncPayload(s, sourceVersionId = null) {
+    return {
+      model: lipSyncOption.model,
+      operation: 'lip_sync',
+      project_id: project.id,
+      scene_id: s.id,
+      source_version_id: sourceVersionId,
+      duration_seconds: Math.ceil(Number(s.duration_seconds) || 1),
+      input: {},
+    };
+  }
+
+  const needsLipSync = (s) => Boolean(s?.lip_sync && lipSyncOption);
+
+  /** Credits for one scene: the clip, plus lip sync when the scene is sung. */
+  async function quoteScene(s) {
+    const [video, lip] = await Promise.all([
+      quoteGeneration(payloadFor(s)).then((q) => Number(q.credits_required)),
+      needsLipSync(s) ? quoteGeneration(lipSyncPayload(s)).then((q) => Number(q.credits_required)) : Promise.resolve(0),
+    ]);
+    return { video, lip, total: video + lip };
+  }
+
+  async function runLipSync(s, sourceVersionId, maxCredits) {
+    const job = await startGeneration({ ...lipSyncPayload(s, sourceVersionId), confirmed_max_credits: maxCredits });
+    return waitForJob(job.request_id);
+  }
+
+  async function openLipSync() {
+    const source = baseTake(scene);
+    if (!scene || !source || !lipSyncOption) return;
+    const isCurrent = guardRef.current.capture();
+    setGenState('quoting');
+    try {
+      const q = await quoteGeneration(lipSyncPayload(scene, source.id));
+      if (isCurrent()) setLipDialog({ sceneId: scene.id, sourceId: source.id, version: source.version, credits: Number(q.credits_required) });
+    } catch (error) {
+      if (isCurrent()) setToast(error.message || 'The lip sync price could not be calculated.');
+    } finally {
+      if (isCurrent()) setGenState('idle');
+    }
+  }
+
+  async function confirmLipSync() {
+    if (genLock.current || !lipDialog) return;
+    const dialog = lipDialog;
+    const target = scenes.find((x) => x.id === dialog.sceneId);
+    if (!target) { setLipDialog(null); return; }
+    if (credits !== null && dialog.credits > credits) { setToast(`You need ${dialog.credits} credits and have ${credits}. Add credits from Account and billing.`); return; }
+    genLock.current = true;
+    const isCurrent = guardRef.current.capture();
+    setLipDialog(null); setGenState('running'); setGenStartedAt(Date.now());
+    setScenes((cur) => cur.map((x) => (x.id === target.id ? { ...x, status: 'generating' } : x)));
+    setToast(`Lip syncing ${target.title} to the vocal...`);
+    try {
+      const result = await runLipSync(target, dialog.sourceId, dialog.credits);
+      const [fresh, account] = await Promise.all([getProject(project.id), getAccount()]);
+      if (!isCurrent()) return;
+      applyProject(fresh);
+      setCredits(Number(account.credits ?? 0));
+      if (result.status === 'completed') { setCelebrate(target.id); setToast('Lip sync ready. The new take follows the vocal exactly.'); }
+      else setToast('Lip sync failed. Your credits were returned.');
+    } catch (error) {
+      if (isCurrent()) setToast(error.status === 402 ? 'Not enough credits. Open Account and billing to add more.' : error.message || 'Lip sync could not be started.');
+    } finally {
+      genLock.current = false;
+      if (isCurrent()) setGenState('idle');
+    }
+  }
+
   async function openGenerate() {
     if (!scene || !videoOption) { setToast('No video model is available right now.'); return; }
     if (!scene.prompt?.trim()) {
@@ -845,10 +939,14 @@ function StudioWorkspace() {
     if (demoModeEnabled) { setGenDialog({ scope: 'scene', byScene: { [scene.id]: 8 }, total: 8, all: { total: 8 * scenes.length } }); return; }
     setGenState('quoting');
     try {
-      const quotes = await Promise.all(scenes.map(async (s) => [s.id, Number((await quoteGeneration(payloadFor(s))).credits_required)]));
+      const quotes = await Promise.all(scenes.map(async (s) => [s.id, await quoteScene(s)]));
       if (!isCurrent() || selectedIdRef.current !== quotedSceneId) return;
-      const byScene = Object.fromEntries(quotes);
-      setGenDialog({ scope: 'scene', byScene, total: byScene[scene.id], all: { total: quotes.reduce((t, [, c]) => t + c, 0) } });
+      const parts = Object.fromEntries(quotes);
+      const byScene = Object.fromEntries(quotes.map(([id, q]) => [id, q.total]));
+      setGenDialog({
+        scope: 'scene', byScene, parts, total: byScene[scene.id],
+        all: { total: quotes.reduce((t, [, q]) => t + q.total, 0), lip: quotes.reduce((t, [, q]) => t + q.lip, 0), synced: quotes.filter(([, q]) => q.lip > 0).length },
+      });
     } catch (error) {
       if (isCurrent()) setToast(error.message || 'The generation price could not be calculated.');
     } finally {
@@ -886,10 +984,20 @@ function StudioWorkspace() {
       for (const s of targets) {
         setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, status: 'generating' } : x)));
         setToast(`Generating ${s.title}...`);
-        const job = await startGeneration({ ...payloadFor(s), confirmed_max_credits: dialog.byScene[s.id] });
-        const result = await waitForJob(job.request_id);
-        if (result.status !== 'completed') failed += 1; else lastDone = s.id;
+        const part = dialog.parts?.[s.id] || { video: dialog.byScene[s.id], lip: 0 };
+        const job = await startGeneration({ ...payloadFor(s), confirmed_max_credits: part.video });
+        let result = await waitForJob(job.request_id);
         if (!isCurrent()) return;
+        // Sung scenes: lip sync the new take to its exact slice of the song.
+        if (result.status === 'completed' && part.lip > 0) {
+          setToast(`Lip syncing ${s.title} to the vocal...`);
+          const fresh = await getProject(project.id);
+          const raw = (fresh.scenes || []).find((x) => x.id === s.id);
+          const source = (raw?.versions || []).find((v) => Number(v.version) === Number(job.scene_version) && v.status === 'completed' && v.output_url);
+          result = source ? await runLipSync(s, source.id, part.lip) : { status: 'failed' };
+          if (!isCurrent()) return;
+        }
+        if (result.status !== 'completed') failed += 1; else lastDone = s.id;
       }
       const [fresh, account] = await Promise.all([getProject(project.id), getAccount()]);
       if (!isCurrent()) return;
@@ -1022,6 +1130,7 @@ function StudioWorkspace() {
     setExportState({ open: false, phase: 'idle', progress: 0 });
   }
 
+  const songTimed = scenes.some((s) => s.start_ms !== null);
   const hasAnyTake = scenes.some((s) => (s.versions || []).some((v) => v.output_url));
   const exportBusy = ['rendering', 'downloading', 'delivering'].includes(exportState.phase);
 
@@ -1178,7 +1287,7 @@ function StudioWorkspace() {
               const realIndex = scenes.findIndex((x) => x.id === s.id);
               return (
                 <li key={s.id} className={`sx-scene-li ${dragId === s.id ? 'is-dragging' : ''} ${dropIndex === realIndex && dragId && dragId !== s.id ? 'is-drop' : ''}`}
-                  draggable={!sortDesc} onDragStart={(e) => onDragStart(e, s.id)} onDragOver={(e) => onDragOver(e, realIndex)} onDrop={(e) => onDrop(e, realIndex)} onDragEnd={onDragEnd}>
+                  draggable={!sortDesc && !songTimed} onDragStart={(e) => onDragStart(e, s.id)} onDragOver={(e) => onDragOver(e, realIndex)} onDrop={(e) => onDrop(e, realIndex)} onDragEnd={onDragEnd}>
                   <button type="button" className={`sx-scene ${s.id === selectedId ? 'is-active' : ''} ${s.status === 'generating' ? 'is-generating' : ''}`} onClick={() => selectScene(s.id)} aria-current={s.id === selectedId}>
                     <span className="sx-scene-thumb"><Thumb scene={s} /></span>
                     <span className="sx-scene-text">
@@ -1218,7 +1327,7 @@ function StudioWorkspace() {
             <div className={`sx-frame ratio-${aspect.replace(':', 'x')} ${celebrate === scene?.id ? 'is-celebrating' : ''}`}>
               {scene?.output_url && !scene.output_is_image ? (
                 <video key={scene.id} ref={videoRef} className="sx-media" src={scene.output_url} poster={scene.thumbnail_url || undefined} playsInline
-                  onTimeUpdate={(e) => setPlayhead(e.currentTarget.currentTime)} onEnded={advance} />
+                  onTimeUpdate={(e) => { const t = e.currentTarget.currentTime; setPlayhead(t); if (scene.start_ms !== null && t >= scene.duration_seconds) { e.currentTarget.pause(); advance(); } }} onEnded={advance} />
               ) : scene?.thumbnail_url ? (
                 <img key={scene.id} className={`sx-media ${playing ? 'is-kenburns' : ''}`} src={scene.thumbnail_url} alt={scene.title} referrerPolicy="no-referrer" style={{ animationDuration: `${scene.duration_seconds}s` }} />
               ) : (
@@ -1335,11 +1444,20 @@ function StudioWorkspace() {
           <div className="sx-tabs" role="tablist">
             <button type="button" role="tab" aria-selected={tab === 'inspector'} className={tab === 'inspector' ? 'is-active' : ''} onClick={() => setTab('inspector')}><Icon.Inspector /> INSPECTOR</button>
             <button type="button" role="tab" aria-selected={tab === 'assets'} className={tab === 'assets' ? 'is-active' : ''} onClick={() => setTab('assets')}><Icon.Folder /> ASSETS</button>
-            <button type="button" className="sx-tab-tool" aria-label="Expand all sections" onClick={() => { const all = Object.values(open).every(Boolean); setOpen({ visual: !all, camera: !all, continuity: !all, audio: !all, generation: !all }); }}><Icon.Expand /></button>
+            <button type="button" className="sx-tab-tool" aria-label="Expand all sections" onClick={() => { const all = Object.values(open).every(Boolean); setOpen({ sync: !all, visual: !all, camera: !all, continuity: !all, audio: !all, generation: !all }); }}><Icon.Expand /></button>
           </div>
 
           {tab === 'inspector' ? (
             <div className="sx-inspector-body">
+              {project.lane === 'music_video' && (
+                <Section icon={Icon.Wave} title="Song Sync" open={open.sync} onToggle={() => setOpen((o) => ({ ...o, sync: !o.sync }))}>
+                  <SongSync project={project} audioAsset={audioAsset} demo={demoModeEnabled}
+                    onRefresh={() => refreshProject(selectedIdRef.current)}
+                    onToast={setToast}
+                    onCharged={(n) => setCredits((c) => (c === null ? c : Math.max(0, c - n)))}
+                    onUpload={() => setTab('assets')} />
+                </Section>
+              )}
               <Section icon={Icon.Eye} title="Visual Direction" open={open.visual} onToggle={() => setOpen((o) => ({ ...o, visual: !o.visual }))}>
                 <div className="sx-vd">
                   <span className="sx-vd-thumb">{styleThumb ? <img src={styleThumb} alt="" referrerPolicy="no-referrer" /> : <span className="sx-thumb-empty" />}</span>
@@ -1390,6 +1508,22 @@ function StudioWorkspace() {
                   <Waveform peaks={scene ? scenePeaks(scene) : []} className="sx-audio-wave" />
                   <span className={`sx-status ${audioAsset ? 'is-good' : 'is-warning'}`}>{audioAsset ? <>Aligned <Icon.CheckCircle /></> : 'No track'}</span>
                 </div>
+                {scene?.start_ms !== null && scene?.start_ms !== undefined && (
+                  <div className="sx-scene-sync">
+                    <span className="sx-muted">Song {formatClock(scene.start_ms / 1000)} – {formatClock(scene.end_ms / 1000)} · {scene.duration_seconds.toFixed(2)} s</span>
+                    {scene.lip_sync ? (
+                      <>
+                        <p className="sx-lyric">“{scene.lyric_text}”</p>
+                        <span className={`sx-status ${scene.has_synced_take ? 'is-good' : 'is-warning'}`}>{scene.has_synced_take ? <>Lip-synced <Icon.CheckCircle /></> : 'Needs lip sync'}</span>
+                        {baseTake(scene) && lipSyncOption && (
+                          <button type="button" className="sx-btn sx-btn-ghost" onClick={openLipSync} disabled={generating || genState === 'quoting'}>
+                            {scene.has_synced_take ? 'Lip sync again' : `Lip sync take ${baseTake(scene).version}`}
+                          </button>
+                        )}
+                      </>
+                    ) : <span className="sx-muted">Instrumental · no lip sync</span>}
+                  </div>
+                )}
                 {audioAsset ? (
                   <p className="sx-hint">{audioAsset.name} · plays in sync with Preview</p>
                 ) : (
@@ -1405,7 +1539,7 @@ function StudioWorkspace() {
                   <label className="sx-field" htmlFor="gen-dur">
                     <span className="sx-field-label">Duration</span>
                     <span className="sx-number">
-                      <input id="gen-dur" type="number" min="1" max={videoOption?.max_duration_seconds || 10} value={scene?.duration_seconds || 5}
+                      <input id="gen-dur" type="number" min="1" readOnly={scene?.start_ms !== null && scene?.start_ms !== undefined} title={scene?.start_ms !== null && scene?.start_ms !== undefined ? 'Set by your song timing' : undefined} max={videoOption?.max_duration_seconds || 10} value={scene?.duration_seconds || 5}
                         onChange={(e) => scene && patchScene(scene.id, { duration_seconds: Math.max(1, Math.min(Number(videoOption?.max_duration_seconds || 10), Math.round(Number(e.target.value) || 1))) })} />
                       <span>sec</span>
                     </span>
@@ -1427,7 +1561,7 @@ function StudioWorkspace() {
                     <p className="sx-hint">When every scene is ready, use Download at the top to save your finished video to this device. Generated takes are kept by the video provider for a limited time, so download your finished video soon.</p>
                     {scene.versions.map((v) => (
                       <div key={v.id || v.version} className="sx-take">
-                        <span>Take {v.version} · {v.status}</span>
+                        <span>Take {v.version}{v.kind === 'lip_sync' ? ' · lip sync' : ''} · {v.status}</span>
                         {v.approved ? <span className="sx-status is-good">Approved</span> : v.status === 'completed' && <button type="button" className="sx-link-btn" onClick={() => approveTake(v.version)}>Approve</button>}
                       </div>
                     ))}
@@ -1481,7 +1615,7 @@ function StudioWorkspace() {
                 const h = sceneHealth(s);
                 return (
                   <button key={s.id} type="button" className={`sx-tile ${s.id === selectedId ? 'is-active' : ''} ${s.status === 'generating' ? 'is-generating' : ''} ${dragId === s.id ? 'is-dragging' : ''} ${dropIndex === i && dragId && dragId !== s.id ? 'is-drop' : ''}`} style={{ flexGrow: s.duration_seconds, flexBasis: 0 }} onClick={() => selectScene(s.id)}
-                    draggable onDragStart={(e) => onDragStart(e, s.id)} onDragOver={(e) => onDragOver(e, i)} onDrop={(e) => onDrop(e, i)} onDragEnd={onDragEnd} title="Drag to reorder">
+                    draggable={!songTimed} onDragStart={(e) => onDragStart(e, s.id)} onDragOver={(e) => onDragOver(e, i)} onDrop={(e) => onDrop(e, i)} onDragEnd={onDragEnd} title="Drag to reorder">
                     <span className="sx-tile-img">
                       <Thumb scene={s} />
                       {h === 'warning' && <Icon.Warning className="sx-tile-flag is-warning" />}
@@ -1534,6 +1668,9 @@ function StudioWorkspace() {
               <div><dt>Maximum debit</dt><dd>{genDialog.scope === 'all' ? genDialog.all.total : genDialog.total} credits{atCost ? ' (at cost)' : ''}</dd></div>
               <div><dt>Your balance</dt><dd>{credits ?? '—'} credits</dd></div>
               <div><dt>Model</dt><dd>{videoOption?.label}</dd></div>
+              {(genDialog.scope === 'all' ? genDialog.all.lip > 0 : genDialog.parts?.[scene?.id]?.lip > 0) && (
+                <div><dt>Includes lip sync</dt><dd>{genDialog.scope === 'all' ? `${genDialog.all.synced} sung scenes · ${genDialog.all.lip} credits` : `${genDialog.parts[scene.id].lip} credits`}</dd></div>
+              )}
             </dl>
             <p className="sx-hint">{atCost
               ? 'Super admin pricing: you pay the provider cost plus card fees, no markup, from purchased credits only. You are charged the actual cost when it is lower. Failed scenes are refunded.'
@@ -1541,6 +1678,24 @@ function StudioWorkspace() {
             <div className="sx-dialog-actions">
               <button type="button" className="sx-btn" autoFocus onClick={() => setGenDialog(null)}>Cancel</button>
               <button type="button" className="sx-btn sx-btn-gold" onClick={confirmGenerate}><Icon.Spark /> Start generation</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {lipDialog && (
+        <div className="sx-backdrop" role="presentation" onClick={() => setLipDialog(null)}>
+          <section className="sx-dialog" role="dialog" aria-modal="true" aria-labelledby="sx-lip-title" onClick={(e) => e.stopPropagation()}>
+            <p className="sx-kicker">Lip sync</p>
+            <h2 id="sx-lip-title">Lip sync take {lipDialog.version} to the vocal?</h2>
+            <dl className="sx-dl">
+              <div><dt>Maximum debit</dt><dd>{lipDialog.credits} credits{atCost ? ' (at cost)' : ''}</dd></div>
+              <div><dt>Your balance</dt><dd>{credits ?? '—'} credits</dd></div>
+            </dl>
+            <p className="sx-hint">The mouth is re-animated to this scene&apos;s exact slice of your song, with the vocal separated from the beat. The result is a new take; your original stays. Failed lip syncs are refunded automatically.</p>
+            <div className="sx-dialog-actions">
+              <button type="button" className="sx-btn" autoFocus onClick={() => setLipDialog(null)}>Cancel</button>
+              <button type="button" className="sx-btn sx-btn-gold" onClick={confirmLipSync}><Icon.Spark /> Start lip sync</button>
             </div>
           </section>
         </div>
@@ -1596,6 +1751,12 @@ function StudioWorkspace() {
                   <div className="sx-readiness is-blocked" role="status">
                     <strong>Finish every scene first</strong>
                     {exportState.free.missing.map((m) => <span key={m} className="sx-problem">{m} needs a generated take</span>)}
+                  </div>
+                )}
+                {exportState.free?.unsynced?.length > 0 && (
+                  <div className="sx-readiness is-blocked" role="status">
+                    <strong>Some sung scenes are not lip-synced yet</strong>
+                    {exportState.free.unsynced.map((m) => <span key={m} className="sx-problem">{m}</span>)}
                   </div>
                 )}
                 {exportState.error && <div className="sx-readiness is-blocked" role="alert"><strong>{exportState.error}</strong>{exportState.needsCredits && <Link href="/account?buy=1" className="sx-link-btn">Buy credits</Link>}</div>}
