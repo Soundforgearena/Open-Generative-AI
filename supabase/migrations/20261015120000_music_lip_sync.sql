@@ -33,12 +33,12 @@ alter table public.model_cost_rules add constraint model_cost_rules_operation_ch
 -- Lip sync: provider cost is per second of audio (the code multiplies by
 -- the song slice length). Same margin settings as the video model.
 insert into public.model_cost_rules (
-  provider, model, operation, provider_cost_cents, customer_price_cents,
+  provider, model, operation, provider_cost_cents,
   target_margin_percent, payment_fee_percent, payment_fee_fixed_cents,
   fixed_overhead_cents, variable_overhead_percent, minimum_customer_price_cents,
   max_duration_seconds, max_references, max_resolution, customer_visible, customer_label, active
 ) values (
-  'muapi', 'volcengine-video-to-video-lip-sync', 'lip_sync', 6, round(6 / 0.35, 4),
+  'muapi', 'volcengine-video-to-video-lip-sync', 'lip_sync', 6,
   65, 3.5, 0.3, 0.25, 5, 2,
   10, 2, null, true, 'Lip sync', true
 )
@@ -46,12 +46,12 @@ on conflict (provider, model, operation) do nothing;
 
 -- Lyric timing: provider cost is per started minute of audio.
 insert into public.model_cost_rules (
-  provider, model, operation, provider_cost_cents, customer_price_cents,
+  provider, model, operation, provider_cost_cents,
   target_margin_percent, payment_fee_percent, payment_fee_fixed_cents,
   fixed_overhead_cents, variable_overhead_percent, minimum_customer_price_cents,
   max_duration_seconds, max_references, max_resolution, customer_visible, customer_label, active
 ) values (
-  'openai', 'whisper-1', 'alignment', 0.6, round(0.6 / 0.35, 4),
+  'openai', 'whisper-1', 'alignment', 0.6,
   65, 3.5, 0.3, 0.25, 5, 2,
   null, 0, null, false, 'Lyric timing', true
 )
