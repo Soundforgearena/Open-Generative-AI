@@ -54,6 +54,7 @@ export default function SongSync({ project, audioAsset, demo = false, onRefresh,
   const [confirmTime, setConfirmTime] = useState(false);
   const [confirmBuild, setConfirmBuild] = useState(false);
   const [resolution, setResolution] = useState('1080p');
+  const [brollResolution, setBrollResolution] = useState('720p');
   const [listening, setListening] = useState(false);
   const player = useRef(null);
   const stopAt = useRef(0);
@@ -185,7 +186,7 @@ export default function SongSync({ project, audioAsset, demo = false, onRefresh,
 
   const build = (replaceTakes) => run('build', async () => {
     try {
-      const r = await buildScenesFromSong(project.id, { replaceTakes, resolution });
+      const r = await buildScenesFromSong(project.id, { replaceTakes, resolution, brollResolution });
       setConfirmBuild(false);
       onToast?.(`${r.scenes} scenes built from your song. ${r.lip_sync_scenes} are lip-synced to the vocals.`);
       await onRefresh?.();
@@ -237,15 +238,26 @@ export default function SongSync({ project, audioAsset, demo = false, onRefresh,
             {music.built_at ? ` · ${music.scene_count} scenes built` : ''}
           </p>
           {step !== 'review' && (
-            <label className="sx-field" htmlFor="sx-sync-res">
-              <span className="sx-field-label">Picture quality</span>
-              <span className="sx-select-wrap">
-                <select id="sx-sync-res" value={resolution} onChange={(e) => setResolution(e.target.value)}>
-                  <option value="720p">720p HD · lower cost</option>
-                  <option value="1080p">1080p Full HD · most lifelike</option>
-                </select>
-              </span>
-            </label>
+            <>
+              <label className="sx-field" htmlFor="sx-sync-res">
+                <span className="sx-field-label">Singing shots</span>
+                <span className="sx-select-wrap">
+                  <select id="sx-sync-res" value={resolution} onChange={(e) => setResolution(e.target.value)}>
+                    <option value="720p">720p HD · lower cost</option>
+                    <option value="1080p">1080p Full HD · most lifelike</option>
+                  </select>
+                </span>
+              </label>
+              <label className="sx-field" htmlFor="sx-sync-broll">
+                <span className="sx-field-label">Crowd and b-roll shots</span>
+                <span className="sx-select-wrap">
+                  <select id="sx-sync-broll" value={brollResolution} onChange={(e) => setBrollResolution(e.target.value)}>
+                    <option value="720p">720p HD · saves about half on these shots</option>
+                    <option value="1080p">1080p Full HD · match the singing shots</option>
+                  </select>
+                </span>
+              </label>
+            </>
           )}
           <div className="sx-sync-actions">
             <button type="button" className={`sx-btn ${step === 'review' ? 'sx-btn-gold' : 'sx-btn-ghost'}`} onClick={() => openReview()}>Review timing</button>

@@ -18,8 +18,8 @@ test('Studio applies Director output and completes simulated generation', async 
   await page.getByRole('button', { name: 'Use this', exact: true }).click();
   await expect(page.getByText("Director's draft applied. Autosaving.")).toBeVisible();
   await page.getByRole('button', { name: 'Generate', exact: true }).first().click();
-  await expect(page.getByText('Start paid generation?', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Start generation', exact: true }).click();
+  await expect(page.getByText('Step 1 · Make the stills first?', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Make stills', exact: true }).click();
   await expect(page.getByText('Demo mode: generation simulated. Nothing was spent.', { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -27,9 +27,9 @@ test('Studio applies Director output and completes simulated generation', async 
 test('project navigation discards the previous project confirmation', async ({ page }) => {
   await studio(page, '?project=project-a');
   await page.getByRole('button', { name: 'Generate', exact: true }).first().click();
-  await expect(page.getByText('Start paid generation?', { exact: true })).toBeVisible();
+  await expect(page.getByText('Step 1 · Make the stills first?', { exact: true })).toBeVisible();
   await page.evaluate(() => window.history.pushState(null, '', '/studio?project=project-b'));
-  await expect(page.getByText('Start paid generation?', { exact: true })).not.toBeVisible();
+  await expect(page.getByText('Step 1 · Make the stills first?', { exact: true })).not.toBeVisible();
   await expect(page.getByText("The Last Dragon's Keep", { exact: true })).toBeVisible();
 });
 

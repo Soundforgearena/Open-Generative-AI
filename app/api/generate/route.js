@@ -17,7 +17,9 @@ import { buildPreflightReport } from '../../../lib/billing/generation-preflight.
 import { normalizeMuapiCost } from '../../../lib/providers/muapi-cost-adapter.js';
 import { rateLimit } from '../../../lib/rate-limit';
 import { projectSong, sliceSongForScene } from '../../../lib/music/audio.js';
-import { FaceMismatchError, LIKENESS_VIDEO_MODEL, keyframeCents, likenessMotionPrompt, makeKeyframe, resolveSceneLikeness } from '../../../lib/music/likeness.js';
+import { FaceMismatchError, LIKENESS_VIDEO_MODEL, PERFORM_MAX_MS, PERFORM_MIN_MS, PERFORM_MODEL, keyframeCents, likenessMotionPrompt, makeKeyframe, performPrompt, resolveSceneLikeness } from '../../../lib/music/likeness.js';
+import { PLAN_PRICING_POLICY, planCodeFor, planCredits } from '../../../lib/billing/plan-pricing.js';
+import { runStillJob } from '../../../lib/generation/still-job.js';
 
 const SAFE_PROVIDER_FIELDS = new Set([
   'prompt',
@@ -159,6 +161,11 @@ export async function POST(request) {
       }
     }
 
+    // Step 1: the scene's still, approved before any video is paid for.
+    if (operation === 'keyframe') {
+      return runStillJob({ request, body, user, atCost, sceneId, projectId });
+    }
+
     // Lip sync: the server picks the take and cuts the exact song slice, so
     // the price always matches the audio length the provider bills for.
     let lipSync = null;
@@ -197,17 +204,38 @@ export async function POST(request) {
       if (likeness) model = LIKENESS_VIDEO_MODEL;
     }
 
+    // Step 2: animate the approved still. Sung scenes of 5 s or more become
+    // one-step performances (still + their slice of the song, lip sync built
+    // in); everything else is image-to-video from the still.
+    let fromStill = null;
+    let perform = null;
+    if (operation === 'video' && sceneId && body.use_keyframe === true) {
+      const sc = await selectOne('scenes', { id: `eq.${sceneId}` }, 'id,project_id,start_ms,end_ms,lip_sync,lyric_text,keyframe_url,keyframe_approved');
+      if (!sc?.keyframe_url || sc.keyframe_approved !== true) {
+        return safeError("Approve this scene's still first, then animate it.", 409);
+      }
+      fromStill = sc;
+      model = LIKENESS_VIDEO_MODEL;
+      const windowMs = Number(sc.end_ms) - Number(sc.start_ms);
+      if (sc.lip_sync && sc.start_ms !== null && windowMs >= PERFORM_MIN_MS && windowMs <= PERFORM_MAX_MS) {
+        const song = await projectSong(sc.project_id);
+        if (!song) return safeError('Upload your song first.', 409);
+        perform = { scene: sc, song, seconds: Math.ceil(windowMs / 1000) };
+        model = PERFORM_MODEL;
+      }
+    }
+
     // Server-side price rule. Only active, customer-visible models are allowed.
     const rule = await selectOne(
       'model_cost_rules',
       { model: `eq.${model}`, operation: `eq.${operation}`, active: 'eq.true' },
-      'provider,provider_cost_cents,max_duration_seconds,max_references'
+      'provider,provider_cost_cents,max_duration_seconds,max_references,fixed_overhead_cents,variable_overhead_percent,payment_fee_fixed_cents,payment_fee_percent,minimum_customer_price_cents'
     );
     if (!rule) return safeError('That creative option is not available.', 409);
 
     // Price exactly what is sent to the provider. Never trust duplicate
     // top-level values that can disagree with the provider payload.
-    const durationSeconds = lipSync ? lipSync.seconds : Number(input.duration_seconds ?? input.duration ?? requestedDuration);
+    const durationSeconds = lipSync ? lipSync.seconds : perform ? perform.seconds : Number(input.duration_seconds ?? input.duration ?? requestedDuration);
     const resolution = input.resolution ?? requestedResolution;
     let referenceCount;
     try {
@@ -231,7 +259,8 @@ export async function POST(request) {
       durationSeconds,
       resolution,
       ruleCostCents: rule.provider_cost_cents,
-    }) + (likeness ? keyframeCents(resolution) : 0);
+    // The still is paid for in step 1, so animating it adds no keyframe cost.
+    }) + (likeness && !fromStill ? keyframeCents(resolution) : 0);
     const quote = await callRpc('quote_generation', {
       p_provider: rule.provider,
       p_model: model,
@@ -247,10 +276,18 @@ export async function POST(request) {
       return safeError('This creative setup is temporarily unavailable.', 409);
     }
 
-    const credits = atCost ? atCostCredits(jobCostCents) : Number(quoteRow.credits);
+    const listCredits = Number(quoteRow.credits);
+    // Subscribers pay a lower markup (still above the plan's margin floor).
+    const planCode = atCost ? null : await planCodeFor(user.id);
+    const credits = atCost
+      ? atCostCredits(jobCostCents)
+      : planCode ? planCredits({ rule, providerCostCents: jobCostCents, listCredits, planCode }) : listCredits;
     if (quoteOnly) {
       return Response.json({
         credits_required: credits,
+        list_credits: listCredits,
+        plan_code: planCode,
+        engine: perform ? 'perform' : fromStill ? 'still' : likeness ? 'real_face' : 'text',
         duration_seconds: durationSeconds,
         model,
         operation,
@@ -310,7 +347,7 @@ export async function POST(request) {
         p_operation: operation,
         p_estimated_credits: credits,
         p_max_reservation_credits: credits,
-        p_pricing_policy_version: atCost ? AT_COST_POLICY : '2026-09-06-v1',
+        p_pricing_policy_version: atCost ? AT_COST_POLICY : planCode ? PLAN_PRICING_POLICY : '2026-09-06-v1',
         p_idempotency_key: idempotencyKey,
       });
       const reservationRow = Array.isArray(reservation.data) ? reservation.data[0] : reservation.data;
@@ -362,9 +399,11 @@ export async function POST(request) {
       await insertRows('scene_versions', {
         scene_id: sceneId,
         version: sceneVersion,
-        prompt: lipSync ? 'Lip sync to the song' : typeof input?.prompt === 'string' ? input.prompt : null,
+        prompt: lipSync ? 'Lip sync to the song' : perform ? 'Sung performance' : typeof input?.prompt === 'string' ? input.prompt : null,
         status: 'pending',
         ...(lipSync ? { kind: 'lip_sync', source_version_id: lipSync.source.id } : {}),
+        // A one-step performance is already lip-synced to the vocal.
+        ...(perform ? { kind: 'lip_sync' } : {}),
       });
       await updateRows('scenes', { id: `eq.${sceneId}` }, { status: 'generating' });
     }
@@ -444,20 +483,21 @@ export async function POST(request) {
       const apiKey = requireSecret('MUAPI_API_KEY');
       const base = process.env.MUAPI_BASE_URL || 'https://api.muapi.ai';
       let slice = null;
-      if (lipSync) {
-        const owner = await selectOne('projects', { id: `eq.${lipSync.scene.project_id}` }, 'owner_id');
+      const sung = lipSync || perform;
+      if (sung) {
+        const owner = await selectOne('projects', { id: `eq.${sung.scene.project_id}` }, 'owner_id');
         slice = await sliceSongForScene({
-          song: lipSync.song,
+          song: sung.song,
           sceneId,
           ownerId: owner?.owner_id || user.id,
-          projectId: lipSync.scene.project_id,
-          startMs: Number(lipSync.scene.start_ms),
-          endMs: Number(lipSync.scene.end_ms),
+          projectId: sung.scene.project_id,
+          startMs: Number(sung.scene.start_ms),
+          endMs: Number(sung.scene.end_ms),
         });
         if (Math.ceil(slice.durationMs / 1000) > durationSeconds) throw new Error('song slice longer than priced');
       }
-      let firstFrame = null;
-      if (likeness) {
+      let firstFrame = fromStill ? fromStill.keyframe_url : null;
+      if (likeness && !fromStill) {
         firstFrame = await makeKeyframe({
           base,
           apiKey,
@@ -468,8 +508,13 @@ export async function POST(request) {
           singing: Boolean(likeness.scene.lip_sync),
         });
       }
-      const canonicalInput = likeness ? {
-        prompt: likenessMotionPrompt(input.prompt),
+      const canonicalInput = perform ? {
+        image_url: firstFrame,
+        audio_url: slice.url,
+        prompt: performPrompt(perform.scene.lyric_text),
+        output_resolution: resolution === '1080p' ? '1080' : '720',
+      } : (likeness || fromStill) ? {
+        prompt: likeness ? likenessMotionPrompt(input.prompt) : String(input.prompt || '').slice(0, 2000),
         images_list: [firstFrame],
         duration: durationSeconds,
         ...(resolution ? { resolution } : {}),

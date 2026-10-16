@@ -7,6 +7,7 @@ import { evaluateReservationRisk } from '../lib/billing/risk-policy.js';
 import { buildPreflightReport } from '../lib/billing/generation-preflight.js';
 import { AT_COST_POLICY, atCostCredits, isAtCostUser } from '../lib/billing/at-cost.js';
 import { providerCostCents } from '../lib/billing/provider-pricing.js';
+import { PLAN_PRICING_POLICY, planCredits } from '../lib/billing/plan-pricing.js';
 
 const variable = 'CINEXVIDEO_STARTING_PROVIDER_ALLOWANCE_CENTS';
 const source = await readFile(new URL('../app/api/generate/route.js', import.meta.url), 'utf8');
@@ -54,6 +55,7 @@ function routeHarness({ credits, used = 0, revenue = 0, chargeback = false, supe
     insertRows: unexpected, updateRows: unexpected, requireSecret: unexpected,
     fetch: unexpected, normalizeMuapiCost: unexpected,
     AT_COST_POLICY, atCostCredits, isAtCostUser, providerCostCents,
+    PLAN_PRICING_POLICY, planCredits, planCodeFor: async () => null, runStillJob: unexpected,
     loadRuntimeSafetySignals, evaluateProviderExposure, evaluateReservationRisk, buildPreflightReport,
   };
   const body = source.replace(/^import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];\n/gm, '')

@@ -253,6 +253,10 @@
 .sx-readiness.is-blocked { border-color: rgba(242, 169, 59, .45); background: rgba(242, 169, 59, .07); }
 .sx-problem { color: #f5c98a; }
 .sx-takes { display: grid; gap: 4px; }
+.sx-still { display: grid; gap: 8px; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.sx-still-img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; border: 1px solid rgba(212,175,55,0.25); background: #0b0b0d; display: block; }
+.sx-still-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 34px; }
+.sx-still .sx-link-btn { min-height: 34px; }
 .sx-take { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #c9c7c1; min-height: 32px; }
 .sx-assets { padding: 14px; display: grid; gap: 12px; align-content: start; }
 .sx-upload { position: relative; display: grid; justify-items: center; gap: 6px; padding: 22px 14px; border: 1.5px dashed var(--sx-line-2); border-radius: 10px; text-align: center; font-weight: 600; cursor: pointer; }

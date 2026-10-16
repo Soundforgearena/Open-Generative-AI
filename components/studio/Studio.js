@@ -104,7 +104,9 @@ function mapScene(scene) {
     status: scene.status || 'draft',
     updated_at: scene.updated_at || null,
     output_url: output,
-    thumbnail_url: thumb || (IMAGE_RE.test(output) ? output : ''),
+    thumbnail_url: thumb || (IMAGE_RE.test(output) ? output : '') || safeUrl(scene.keyframe_url || ''),
+    keyframe_url: safeUrl(scene.keyframe_url || ''),
+    keyframe_approved: Boolean(scene.keyframe_url) && scene.keyframe_approved === true,
     output_is_image: IMAGE_RE.test(output),
     versions,
   };
@@ -838,9 +840,28 @@ function StudioWorkspace() {
 
   /* ---------------------------------------------------------- generation */
 
+  const scenePrompt = (s, c) => buildProviderPrompt({ prompt: s.prompt || s.purpose || s.title, controls: c, style: [styleName, vi.style_notes].filter(Boolean).join(', ') });
+
+  /** Step 1: the scene's still (first frame), approved before any video is paid for. */
+  function stillPayload(s) {
+    const c = parseShotDirection(s.shot_direction);
+    return {
+      model: 'still',
+      operation: 'keyframe',
+      project_id: project.id,
+      scene_id: s.id,
+      resolution: c.resolution,
+      input: { prompt: scenePrompt(s, c), aspect_ratio: aspect, resolution: c.resolution },
+    };
+  }
+
   function payloadFor(s) {
     const c = parseShotDirection(s.shot_direction);
-    const duration = Math.min(Math.ceil(Number(s.duration_seconds || 5)), Number(videoOption?.max_duration_seconds || 10));
+    // Approved stills are animated; sung scenes then run as one performance
+    // whose length the server takes from the song, so no client cap applies.
+    const fromStill = Boolean(s.keyframe_approved);
+    const raw = Math.ceil(Number(s.duration_seconds || 5));
+    const duration = fromStill && s.lip_sync ? raw : Math.min(raw, Number(videoOption?.max_duration_seconds || 10));
     return {
       model: videoOption.model,
       operation: 'video',
@@ -848,8 +869,9 @@ function StudioWorkspace() {
       scene_id: s.id,
       duration_seconds: duration,
       resolution: c.resolution,
+      ...(fromStill ? { use_keyframe: true } : {}),
       input: {
-        prompt: buildProviderPrompt({ prompt: s.prompt || s.purpose || s.title, controls: c, style: [styleName, vi.style_notes].filter(Boolean).join(', ') }),
+        prompt: scenePrompt(s, c),
         aspect_ratio: aspect,
         duration,
         resolution: c.resolution,
@@ -871,13 +893,47 @@ function StudioWorkspace() {
 
   const needsLipSync = (s) => Boolean(s?.lip_sync && lipSyncOption);
 
-  /** Credits for one scene: the clip, plus lip sync when the scene is sung. */
+  /**
+   * Credits for one scene. Without an approved still: the still (step 1).
+   * With one: the animation (step 2), plus a separate lip sync only for sung
+   * scenes too short for a one-step performance.
+   */
   async function quoteScene(s) {
-    const [video, lip] = await Promise.all([
-      quoteGeneration(payloadFor(s)).then((q) => Number(q.credits_required)),
-      needsLipSync(s) ? quoteGeneration(lipSyncPayload(s)).then((q) => Number(q.credits_required)) : Promise.resolve(0),
-    ]);
-    return { video, lip, total: video + lip };
+    if (!s.keyframe_approved) {
+      const q = await quoteGeneration(stillPayload(s));
+      return { step: 'still', still: Number(q.credits_required), video: 0, lip: 0, total: Number(q.credits_required), list: Number(q.list_credits || q.credits_required), plan: q.plan_code || null };
+    }
+    const q = await quoteGeneration(payloadFor(s));
+    const video = Number(q.credits_required);
+    const perform = q.engine === 'perform';
+    let lip = 0; let lipList = 0;
+    if (!perform && needsLipSync(s)) {
+      const l = await quoteGeneration(lipSyncPayload(s));
+      lip = Number(l.credits_required); lipList = Number(l.list_credits || l.credits_required);
+    }
+    return { step: 'animate', still: 0, video, lip, perform, total: video + lip, list: Number(q.list_credits || video) + lipList, plan: q.plan_code || null };
+  }
+
+  async function runStill(s, maxCredits) {
+    const r = await startGeneration({ ...stillPayload(s), confirmed_max_credits: maxCredits });
+    if (r?.keyframe_url) {
+      setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, keyframe_url: r.keyframe_url, keyframe_approved: false, thumbnail_url: x.versions?.length ? x.thumbnail_url : r.keyframe_url, status: 'needs_review' } : x)));
+    }
+    return r;
+  }
+
+  async function approveStill(ids, approved = true) {
+    const list = Array.isArray(ids) ? ids : [ids];
+    try {
+      await flush();
+      await Promise.all(list.map((id) => updateScene(id, { keyframe_approved: approved })));
+      setScenes((cur) => cur.map((x) => (list.includes(x.id) ? { ...x, keyframe_approved: approved } : x)));
+      setToast(approved
+        ? `${list.length === 1 ? 'Still' : `${list.length} stills`} approved. Generate again to animate.`
+        : 'Still unapproved.');
+    } catch (error) {
+      setToast(error.message || 'The still could not be approved.');
+    }
   }
 
   async function runLipSync(s, sourceVersionId, maxCredits) {
@@ -938,16 +994,28 @@ function StudioWorkspace() {
     const quotedSceneId = scene.id;
     await flush();
     if (!isCurrent()) return;
-    if (demoModeEnabled) { setGenDialog({ scope: 'scene', byScene: { [scene.id]: 8 }, total: 8, all: { total: 8 * scenes.length } }); return; }
+    if (demoModeEnabled) { setGenDialog({ scope: 'scene', step: 'still', byScene: { [scene.id]: 8 }, total: 8, all: { total: 8 * scenes.length, ids: scenes.map((x) => x.id), list: 8 * scenes.length } }); return; }
     setGenState('quoting');
     try {
       const quotes = await Promise.all(scenes.map(async (s) => [s.id, await quoteScene(s)]));
       if (!isCurrent() || selectedIdRef.current !== quotedSceneId) return;
       const parts = Object.fromEntries(quotes);
       const byScene = Object.fromEntries(quotes.map(([id, q]) => [id, q.total]));
+      const step = parts[scene.id].step;
+      // "All" covers every scene at the same step as this one.
+      const same = quotes.filter(([, q]) => q.step === step);
       setGenDialog({
-        scope: 'scene', byScene, parts, total: byScene[scene.id],
-        all: { total: quotes.reduce((t, [, q]) => t + q.total, 0), lip: quotes.reduce((t, [, q]) => t + q.lip, 0), synced: quotes.filter(([, q]) => q.lip > 0).length },
+        scope: 'scene', step, byScene, parts, total: byScene[scene.id],
+        plan: parts[scene.id].plan,
+        all: {
+          ids: same.map(([id]) => id),
+          total: same.reduce((t, [, q]) => t + q.total, 0),
+          list: same.reduce((t, [, q]) => t + q.list, 0),
+          lip: same.reduce((t, [, q]) => t + q.lip, 0),
+          synced: same.filter(([, q]) => q.lip > 0).length,
+          performed: same.filter(([, q]) => q.perform).length,
+        },
+        waiting: step === 'animate' ? quotes.filter(([, q]) => q.step === 'still').length : 0,
       });
     } catch (error) {
       if (isCurrent()) setToast(error.message || 'The generation price could not be calculated.');
@@ -958,7 +1026,7 @@ function StudioWorkspace() {
 
   async function confirmGenerate() {
     if (genLock.current || !genDialog) return;
-    const targets = genDialog.scope === 'all' ? scenes : [scene];
+    const targets = genDialog.scope === 'all' ? scenes.filter((x) => genDialog.all.ids.includes(x.id)) : [scene];
     const needed = genDialog.scope === 'all' ? genDialog.all.total : genDialog.total;
     if (credits !== null && needed > credits) { setToast(`You need ${needed} credits and have ${credits}. Add credits from Account and billing.`); return; }
     if (demoModeEnabled) {
@@ -982,6 +1050,38 @@ function StudioWorkspace() {
     setGenStartedAt(Date.now());
     let failed = 0;
     let lastDone = '';
+    if (dialog.step === 'still') {
+      try {
+        let made = 0;
+        for (const s of targets) {
+          setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, status: 'generating' } : x)));
+          setToast(`Making the still for ${s.title}...`);
+          try {
+            await runStill(s, dialog.parts?.[s.id]?.still ?? dialog.byScene[s.id]);
+            made += 1; lastDone = s.id;
+          } catch (error) {
+            failed += 1;
+            setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, status: 'draft' } : x)));
+            if (error.status === 402) throw error;
+            if (targets.length === 1) throw error;
+          }
+          if (!isCurrent()) return;
+        }
+        const account = await getAccount();
+        if (!isCurrent()) return;
+        setCredits(Number(account.credits ?? 0));
+        if (lastDone) setSelectedId(lastDone);
+        setToast(failed
+          ? `${made} still${made === 1 ? '' : 's'} ready, ${failed} failed and were refunded. Review them, then approve.`
+          : `${made === 1 ? 'Still' : `${made} stills`} ready. Check the face and framing, then approve before animating.`);
+      } catch (error) {
+        if (isCurrent()) setToast(error.status === 402 ? 'Not enough credits. Open Account and billing to add more.' : error.message || 'The still could not be made.');
+      } finally {
+        genLock.current = false;
+        if (isCurrent()) setGenState('idle');
+      }
+      return;
+    }
     try {
       for (const s of targets) {
         setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, status: 'generating' } : x)));
@@ -1547,6 +1647,29 @@ function StudioWorkspace() {
               </Section>
 
               <Section icon={Icon.Spark} title="Generation" open={open.generation} onToggle={() => setOpen((o) => ({ ...o, generation: !o.generation }))}>
+                <div className="sx-still" aria-label="Scene still">
+                  <p className="sx-menu-heading">Scene still · step 1</p>
+                  {scene?.keyframe_url ? (
+                    <>
+                      <img className="sx-still-img" src={scene.keyframe_url} alt={`Still for ${scene.title}`} referrerPolicy="no-referrer" />
+                      <div className="sx-still-row">
+                        <span className={`sx-status ${scene.keyframe_approved ? 'is-good' : ''}`}>{scene.keyframe_approved ? 'Approved' : 'Not approved yet'}</span>
+                        {scene.keyframe_approved
+                          ? <button type="button" className="sx-link-btn" onClick={() => approveStill(scene.id, false)}>Unapprove</button>
+                          : <button type="button" className="sx-btn sx-btn-gold sx-btn-sm" onClick={() => approveStill(scene.id)}>Approve still</button>}
+                        <button type="button" className="sx-link-btn" onClick={openGenerate} disabled={generating || scene.keyframe_approved}>New still</button>
+                      </div>
+                      {(() => {
+                        const pending = scenes.filter((x) => x.keyframe_url && !x.keyframe_approved).map((x) => x.id);
+                        return pending.length > 1 ? (
+                          <button type="button" className="sx-link-btn" onClick={() => approveStill(pending)}>Approve all {pending.length} new stills</button>
+                        ) : null;
+                      })()}
+                    </>
+                  ) : (
+                    <p className="sx-hint">No still yet. Press Generate to make this scene&apos;s first frame for a few credits. Approve it, then Generate again to animate it.</p>
+                  )}
+                </div>
                 <div className="sx-rows">
                   <Select id="gen-model" label="Model" value={videoOption?.model || ''} options={videoOptions.length ? videoOptions.map((o) => ({ value: o.model, label: o.label })) : [{ value: '', label: 'Unavailable' }]} onChange={setModelKey} disabled={!videoOptions.length} />
                   <Select id="gen-res" label="Resolution" value={resolutions.some((r) => r.value === controls.resolution) ? controls.resolution : resolutions[0].value} options={resolutions} onChange={(v) => patchControls({ resolution: v })} />
@@ -1576,7 +1699,7 @@ function StudioWorkspace() {
                     <p className="sx-hint">When every scene is ready, use Download at the top to save your finished video to this device. Generated takes are kept by the video provider for a limited time, so download your finished video soon.</p>
                     {scene.versions.map((v) => (
                       <div key={v.id || v.version} className="sx-take">
-                        <span>Take {v.version}{v.kind === 'lip_sync' ? ' · lip sync' : ''} · {v.status}</span>
+                        <span>Take {v.version}{v.kind === 'lip_sync' ? (v.source_version_id ? ' · lip sync' : ' · sung performance') : ''} · {v.status}</span>
                         {v.approved ? <span className="sx-status is-good">Approved</span> : v.status === 'completed' && <button type="button" className="sx-link-btn" onClick={() => approveTake(v.version)}>Approve</button>}
                       </div>
                     ))}
@@ -1670,19 +1793,33 @@ function StudioWorkspace() {
         <div className="sx-backdrop" role="presentation" onClick={() => setGenDialog(null)}>
           <section className="sx-dialog" role="dialog" aria-modal="true" aria-labelledby="sx-gen-title" onClick={(e) => e.stopPropagation()}>
             <p className="sx-kicker">Final confirmation</p>
-            <h2 id="sx-gen-title">{atCost ? 'Start at-cost generation?' : 'Start paid generation?'}</h2>
+            <h2 id="sx-gen-title">{genDialog.step === 'still'
+              ? 'Step 1 · Make the stills first?'
+              : atCost ? 'Step 2 · Animate at cost?' : 'Step 2 · Animate the approved stills?'}</h2>
+            <p className="sx-hint">{genDialog.step === 'still'
+              ? 'Each scene starts as a still: its first frame, with the real face. Stills cost a few credits, so you fix faces and framing here before paying for video.'
+              : 'Approved stills become moving video. Sung scenes are performed in one step with lip sync built in, timed to your song.'}</p>
             <div className="sx-scope" role="radiogroup" aria-label="What to generate">
               <button type="button" role="radio" aria-checked={genDialog.scope === 'scene'} className={genDialog.scope === 'scene' ? 'is-active' : ''} onClick={() => setGenDialog((d) => ({ ...d, scope: 'scene' }))}>
                 <strong>This scene</strong><span>{scene?.title} · {genDialog.total} credits</span>
               </button>
               <button type="button" role="radio" aria-checked={genDialog.scope === 'all'} className={genDialog.scope === 'all' ? 'is-active' : ''} onClick={() => setGenDialog((d) => ({ ...d, scope: 'all' }))}>
-                <strong>All {scenes.length} scenes</strong><span>{genDialog.all.total} credits</span>
+                <strong>{genDialog.step === 'still' ? `All ${genDialog.all.ids.length} scenes without an approved still` : `All ${genDialog.all.ids.length} approved scenes`}</strong><span>{genDialog.all.total} credits</span>
               </button>
             </div>
             <dl className="sx-dl">
               <div><dt>Maximum debit</dt><dd>{genDialog.scope === 'all' ? genDialog.all.total : genDialog.total} credits{atCost ? ' (at cost)' : ''}</dd></div>
               <div><dt>Your balance</dt><dd>{credits ?? '—'} credits</dd></div>
-              <div><dt>Model</dt><dd>{videoOption?.label}</dd></div>
+              {genDialog.step !== 'still' && <div><dt>Model</dt><dd>{videoOption?.label}</dd></div>}
+              {genDialog.step !== 'still' && (genDialog.scope === 'all' ? genDialog.all.performed > 0 : genDialog.parts?.[scene?.id]?.perform) && (
+                <div><dt>Sung performances</dt><dd>{genDialog.scope === 'all' ? `${genDialog.all.performed} scenes · lip sync included` : 'Lip sync included'}</dd></div>
+              )}
+              {genDialog.plan && !atCost && (genDialog.scope === 'all' ? genDialog.all.list > genDialog.all.total : genDialog.parts?.[scene?.id]?.list > genDialog.total) && (
+                <div><dt>Subscriber price</dt><dd>You save {(genDialog.scope === 'all' ? genDialog.all.list - genDialog.all.total : genDialog.parts[scene.id].list - genDialog.total).toLocaleString()} credits on your plan</dd></div>
+              )}
+              {genDialog.waiting > 0 && genDialog.scope === 'all' && (
+                <div><dt>Not included</dt><dd>{genDialog.waiting} scene{genDialog.waiting === 1 ? '' : 's'} still need an approved still</dd></div>
+              )}
               {(genDialog.scope === 'all' ? genDialog.all.lip > 0 : genDialog.parts?.[scene?.id]?.lip > 0) && (
                 <div><dt>Includes lip sync</dt><dd>{genDialog.scope === 'all' ? `${genDialog.all.synced} sung scenes · ${genDialog.all.lip} credits` : `${genDialog.parts[scene.id].lip} credits`}</dd></div>
               )}
@@ -1692,7 +1829,7 @@ function StudioWorkspace() {
               : 'Credits are reserved first and settled on completion. Failed scenes are refunded automatically.'}</p>
             <div className="sx-dialog-actions">
               <button type="button" className="sx-btn" autoFocus onClick={() => setGenDialog(null)}>Cancel</button>
-              <button type="button" className="sx-btn sx-btn-gold" onClick={confirmGenerate}><Icon.Spark /> Start generation</button>
+              <button type="button" className="sx-btn sx-btn-gold" onClick={confirmGenerate}><Icon.Spark /> {genDialog.step === 'still' ? 'Make stills' : 'Animate'}</button>
             </div>
           </section>
         </div>

@@ -140,8 +140,8 @@ test('lip sync generation is server-controlled', () => {
 
 test('"Both" alternates the lip-synced singer and backing chants are never lip-synced', () => {
   const { lines, cast } = parseLyrics(`[Afro-Canadian]\nOne two three four\n[Both]\nAct normal now\n[Ladies]\nAct normal now\n[Jamaican]\nFive six seven eight\n[Both]\nAct normal now`);
-  const timed = lines.map((l, i) => ({ ...l, start_ms: 1000 + i * 4000, end_ms: 3500 + i * 4000, confidence: 1 }));
-  const timeline = buildTimeline(timed, 22000, { cast });
+  const timed = lines.map((l, i) => ({ ...l, start_ms: 1000 + i * 7000, end_ms: 6500 + i * 7000, confidence: 1 }));
+  const timeline = buildTimeline(timed, 37000, { cast });
   const scenes = timelineToScenes(timeline, { cast, resolution: '1080p' });
   const sung = scenes.filter((s) => s.lip_sync);
   assert.ok(sung.every((s) => ['afro-canadian', 'jamaican'].includes(s.vocalist)));
@@ -153,7 +153,7 @@ test('"Both" alternates the lip-synced singer and backing chants are never lip-s
   assert.ok(scenes.every((s) => s.shot_direction.includes('1080p') && !s.shot_direction.includes('720p')));
   // Contiguous, whole song.
   assert.equal(scenes[0].start_ms, 0);
-  assert.equal(scenes[scenes.length - 1].end_ms, 22000);
+  assert.equal(scenes[scenes.length - 1].end_ms, 37000);
   for (let i = 1; i < scenes.length; i += 1) assert.equal(scenes[i].start_ms, scenes[i - 1].end_ms);
 });
 

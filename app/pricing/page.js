@@ -138,6 +138,7 @@ export default function PricingPage() {
             <section className="cinex-pricing-section" aria-labelledby="pricing-plans-title">
               <h2 id="pricing-plans-title">Monthly plans</h2>
               <p className="cinex-form-optional">Credits arrive every month and roll over. Cancel any time from your account page.</p>
+              <p className="cinex-pricing-highlight">Subscribers also pay less for every scene: about 24% off on Creator and Studio, and about 32% off on Pro, on top of the monthly credits.</p>
               <div className="cinex-pricing-table-wrap">
                 <table className="cinex-pricing-table">
                   <thead>
