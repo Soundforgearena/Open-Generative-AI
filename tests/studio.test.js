@@ -47,7 +47,7 @@ test('studio generation always quotes and confirms before spending', async () =>
   // Each scene is capped at the quoted clip price; sung scenes add the quoted lip sync price.
   assert.match(src, /confirmed_max_credits: part\.video/);
   assert.match(src, /runLipSync\(s, source\.id, part\.lip\)/);
-  assert.match(src, /Start paid generation\?/);
+  assert.match(src, /Step 2 · Animate the approved stills\?/);
   const readiness = src.slice(src.indexOf('async function checkReadiness'), src.indexOf('async function approveTake'));
   assert.match(readiness, /preflightGeneration/); assert.doesNotMatch(readiness, /startGeneration/);
 });

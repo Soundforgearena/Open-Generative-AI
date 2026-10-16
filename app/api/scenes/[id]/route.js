@@ -52,6 +52,20 @@ export async function PATCH(request, { params }) {
     patch.character_asset_id = face.id;
   }
 
+  // Approve (or un-approve) the scene's still before paying to animate it.
+  const current = (typeof body.keyframe_approved === 'boolean' || 'character_asset_id' in patch)
+    ? await selectOne('scenes', { id: `eq.${id}` }, 'keyframe_url,character_asset_id')
+    : null;
+  if (typeof body.keyframe_approved === 'boolean') {
+    if (body.keyframe_approved && !current?.keyframe_url) return safeError('Make a still for this scene first.', 409);
+    patch.keyframe_approved = body.keyframe_approved;
+  }
+  // A different face makes the current still wrong, so it must be made again.
+  if ('character_asset_id' in patch && current && (current.character_asset_id || null) !== (patch.character_asset_id || null)) {
+    patch.keyframe_url = null;
+    patch.keyframe_approved = false;
+  }
+
   // Promote a specific take to be the scene's active version.
   if (Number.isFinite(Number(body.approve_version))) {
     const version = Number(body.approve_version);

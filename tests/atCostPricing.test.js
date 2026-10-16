@@ -48,7 +48,7 @@ test('customers always pay the confirmed price; MUAPI raw cost never replaces th
 test('generate route prices real cost, charges admins at cost from purchased credits only', async () => {
   const gen = await src('app/api/generate/route.js');
   assert.match(gen, /p_provider_cost_cents: jobCostCents/);
-  assert.match(gen, /atCost \? atCostCredits\(jobCostCents\) : Number\(quoteRow\.credits\)/);
+  assert.match(gen, /atCost\s*\? atCostCredits\(jobCostCents\)\s*: planCode \? planCredits\(/);
   assert.match(gen, /atCost \? 'reserve_paid_credits_v1' : 'reserve_credits_v2'/);
   assert.doesNotMatch(gen, /platformFunded/);
   for (const path of ['app/api/jobs/[requestId]/route.js', 'app/api/admin/cron/reconcile/route.js']) {
