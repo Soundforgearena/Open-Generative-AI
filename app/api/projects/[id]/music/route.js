@@ -12,7 +12,7 @@ import {
 import { AT_COST_POLICY, atCostCredits, isAtCostUser } from '../../../../../lib/billing/at-cost';
 import { rateLimit } from '../../../../../lib/rate-limit';
 import {
-  alignLyrics,
+  alignFromPasses,
   buildTimeline,
   normalizeTimedLines,
   parseLyrics,
@@ -21,6 +21,9 @@ import {
 import { projectSong, withSongFile } from '../../../../../lib/music/audio';
 import { OVERLAP_FACTOR, transcribeSong } from '../../../../../lib/music/transcribe';
 import { run as runTool } from '../../../../../lib/exports/render-video';
+import { existsSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -48,8 +51,10 @@ async function saveMusic(project, music) {
 
 /** Credits for timing a song of this length (purchased credits only). */
 async function alignmentCredits(durationMs, atCost) {
-  // Overlapping windows mean ~1.25x the song is sent for transcription.
-  const minutes = Math.max(1, Math.ceil((durationMs * OVERLAP_FACTOR) / 60000));
+  // The fallback service is sent ~1.25x the song (overlapping windows); the
+  // on-server model is priced on the song itself.
+  const factor = localTimingReady() ? 1 : OVERLAP_FACTOR;
+  const minutes = Math.max(1, Math.ceil((durationMs * factor) / 60000));
   const rule = await selectOne(
     'model_cost_rules',
     { provider: 'eq.openai', model: 'eq.whisper-1', operation: 'eq.alignment', active: 'eq.true' },
@@ -69,6 +74,90 @@ async function alignmentCredits(durationMs, atCost) {
   });
   const row = Array.isArray(quote.data) ? quote.data[0] : quote.data;
   return quote.ok && row?.approved ? Number(row.credits) : null;
+}
+
+const TIMING_STALE_MS = 20 * 60 * 1000;
+
+/** On-server lyric timing (faster-whisper baked into the image). */
+function localTimingReady() {
+  const py = process.env.LYRIC_TIMING_PYTHON;
+  const dir = process.env.LYRIC_TIMING_MODEL_DIR || '/opt/whisper/small';
+  return Boolean(py && existsSync(py) && existsSync(path.join(dir, 'model.bin')));
+}
+
+let promptSeq = 0;
+/** One 16 kHz mono WAV -> words (seconds) using the on-server model. */
+async function hearLocal(wavFile, prompt) {
+  promptSeq += 1;
+  const promptFile = path.join(path.dirname(wavFile), `prompt-${promptSeq}.txt`);
+  await writeFile(promptFile, String(prompt || '').slice(0, 800), 'utf8');
+  const out = await runTool(process.env.LYRIC_TIMING_PYTHON, [path.join(process.cwd(), 'scripts/lyric_timing.py'), wavFile, promptFile], { timeoutMs: 600_000 });
+  const words = JSON.parse(out || '[]');
+  return Array.isArray(words) ? words : [];
+}
+
+// One timing job at a time per server so two songs never fight for the CPU.
+let timingQueue = Promise.resolve();
+function enqueueTiming(job) {
+  const next = timingQueue.then(job, job);
+  timingQueue = next.catch(() => {});
+  return next;
+}
+
+/** Listen to the song and return timed lines plus how many words were heard. */
+async function listenAndAlign(song, lines) {
+  return withSongFile(song, async ({ file, dir, durationMs }) => {
+    const lyricText = lines.map((l) => l.text).join('\n');
+    const passes = [];
+    if (localTimingReady()) {
+      // Two passes, then each line keeps its best-supported timing:
+      // (a) the whole song in one listen (strong on long runs of lyrics),
+      const whole = path.join(dir, 'song16.wav');
+      await runTool('ffmpeg', ['-v', 'error', '-y', '-i', file, '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', whole], { timeoutMs: 120_000 });
+      passes.push(await hearLocal(whole, lyricText));
+      // (b) cleaned vocals in overlapping, lyric-guided windows (strong where
+      //     the beat buries the voice).
+      passes.push(await transcribeSong({ run: runTool, file, dir, durationMs, lines, hear: hearLocal }));
+    } else {
+      passes.push(await transcribeSong({ run: runTool, file, dir, durationMs, lines, hear: hearWindow }));
+    }
+    return {
+      durationMs,
+      lines: alignFromPasses(lines, passes, durationMs),
+      heard: Math.max(...passes.map((p) => p.length)),
+    };
+  });
+}
+
+async function runTimingJob({ projectId, song, reservationId, credits }) {
+  try {
+    const project = await selectOne('projects', { id: `eq.${projectId}` }, 'id,director_plan');
+    const parsed = parseLyrics(String(project?.director_plan?.lyrics || ''));
+    if (!parsed.lines.length) throw new Error('lyrics removed');
+    const result = await listenAndAlign(song, parsed.lines);
+    const fresh = await selectOne('projects', { id: `eq.${projectId}` }, 'id,director_plan');
+    const music = {
+      song_id: song.id,
+      duration_ms: result.durationMs,
+      lines: result.lines,
+      cast: cleanCast(musicOf(fresh)?.cast, parsed.cast),
+      heard_words: result.heard,
+      confirmed: false,
+      timed_at: new Date().toISOString(),
+      timing: { status: 'done', finished_at: new Date().toISOString(), credits },
+    };
+    const saved = await saveMusic(fresh, music);
+    if (!saved.ok) throw new Error('save failed');
+    const settled = await callRpc('settle_reservation_v2', { p_reservation_id: reservationId, p_settled_credits: credits, p_generation_job_id: null });
+    if (!settled.ok) console.error('lyric timing settle failed', reservationId);
+  } catch (err) {
+    console.error('lyric timing job', err.message);
+    await callRpc('release_reservation_v2', { p_reservation_id: reservationId, p_reason: 'lyric_timing_failed' });
+    const fresh = await selectOne('projects', { id: `eq.${projectId}` }, 'id,director_plan').catch(() => null);
+    if (fresh) {
+      await saveMusic(fresh, { ...(musicOf(fresh) || {}), timing: { status: 'failed', finished_at: new Date().toISOString(), message: 'Your song could not be timed right now. You were not charged.' } });
+    }
+  }
 }
 
 /** One window of the song -> words (seconds, relative to the window). */
@@ -196,62 +285,51 @@ export async function POST(request, { params }) {
     const idempotencyKey = request.headers.get('idempotency-key');
     if (!idempotencyKey) return safeError('An idempotency key is required.', 400);
 
+    const current = musicOf(project);
+    if (current?.timing?.status === 'running' && Date.now() - Date.parse(current.timing.started_at || 0) < TIMING_STALE_MS) {
+      return Response.json({ error: 'Your song is already being timed. This usually takes a few minutes.', timing: current.timing }, { status: 409 });
+    }
+
+    let durationMs;
     try {
-      return await withSongFile(song, async ({ file, dir, durationMs }) => {
-        if (durationMs > MAX_SONG_MS) return safeError('Songs can be up to 10 minutes long.', 409);
-        const credits = await alignmentCredits(durationMs, atCost);
-        if (!credits) return safeError('Lyric timing is temporarily unavailable.', 409);
-        if (!Number.isInteger(Number(body.confirmed_max_credits)) || Number(body.confirmed_max_credits) < credits) {
-          return Response.json({ error: 'The price changed. Review the updated credit total before continuing.', credits_required: credits }, { status: 409 });
-        }
-        const reserved = await callRpc('reserve_paid_credits_v1', {
-          p_user_id: user.id,
-          p_operation: 'lyric_timing',
-          p_estimated_credits: credits,
-          p_max_reservation_credits: credits,
-          p_pricing_policy_version: atCost ? AT_COST_POLICY : ALIGN_POLICY,
-          p_idempotency_key: `lyric-timing:${idempotencyKey}`,
-          p_ttl_seconds: 900,
-        });
-        const reservation = Array.isArray(reserved.data) ? reserved.data[0] : reserved.data;
-        if (!reserved.ok || !reservation?.id) {
-          const message = String(reserved?.data?.message || '');
-          if (message.includes('INSUFFICIENT')) {
-            return Response.json({ error: `Timing your lyrics costs ${credits} purchased credits. Buy credits to continue.`, code: 'insufficient_paid_credits', credits_required: credits }, { status: 402 });
-          }
-          return safeError('Could not reserve credits. Please try again.', 409);
-        }
-        let words;
-        try {
-          words = await transcribeSong({ run: runTool, file, dir, durationMs, lines: parsed.lines, hear: hearWindow });
-        } catch (err) {
-          await callRpc('release_reservation_v2', { p_reservation_id: reservation.id, p_reason: 'lyric_timing_failed' });
-          console.error('lyric timing', err.message);
-          return safeError('Your song could not be timed right now. You were not charged.', 502);
-        }
-        const lines = alignLyrics(parsed.lines, words, durationMs);
-        const music = {
-          song_id: song.id,
-          duration_ms: durationMs,
-          lines,
-          cast: cleanCast(musicOf(project)?.cast, parsed.cast),
-          heard_words: words.length,
-          confirmed: false,
-          timed_at: new Date().toISOString(),
-        };
-        const saved = await saveMusic(project, music);
-        if (!saved.ok) {
-          await callRpc('release_reservation_v2', { p_reservation_id: reservation.id, p_reason: 'lyric_timing_save_failed' });
-          return safeError('The timing could not be saved. You were not charged.', 500);
-        }
-        const settled = await callRpc('settle_reservation_v2', { p_reservation_id: reservation.id, p_settled_credits: credits, p_generation_job_id: null });
-        if (!settled.ok) console.error('lyric timing settle failed', reservation.id);
-        return Response.json({ music, credits_charged: credits });
-      });
+      durationMs = await withSongFile(song, async ({ durationMs: ms }) => ms);
     } catch (err) {
       console.error('lyric timing song', err.message);
       return safeError('Your song could not be read. Try uploading it again as MP3 or WAV.', 502);
     }
+    if (durationMs > MAX_SONG_MS) return safeError('Songs can be up to 10 minutes long.', 409);
+    const credits = await alignmentCredits(durationMs, atCost);
+    if (!credits) return safeError('Lyric timing is temporarily unavailable.', 409);
+    if (!Number.isInteger(Number(body.confirmed_max_credits)) || Number(body.confirmed_max_credits) < credits) {
+      return Response.json({ error: 'The price changed. Review the updated credit total before continuing.', credits_required: credits }, { status: 409 });
+    }
+    const reserved = await callRpc('reserve_paid_credits_v1', {
+      p_user_id: user.id,
+      p_operation: 'lyric_timing',
+      p_estimated_credits: credits,
+      p_max_reservation_credits: credits,
+      p_pricing_policy_version: atCost ? AT_COST_POLICY : ALIGN_POLICY,
+      p_idempotency_key: `lyric-timing:${idempotencyKey}`,
+      p_ttl_seconds: 1800,
+    });
+    const reservation = Array.isArray(reserved.data) ? reserved.data[0] : reserved.data;
+    if (!reserved.ok || !reservation?.id) {
+      const message = String(reserved?.data?.message || '');
+      if (message.includes('INSUFFICIENT')) {
+        return Response.json({ error: `Timing your lyrics costs ${credits} purchased credits. Buy credits to continue.`, code: 'insufficient_paid_credits', credits_required: credits }, { status: 402 });
+      }
+      return safeError('Could not reserve credits. Please try again.', 409);
+    }
+    const timing = { status: 'running', started_at: new Date().toISOString(), credits };
+    const marked = await saveMusic(project, { ...(current || {}), timing });
+    if (!marked.ok) {
+      await callRpc('release_reservation_v2', { p_reservation_id: reservation.id, p_reason: 'lyric_timing_save_failed' });
+      return safeError('Timing could not start. You were not charged.', 500);
+    }
+    // Listening takes a few minutes on long songs, so it runs after the
+    // response; the Studio polls until timing.status leaves 'running'.
+    enqueueTiming(() => runTimingJob({ projectId: project.id, song, reservationId: reservation.id, credits }));
+    return Response.json({ timing, credits_reserved: credits }, { status: 202 });
   }
 
   if (action === 'save') {
