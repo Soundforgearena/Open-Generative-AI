@@ -39,7 +39,7 @@ const firstUrl = firstOutputUrl;
  * open browser tab can never double-charge or double-refund.
  */
 export async function GET(request, { params }) {
-  const { user, error } = await guard(request);
+  const { user, admin, error } = await guard(request);
   if (error) return error;
   const limited = rateLimit(`jobs:${user.id}`, { limit: 120, windowMs: 60_000 });
   if (limited) return limited;
@@ -69,9 +69,18 @@ export async function GET(request, { params }) {
       { headers: { 'x-api-key': apiKey }, cache: 'no-store' }
     );
     const data = await response.json().catch(() => null);
-    if (!response.ok) return safeError('Generation status is temporarily unavailable.', 502);
-
-    const status = normaliseStatus(data?.status || data?.state);
+    const status = normaliseStatus(data?.status || data?.state || data?.data?.status);
+    // MUAPI can answer a failed job with an error status code. A clear
+    // "failed" status is final (credits are returned below); anything else is
+    // reported so it can be diagnosed instead of polling forever.
+    if (!response.ok && status !== 'failed') {
+      const detail = String(data?.error || data?.detail?.[0]?.msg || data?.detail || data?.message || '').slice(0, 300);
+      console.error('job status not ok', { requestId, status: response.status, detail });
+      return Response.json(
+        { error: 'Generation status is temporarily unavailable.', ...(admin ? { provider_status: response.status, provider_detail: detail } : {}) },
+        { status: 502 }
+      );
+    }
     const output = muapiOutput(data);
     const outputUrl = firstUrl(output);
 
@@ -224,6 +233,9 @@ export async function GET(request, { params }) {
     });
   } catch (err) {
     console.error('job route', err);
-    return safeError('Generation status is temporarily unavailable.', 502);
+    return Response.json(
+      { error: 'Generation status is temporarily unavailable.', ...(admin ? { internal: String(err?.message || err).slice(0, 300) } : {}) },
+      { status: 502 }
+    );
   }
 }
