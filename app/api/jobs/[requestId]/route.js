@@ -179,7 +179,10 @@ export async function GET(request, { params }) {
       });
     }
 
-    // Failure path — the customer gets their credits back.
+    // Failure path — the customer gets their credits back. Keep the
+    // provider's reason on the job so failures can be diagnosed.
+    const reasonRaw = data?.error ?? data?.detail ?? data?.message ?? null;
+    const providerReason = reasonRaw == null ? '' : (typeof reasonRaw === 'string' ? reasonRaw : JSON.stringify(reasonRaw)).slice(0, 400);
     const platformJob = job.funding_source === 'platform';
     const reservation = platformJob ? null : await findCreditReservation(job.reservation_reference);
     if (platformJob) {
@@ -203,7 +206,7 @@ export async function GET(request, { params }) {
     const failedUpdate = await updateRows(
       'generation_requests',
       { id: `eq.${job.id}` },
-      { status: 'released', error_note: 'provider_failed' }
+      { status: 'released', error_note: `provider_failed${providerReason ? `: ${providerReason}` : ''}`.slice(0, 500) }
     );
     if (!failedUpdate.ok) throw new Error('generation failure could not be recorded');
     if (job.scene_id) {

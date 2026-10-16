@@ -76,3 +76,13 @@ test('animating needs an approved still and the migration adds the new rules hid
   assert.doesNotMatch(sql, /[^_]customer_price_cents/);
   assert.doesNotMatch(sql, /, true, '/);
 });
+
+test('sung performances send at least 5.2 s of audio, padded only at the end, and are priced on it', () => {
+  const route = readFileSync(new URL('../app/api/generate/route.js', import.meta.url), 'utf8');
+  assert.match(route, /Math\.max\(windowMs, PERFORM_AUDIO_MIN_MS\)/);
+  assert.match(route, /minMs: perform\.audioMs/);
+  const audio = readFileSync(new URL('../lib/music/audio.js', import.meta.url), 'utf8');
+  assert.match(audio, /apad=whole_dur=\$\{\(end \/ 1000\)/);
+  const jobs = readFileSync(new URL('../app/api/jobs/[requestId]/route.js', import.meta.url), 'utf8');
+  assert.match(jobs, /provider_failed\$\{providerReason/);
+});

@@ -17,7 +17,7 @@ import { buildPreflightReport } from '../../../lib/billing/generation-preflight.
 import { normalizeMuapiCost } from '../../../lib/providers/muapi-cost-adapter.js';
 import { rateLimit } from '../../../lib/rate-limit';
 import { projectSong, sliceSongForScene } from '../../../lib/music/audio.js';
-import { FaceMismatchError, LIKENESS_VIDEO_MODEL, PERFORM_MAX_MS, PERFORM_MIN_MS, PERFORM_MODEL, keyframeCents, likenessMotionPrompt, makeKeyframe, performPrompt, resolveSceneLikeness } from '../../../lib/music/likeness.js';
+import { FaceMismatchError, LIKENESS_VIDEO_MODEL, PERFORM_AUDIO_MIN_MS, PERFORM_MAX_MS, PERFORM_MIN_MS, PERFORM_MODEL, keyframeCents, likenessMotionPrompt, makeKeyframe, performPrompt, resolveSceneLikeness } from '../../../lib/music/likeness.js';
 import { PLAN_PRICING_POLICY, planCodeFor, planCredits } from '../../../lib/billing/plan-pricing.js';
 import { runStillJob } from '../../../lib/generation/still-job.js';
 
@@ -220,7 +220,9 @@ export async function POST(request) {
       if (sc.lip_sync && sc.start_ms !== null && windowMs >= PERFORM_MIN_MS && windowMs <= PERFORM_MAX_MS) {
         const song = await projectSong(sc.project_id);
         if (!song) return safeError('Upload your song first.', 409);
-        perform = { scene: sc, song, seconds: Math.ceil(windowMs / 1000) };
+        // Priced on the padded audio actually sent (see sliceSongForScene).
+        const audioMs = Math.max(windowMs, PERFORM_AUDIO_MIN_MS);
+        perform = { scene: sc, song, audioMs, seconds: Math.ceil(audioMs / 1000) };
         model = PERFORM_MODEL;
       }
     }
@@ -493,6 +495,7 @@ export async function POST(request) {
           projectId: sung.scene.project_id,
           startMs: Number(sung.scene.start_ms),
           endMs: Number(sung.scene.end_ms),
+          ...(perform ? { minMs: perform.audioMs } : {}),
         });
         if (Math.ceil(slice.durationMs / 1000) > durationSeconds) throw new Error('song slice longer than priced');
       }
