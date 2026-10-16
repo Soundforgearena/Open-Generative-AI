@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Icon, Logo } from './StudioIcons';
 import StudioDirector from './StudioDirector';
+import FacesPanel, { isFace } from './FacesPanel';
 import SongSync from './SongSync';
 import StudioTour, { SHORTCUTS, TOUR_KEY } from './StudioTour';
 import { demoModeEnabled } from '@/lib/demo-mode';
@@ -96,6 +97,7 @@ function mapScene(scene) {
     end_ms: timedWindow(scene) ? Number(scene.end_ms) : null,
     lyric_text: scene.lyric_text || '',
     vocalist: scene.vocalist || '',
+    character_asset_id: scene.character_asset_id || null,
     lip_sync: Boolean(scene.lip_sync),
     has_synced_take: versions.some((v) => v.kind === 'lip_sync' && v.status === 'completed' && v.output_url),
     continuity_locked: Boolean(scene.continuity_locked),
@@ -201,7 +203,7 @@ function StudioWorkspace() {
   const [now, setNow] = useState(() => Date.now());
   const [toast, setToast] = useState('');
   const [tab, setTab] = useState('inspector');
-  const [open, setOpen] = useState({ sync: true, visual: true, camera: true, continuity: true, audio: true, generation: true });
+  const [open, setOpen] = useState({ sync: true, faces: true, visual: true, camera: true, continuity: true, audio: true, generation: true });
   const [promptOpen, setPromptOpen] = useState(true);
   const [tagDraft, setTagDraft] = useState(null);
   const [playing, setPlaying] = useState(false);
@@ -1444,7 +1446,7 @@ function StudioWorkspace() {
           <div className="sx-tabs" role="tablist">
             <button type="button" role="tab" aria-selected={tab === 'inspector'} className={tab === 'inspector' ? 'is-active' : ''} onClick={() => setTab('inspector')}><Icon.Inspector /> INSPECTOR</button>
             <button type="button" role="tab" aria-selected={tab === 'assets'} className={tab === 'assets' ? 'is-active' : ''} onClick={() => setTab('assets')}><Icon.Folder /> ASSETS</button>
-            <button type="button" className="sx-tab-tool" aria-label="Expand all sections" onClick={() => { const all = Object.values(open).every(Boolean); setOpen({ sync: !all, visual: !all, camera: !all, continuity: !all, audio: !all, generation: !all }); }}><Icon.Expand /></button>
+            <button type="button" className="sx-tab-tool" aria-label="Expand all sections" onClick={() => { const all = Object.values(open).every(Boolean); setOpen({ sync: !all, faces: !all, visual: !all, camera: !all, continuity: !all, audio: !all, generation: !all }); }}><Icon.Expand /></button>
           </div>
 
           {tab === 'inspector' ? (
@@ -1455,9 +1457,22 @@ function StudioWorkspace() {
                     onRefresh={() => refreshProject(selectedIdRef.current)}
                     onToast={setToast}
                     onCharged={(n) => setCredits((c) => (c === null ? c : Math.max(0, c - n)))}
-                    onUpload={() => setTab('assets')} />
+                    onUpload={() => setTab('assets')}
+                    faces={assets.filter(isFace)} />
                 </Section>
               )}
+              <Section icon={Icon.Face} title="Cast Faces" open={open.faces} onToggle={() => setOpen((o) => ({ ...o, faces: !o.faces }))}>
+                {scene && (
+                  <Select id="in-face" label={`Face in scene ${index + 1}`}
+                    value={scene.character_asset_id || ''}
+                    options={[{ value: '', label: 'No real face' }, ...assets.filter(isFace).map((a) => ({ value: a.id, label: a.name }))]}
+                    onChange={(v) => patchScene(scene.id, { character_asset_id: v || null })} />
+                )}
+                <FacesPanel project={project} assets={assets} scenes={scenes} demo={demoModeEnabled}
+                  onRefresh={() => refreshProject(selectedIdRef.current)}
+                  onToast={setToast}
+                  onLinkScenes={(ids, assetId) => { ids.forEach((id) => patchScene(id, { character_asset_id: assetId })); setToast(`Linked ${ids.length} ${ids.length === 1 ? 'scene' : 'scenes'}.`); }} />
+              </Section>
               <Section icon={Icon.Eye} title="Visual Direction" open={open.visual} onToggle={() => setOpen((o) => ({ ...o, visual: !o.visual }))}>
                 <div className="sx-vd">
                   <span className="sx-vd-thumb">{styleThumb ? <img src={styleThumb} alt="" referrerPolicy="no-referrer" /> : <span className="sx-thumb-empty" />}</span>

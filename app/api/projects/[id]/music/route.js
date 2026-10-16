@@ -105,8 +105,34 @@ function cleanCast(input, parsed) {
       label: String(edit.label || c.label).slice(0, 60),
       role: ['singer', 'backing'].includes(edit.role) ? edit.role : c.role || 'singer',
       description: String(edit.description ?? c.description ?? '').slice(0, 400),
+      face_asset_id: typeof (edit.face_asset_id ?? c.face_asset_id) === 'string' ? (edit.face_asset_id ?? c.face_asset_id) : null,
     };
   });
+}
+
+/** Keep only faces that are this project's consented character photos. */
+async function verifiedFaces(projectId, cast) {
+  const ids = [...new Set(cast.map((c) => c.face_asset_id).filter(Boolean))];
+  if (!ids.length) return cast.map((c) => ({ ...c, face_asset_id: null }));
+  const rows = await selectRows(
+    'project_assets',
+    { id: `in.(${ids.join(',')})`, project_id: `eq.${projectId}`, kind: 'eq.character', likeness_consent: 'eq.true', storage_path: 'not.is.null' },
+    'id'
+  );
+  const ok = new Set(rows.map((r) => r.id));
+  return cast.map((c) => ({ ...c, face_asset_id: ok.has(c.face_asset_id) ? c.face_asset_id : null }));
+}
+
+/** Point every sung scene at its singer's face (or none). */
+async function linkSingerFaces(projectId, cast) {
+  for (const c of cast) {
+    if ((c.role || 'singer') !== 'singer') continue;
+    await updateRows(
+      'scenes',
+      { project_id: `eq.${projectId}`, vocalist: `eq.${c.key}`, lip_sync: 'eq.true' },
+      { character_asset_id: c.face_asset_id || null }
+    );
+  }
 }
 
 /** Current music timing state for the Studio. */
@@ -237,11 +263,12 @@ export async function POST(request, { params }) {
     const next = {
       ...music,
       lines: normalizeTimedLines(merged, music.duration_ms),
-      cast: cleanCast(body.cast ?? music.cast, music.cast || []),
+      cast: await verifiedFaces(project.id, cleanCast(body.cast ?? music.cast, music.cast || [])),
       confirmed: Boolean(body.confirmed),
     };
     const saved = await saveMusic(project, next);
     if (!saved.ok) return safeError('Timing could not be saved.', 500);
+    if (music.built_at) await linkSingerFaces(project.id, next.cast);
     return Response.json({ music: next });
   }
 
@@ -257,7 +284,7 @@ export async function POST(request, { params }) {
     }
     const vi = project.visual_identity || {};
     const style = [vi.style, vi.style_notes].filter(Boolean).join(', ').slice(0, 300);
-    const cast = music.cast || [];
+    const cast = await verifiedFaces(project.id, music.cast || []);
     const rows = timelineToScenes(buildTimeline(music.lines, music.duration_ms, { cast }), { cast, style, resolution: body.resolution });
     if (!rows.length) return safeError('No scenes could be built from this song.', 409);
     if (rows.length > 80) return safeError('This song needs more scenes than one project allows.', 409);
@@ -265,7 +292,12 @@ export async function POST(request, { params }) {
       const removed = await deleteRows('scenes', { project_id: `eq.${project.id}` });
       if (removed?.ok === false) return safeError('Old scenes could not be cleared.', 500);
     }
-    const inserted = await insertRows('scenes', rows.map((r) => ({ ...r, project_id: project.id })));
+    const faceOf = (key) => cast.find((c) => c.key === key)?.face_asset_id || null;
+    const inserted = await insertRows('scenes', rows.map((r) => ({
+      ...r,
+      project_id: project.id,
+      character_asset_id: r.lip_sync ? faceOf(r.vocalist) : null,
+    })));
     if (!inserted.ok) return safeError('Scenes could not be created.', 500);
     await saveMusic(project, { ...music, built_at: new Date().toISOString(), scene_count: rows.length });
     return Response.json({ scenes: rows.length, lip_sync_scenes: rows.filter((r) => r.lip_sync).length });

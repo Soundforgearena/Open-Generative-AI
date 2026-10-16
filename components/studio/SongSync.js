@@ -41,7 +41,7 @@ function castSummary(cast) {
   return ` · ${singers.length} ${singers.length === 1 ? 'singer' : 'singers'} (${names(singers)})${backing.length ? ` · backing chant: ${names(backing)}` : ''}`;
 }
 
-export default function SongSync({ project, audioAsset, demo = false, onRefresh, onToast, onCharged, onUpload }) {
+export default function SongSync({ project, audioAsset, demo = false, onRefresh, onToast, onCharged, onUpload, faces = [] }) {
   const music = project?.music || null;
   const [info, setInfo] = useState(null);
   const [busy, setBusy] = useState('');
@@ -230,6 +230,15 @@ export default function SongSync({ project, audioAsset, demo = false, onRefresh,
                   <input className="sx-inline-input" value={c.description || ''} maxLength={400} aria-label={`Describe ${c.label}`}
                     placeholder={isSinger(c) ? 'Describe how this singer looks' : 'Describe who is heard (shown at a distance, not lip-synced)'}
                     onChange={(e) => setReview((r) => ({ ...r, cast: r.cast.map((x, k) => (k === i ? { ...x, description: e.target.value } : x)) }))} />
+                  {isSinger(c) && (
+                    <span className="sx-select-wrap">
+                      <select value={c.face_asset_id || ''} aria-label={`Real face for ${c.label}`}
+                        onChange={(e) => setReview((r) => ({ ...r, cast: r.cast.map((x, k) => (k === i ? { ...x, face_asset_id: e.target.value || null } : x)) }))}>
+                        <option value="">{faces.length ? 'Choose their face' : 'Add faces in Cast Faces'}</option>
+                        {faces.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                      </select>
+                    </span>
+                  )}
                   <span className="sx-select-wrap">
                     <select value={c.role || 'singer'} aria-label={`Role of ${c.label}`}
                       onChange={(e) => setReview((r) => ({ ...r, cast: r.cast.map((x, k) => (k === i ? { ...x, role: e.target.value } : x)) }))}>
