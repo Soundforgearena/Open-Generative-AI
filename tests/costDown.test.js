@@ -86,3 +86,8 @@ test('sung performances send at least 5.2 s of audio, padded only at the end, an
   const jobs = readFileSync(new URL('../app/api/jobs/[requestId]/route.js', import.meta.url), 'utf8');
   assert.match(jobs, /provider_failed\$\{providerReason/);
 });
+
+test('the singing prompt stays short enough for the model', async () => {
+  const { performPrompt, PERFORM_PROMPT_MAX } = await import('../lib/music/likeness.js');
+  assert.ok(performPrompt('a very long lyric line '.repeat(40)).length <= PERFORM_PROMPT_MAX);
+});
