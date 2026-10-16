@@ -22,7 +22,7 @@ export async function checkPhoto(file) {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = url; });
-    if (Math.min(img.naturalWidth, img.naturalHeight) < 400) return 'This photo is too small to keep the face accurate. Use one at least 400 pixels on its shortest side.';;
+    if (Math.min(img.naturalWidth, img.naturalHeight) < 400) return 'This photo is too small to keep the face accurate. Use one at least 400 pixels on its shortest side.';
     if (typeof window !== 'undefined' && 'FaceDetector' in window) {
       try {
         const faces = await new window.FaceDetector({ fastMode: true, maxDetectedFaces: 3 }).detect(img);
