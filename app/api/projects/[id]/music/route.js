@@ -257,7 +257,7 @@ export async function POST(request, { params }) {
     }
     const vi = project.visual_identity || {};
     const style = [vi.style, vi.style_notes].filter(Boolean).join(', ').slice(0, 300);
-    const rows = timelineToScenes(buildTimeline(music.lines, music.duration_ms), { cast: music.cast || [], style });
+    const rows = timelineToScenes(buildTimeline(music.lines, music.duration_ms), { cast: music.cast || [], style, resolution: body.resolution });
     if (!rows.length) return safeError('No scenes could be built from this song.', 409);
     if (rows.length > 80) return safeError('This song needs more scenes than one project allows.', 409);
     if (scenes.length) {
