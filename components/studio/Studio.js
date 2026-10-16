@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Icon, Logo } from './StudioIcons';
 import StudioDirector from './StudioDirector';
 import FacesPanel, { isFace } from './FacesPanel';
-import DancePanel from './DancePanel';
 import SongSync from './SongSync';
 import StudioTour, { SHORTCUTS, TOUR_KEY } from './StudioTour';
 import { demoModeEnabled } from '@/lib/demo-mode';
@@ -910,7 +909,7 @@ function StudioWorkspace() {
     const q = await quoteGeneration(payloadFor(s));
     const video = Number(q.credits_required);
     const perform = q.engine === 'perform';
-    const dance = q.engine === 'motion';
+    const dance = q.engine === 'motion' || q.engine === 'beat_dance';
     let lip = 0; let lipList = 0;
     if (!perform && needsLipSync(s)) {
       const l = await quoteGeneration(lipSyncPayload(s));
@@ -1627,12 +1626,6 @@ function StudioWorkspace() {
                   onToast={setToast}
                   onLinkScenes={(ids, assetId) => { ids.forEach((id) => patchScene(id, { character_asset_id: assetId })); setToast(`Linked ${ids.length} ${ids.length === 1 ? 'scene' : 'scenes'}.`); }} />
               </Section>
-              <Section icon={Icon.Camera} title="Dance Moves" open={open.dance} onToggle={() => setOpen((o) => ({ ...o, dance: !o.dance }))}>
-                <DancePanel project={project} scene={scene} index={index} assets={assets} demo={demoModeEnabled}
-                  onPatch={(patch) => scene && patchScene(scene.id, patch)}
-                  onRefresh={() => refreshProject(selectedIdRef.current)}
-                  onToast={setToast} />
-              </Section>
               <Section icon={Icon.Eye} title="Visual Direction" open={open.visual} onToggle={() => setOpen((o) => ({ ...o, visual: !o.visual }))}>
                 <div className="sx-vd">
                   <span className="sx-vd-thumb">{styleThumb ? <img src={styleThumb} alt="" referrerPolicy="no-referrer" /> : <span className="sx-thumb-empty" />}</span>
@@ -1734,6 +1727,15 @@ function StudioWorkspace() {
                   <Select id="gen-model" label="Model" value={videoOption?.model || ''} options={videoOptions.length ? videoOptions.map((o) => ({ value: o.model, label: o.label })) : [{ value: '', label: 'Unavailable' }]} onChange={setModelKey} disabled={!videoOptions.length} />
                   <Select id="gen-res" label="Resolution" value={resolutions.some((r) => r.value === controls.resolution) ? controls.resolution : resolutions[0].value} options={resolutions} onChange={(v) => patchControls({ resolution: v })} />
                   <Select id="gen-fps" label="Frames" value={controls.fps} options={FRAME_RATES} onChange={(v) => patchControls({ fps: v })} />
+                  {project.lane === 'music_video' && scene && !scene.lip_sync && (
+                    <Select id="gen-dance" label="Dancing" value={controls.dance || 'auto'}
+                      options={[
+                        { value: 'auto', label: 'Auto · dance scenes move to the beat' },
+                        { value: 'on', label: 'Dance to the beat' },
+                        { value: 'off', label: 'No dancing' },
+                      ]}
+                      onChange={(v) => patchControls({ dance: v })} />
+                  )}
                   <label className="sx-field" htmlFor="gen-dur">
                     <span className="sx-field-label">Duration</span>
                     <span className="sx-number">
@@ -1881,7 +1883,7 @@ function StudioWorkspace() {
                 <div><dt>Sung performances</dt><dd>{genDialog.scope === 'all' ? `${genDialog.all.performed} scenes · lip sync included` : 'Lip sync included'}</dd></div>
               )}
               {genDialog.step !== 'still' && (genDialog.scope === 'all' ? genDialog.all.danced > 0 : genDialog.parts?.[scene?.id]?.dance) && (
-                <div><dt>Dance shots</dt><dd>{genDialog.scope === 'all' ? `${genDialog.all.danced} scene${genDialog.all.danced === 1 ? '' : 's'} · real moves from your clip` : 'Real moves from your clip'}</dd></div>
+                <div><dt>Dance shots</dt><dd>{genDialog.scope === 'all' ? `${genDialog.all.danced} scene${genDialog.all.danced === 1 ? '' : 's'} · moves timed to your song's beat` : "Moves timed to your song's beat"}</dd></div>
               )}
               {genDialog.plan && !atCost && (genDialog.scope === 'all' ? genDialog.all.list > genDialog.all.total : genDialog.parts?.[scene?.id]?.list > genDialog.total) && (
                 <div><dt>Subscriber price</dt><dd>You save {(genDialog.scope === 'all' ? genDialog.all.list - genDialog.all.total : genDialog.parts[scene.id].list - genDialog.total).toLocaleString()} credits on your plan</dd></div>
