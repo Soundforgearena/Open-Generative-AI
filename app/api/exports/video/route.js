@@ -54,14 +54,14 @@ export async function POST(request) {
   const project = body.project_id ? await selectOne('projects', { id: `eq.${body.project_id}` }, 'id,owner_id,title,lane') : null;
   if (!project || (project.owner_id !== user.id && !admin)) return safeError('Project not found.', 404);
 
-  const scenes = await selectRows('scenes', { project_id: `eq.${project.id}`, order: 'position.asc' }, 'id,position,title,duration_seconds');
+  const scenes = await selectRows('scenes', { project_id: `eq.${project.id}`, order: 'position.asc' }, 'id,position,title,duration_seconds,start_ms,end_ms,lip_sync');
   if (!scenes.length) return safeError('Add and generate scenes before downloading your video.', 409);
   const versions = await selectRows(
     'scene_versions',
     { scene_id: `in.(${scenes.map((s) => s.id).join(',')})`, status: 'eq.completed' },
-    'id,scene_id,version,output_url,approved'
+    'id,scene_id,version,output_url,approved,kind'
   );
-  const { takes, missing } = chooseTakes(scenes, versions);
+  const { takes, missing, unsynced } = chooseTakes(scenes, versions);
 
   const clean = Boolean(body.clean);
   const atCost = isAtCostUser({ superAdmin });
@@ -94,6 +94,7 @@ export async function POST(request) {
     return Response.json({
       ready: missing.length === 0,
       missing,
+      unsynced,
       scenes: scenes.length,
       seconds: takes.reduce((sum, t) => sum + t.duration, 0),
       clean,

@@ -16,6 +16,7 @@ import { loadRuntimeSafetySignals } from '../../../lib/billing/runtime-safety-si
 import { buildPreflightReport } from '../../../lib/billing/generation-preflight.js';
 import { normalizeMuapiCost } from '../../../lib/providers/muapi-cost-adapter.js';
 import { rateLimit } from '../../../lib/rate-limit';
+import { projectSong, sliceSongForScene } from '../../../lib/music/audio.js';
 
 const SAFE_PROVIDER_FIELDS = new Set([
   'prompt',
@@ -116,7 +117,6 @@ export async function POST(request) {
     const body = await request.json();
     const {
       model,
-      input,
       scene_id: sceneId = null,
       project_id: projectId = null,
       operation = 'video',
@@ -125,7 +125,9 @@ export async function POST(request) {
       quote_only: quoteOnly = false,
       preflight = false,
       confirmed_max_credits: confirmedMaxCredits = null,
+      source_version_id: sourceVersionId = null,
     } = body;
+    let { input } = body;
 
     if (!model || !input || typeof input !== 'object' || Array.isArray(input)) {
       return safeError('Generation settings are incomplete.');
@@ -156,6 +158,34 @@ export async function POST(request) {
       }
     }
 
+    // Lip sync: the server picks the take and cuts the exact song slice, so
+    // the price always matches the audio length the provider bills for.
+    let lipSync = null;
+    if (operation === 'lip_sync') {
+      if (!sceneId) return safeError('Choose a scene to lip sync.', 400);
+      const timed = await selectOne('scenes', { id: `eq.${sceneId}` }, 'id,project_id,start_ms,end_ms,lip_sync');
+      const windowMs = Number(timed?.end_ms) - Number(timed?.start_ms);
+      if (!timed || timed.start_ms === null || !(windowMs > 0)) {
+        return safeError('This scene is not synced to the song yet. Sync your lyrics first.', 409);
+      }
+      // A price check may run before the scene has a take; starting may not.
+      const pricingOnly = quoteOnly || preflight === true;
+      let source = null;
+      if (sourceVersionId || !pricingOnly) {
+        if (!sourceVersionId || typeof sourceVersionId !== 'string') return safeError('Choose the take to lip sync.', 400);
+        source = await selectOne(
+          'scene_versions',
+          { id: `eq.${sourceVersionId}`, scene_id: `eq.${sceneId}`, status: 'eq.completed' },
+          'id,output_url,kind'
+        );
+        if (!source?.output_url || source.kind === 'lip_sync') return safeError('Generate this scene first, then lip sync its take.', 409);
+      }
+      const song = await projectSong(timed.project_id);
+      if (!song) return safeError('Upload your song first.', 409);
+      lipSync = { scene: timed, source, song, seconds: Math.max(1, Math.ceil(windowMs / 1000)) };
+      input = { video_url: source?.output_url || 'pending-take' };
+    }
+
     // Server-side price rule. Only active, customer-visible models are allowed.
     const rule = await selectOne(
       'model_cost_rules',
@@ -166,7 +196,7 @@ export async function POST(request) {
 
     // Price exactly what is sent to the provider. Never trust duplicate
     // top-level values that can disagree with the provider payload.
-    const durationSeconds = Number(input.duration_seconds ?? input.duration ?? requestedDuration);
+    const durationSeconds = lipSync ? lipSync.seconds : Number(input.duration_seconds ?? input.duration ?? requestedDuration);
     const resolution = input.resolution ?? requestedResolution;
     let referenceCount;
     try {
@@ -320,8 +350,9 @@ export async function POST(request) {
       await insertRows('scene_versions', {
         scene_id: sceneId,
         version: sceneVersion,
-        prompt: typeof input?.prompt === 'string' ? input.prompt : null,
+        prompt: lipSync ? 'Lip sync to the song' : typeof input?.prompt === 'string' ? input.prompt : null,
         status: 'pending',
+        ...(lipSync ? { kind: 'lip_sync', source_version_id: lipSync.source.id } : {}),
       });
       await updateRows('scenes', { id: `eq.${sceneId}` }, { status: 'generating' });
     }
@@ -400,7 +431,28 @@ export async function POST(request) {
     try {
       const apiKey = requireSecret('MUAPI_API_KEY');
       const base = process.env.MUAPI_BASE_URL || 'https://api.muapi.ai';
-      const canonicalInput = {
+      let slice = null;
+      if (lipSync) {
+        const owner = await selectOne('projects', { id: `eq.${lipSync.scene.project_id}` }, 'owner_id');
+        slice = await sliceSongForScene({
+          song: lipSync.song,
+          sceneId,
+          ownerId: owner?.owner_id || user.id,
+          projectId: lipSync.scene.project_id,
+          startMs: Number(lipSync.scene.start_ms),
+          endMs: Number(lipSync.scene.end_ms),
+        });
+        if (Math.ceil(slice.durationMs / 1000) > durationSeconds) throw new Error('song slice longer than priced');
+      }
+      const canonicalInput = lipSync ? {
+        video_url: lipSync.source.output_url,
+        audio_url: slice.url,
+        // Lite = one frontal face. separate_vocal pulls the voice out of the
+        // full mix so drums and bass never drive the mouth.
+        mode: 'lite',
+        separate_vocal: true,
+        align_audio: true,
+      } : {
         ...Object.fromEntries(
           Object.entries(input).filter(([field]) => SAFE_PROVIDER_FIELDS.has(field))
         ),

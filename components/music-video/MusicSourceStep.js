@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { DEMO_TRACKS } from '@/lib/music-video-demo';
+import { demoModeEnabled } from '@/lib/demo-mode';
 
 const ACCEPT = 'audio/mpeg,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/flac';
 const MAX_BYTES = 60 * 1024 * 1024;
@@ -60,6 +61,7 @@ export default function MusicSourceStep({ trackId, onTrackChange, rights, onRigh
         duration,
         bpm: DEMO_TRACKS[0]?.bpm || 120,
         uploaded: true,
+        file,
       });
     } catch (readError) {
       setError(readError.message || 'That audio file could not be read.');
@@ -81,7 +83,7 @@ export default function MusicSourceStep({ trackId, onTrackChange, rights, onRigh
     <section className="cinex-music-source-options" aria-labelledby="music-source-title">
       <h2 id="music-source-title">Step 1: Music</h2>
 
-      <label>
+      {demoModeEnabled && <label>
         Demo track profile
         <select value={trackId} onChange={chooseDemoTrack}>
           {DEMO_TRACKS.map((track) => (
@@ -91,13 +93,13 @@ export default function MusicSourceStep({ trackId, onTrackChange, rights, onRigh
           ))}
         </select>
         <span className="cinex-form-optional">Demo track profile — no audio file is processed.</span>
-      </label>
+      </label>}
 
       <label>
-        Upload MP3, WAV, M4A, AAC, OGG or FLAC
+        {demoModeEnabled ? 'Upload MP3, WAV, M4A, AAC, OGG or FLAC' : 'Your song (MP3, WAV, M4A, AAC, OGG or FLAC)'}
         <input type="file" accept={ACCEPT} onChange={handleFile} disabled={reading} />
         <span className="cinex-form-optional">
-          Your file stays on this device and is used to read the real track length. Up to 60 MB.
+          {demoModeEnabled ? 'Your file stays on this device and is used to read the real track length. Up to 60 MB.' : 'Uploaded privately to your project when you continue. Every scene is cut to it. Up to 60 MB.'}
         </span>
       </label>
 
