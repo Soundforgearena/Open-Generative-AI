@@ -12,6 +12,30 @@ const CONSENT = 'I am this person or have their permission to use their face in 
 
 export const isFace = (a) => a?.kind === 'character' && Boolean(a.storage_path || a.preview_url) && a.likeness_consent === true;
 
+/**
+ * A face can only stay true to the person if the photo is good enough to
+ * learn from. Reject small, blurry-sized, or multi-person photos up front.
+ */
+export async function checkPhoto(file) {
+  if (!file) return 'Choose a photo.';
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return 'Use a JPG, PNG or WebP photo.';
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = url; });
+    if (Math.min(img.naturalWidth, img.naturalHeight) < 512) return 'This photo is too small to keep the face accurate. Use one at least 512 pixels on its shortest side.';
+    if (typeof window !== 'undefined' && 'FaceDetector' in window) {
+      try {
+        const faces = await new window.FaceDetector({ fastMode: true, maxDetectedFaces: 3 }).detect(img);
+        if (faces.length === 0) return 'No face found. Use a clear, front-facing photo.';
+        if (faces.length > 1) return 'This photo has more than one person. Use a photo of just this person.';
+      } catch { /* detector unavailable on this device */ }
+    }
+    return '';
+  } catch {
+    return 'That photo could not be read.';
+  } finally { URL.revokeObjectURL(url); }
+}
+
 function mentions(scene, name) {
   const n = String(name || '').trim().toLowerCase();
   if (n.length < 2) return false;
@@ -38,6 +62,8 @@ export default function FacesPanel({ project, assets = [], scenes = [], demo = f
     if (!name) { onToast?.('Name this person first.'); return; }
     if (!draft.file) { onToast?.('Choose a clear, front-facing photo.'); return; }
     if (!draft.consent) { onToast?.('Confirm you have permission to use this face.'); return; }
+    const problem = await checkPhoto(draft.file);
+    if (problem) { onToast?.(problem); return; }
     // A named character from the AI Director with no photo yet is replaced.
     const placeholder = people.find((p) => !p.preview_url && p.name?.toLowerCase() === name.toLowerCase());
     await uploadReference(project.id, draft.file, { kind: 'character', name, likenessConsent: true });
@@ -49,6 +75,8 @@ export default function FacesPanel({ project, assets = [], scenes = [], demo = f
   });
 
   const replacePhoto = (person, file) => run(`photo-${person.id}`, async () => {
+    const problem = await checkPhoto(file);
+    if (problem) { onToast?.(problem); return; }
     if (!window.confirm(`Use this photo for ${person.name}? ${CONSENT}`)) return;
     const linked = scenes.filter((s) => s.character_asset_id === person.id).map((s) => s.id);
     const fresh = await uploadReference(project.id, file, { kind: 'character', name: person.name, notes: person.notes, likenessConsent: true });
@@ -66,7 +94,8 @@ export default function FacesPanel({ project, assets = [], scenes = [], demo = f
 
   return (
     <div className="sx-faces">
-      <p className="sx-hint">Add a clear, front-facing, well-lit photo of each real person. Every scene linked to them is made with their real face, then lip-synced when they sing.</p>
+      <p className="sx-hint">Add a clear, front-facing, well-lit photo of each real person. Every scene linked to them starts from their real face, and each shot is checked against the photo before it is animated, so a shot that drifts or looks malformed is redone or refunded.</p>
+      <p className="sx-hint sx-muted">Best photo: one person, face fully visible, eyes open, no sunglasses, hats pushed back from the eyes, no beauty filters, at least 512 px.</p>
 
       {people.length > 0 && (
         <ul className="sx-face-list">

@@ -17,7 +17,7 @@ import { buildPreflightReport } from '../../../lib/billing/generation-preflight.
 import { normalizeMuapiCost } from '../../../lib/providers/muapi-cost-adapter.js';
 import { rateLimit } from '../../../lib/rate-limit';
 import { projectSong, sliceSongForScene } from '../../../lib/music/audio.js';
-import { LIKENESS_VIDEO_MODEL, keyframeCents, likenessMotionPrompt, makeKeyframe, resolveSceneLikeness } from '../../../lib/music/likeness.js';
+import { FaceMismatchError, LIKENESS_VIDEO_MODEL, keyframeCents, likenessMotionPrompt, makeKeyframe, resolveSceneLikeness } from '../../../lib/music/likeness.js';
 
 const SAFE_PROVIDER_FIELDS = new Set([
   'prompt',
@@ -569,6 +569,9 @@ export async function POST(request) {
             { status: 'failed' }
           );
         }
+      }
+      if (providerError instanceof FaceMismatchError) {
+        return safeError(`We couldn't keep ${likeness?.asset?.name || 'this person'}'s face accurate in this shot, so nothing was made and your credits were returned. Try a sharper, front-facing photo or a simpler scene description.`, 422);
       }
       return safeError('Generation could not be started. Your credits were returned.', 502);
     }
