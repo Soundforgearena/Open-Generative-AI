@@ -78,3 +78,10 @@ test('the mixed-crowd wording never turns a non-dance scene into a paid dance sh
   const d = scenePrompt({ lip_sync: false, section: 'Intro' }, { index: 0 }); // crowd dance
   assert.equal(isDanceScene({ prompt: d }), true);
 });
+
+test('dance shots follow the visual style (location) sent by the Studio', () => {
+  const gen = readFileSync(new URL('../app/api/generate/route.js', import.meta.url), 'utf8');
+  assert.match(gen, /scenePrompt: String\(input\.prompt \|\| beat\.scene\.prompt/);
+  const p = beatDancePrompt({ scenePrompt: 'crowd dancing, Caribbean street party at night, string lights', bpm: 104 });
+  assert.match(p, /Caribbean street party at night/);
+});
