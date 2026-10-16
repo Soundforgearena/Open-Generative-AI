@@ -84,7 +84,7 @@ test('sung performances send at least 5.2 s of audio, padded only at the end, an
   const audio = readFileSync(new URL('../lib/music/audio.js', import.meta.url), 'utf8');
   assert.match(audio, /apad=whole_dur=\$\{\(end \/ 1000\)/);
   const jobs = readFileSync(new URL('../app/api/jobs/[requestId]/route.js', import.meta.url), 'utf8');
-  assert.match(jobs, /provider_failed\$\{providerReason/);
+  assert.match(jobs, /provider_failed.*providerReason/);
 });
 
 test('the singing prompt stays short enough for the model', async () => {

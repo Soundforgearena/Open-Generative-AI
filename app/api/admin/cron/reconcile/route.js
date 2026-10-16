@@ -12,6 +12,7 @@ import { normalizeMuapiCost } from '../../../../../lib/providers/muapi-cost-adap
 import { settledGenerationCredits } from '../../../../../lib/billing/at-cost.js';
 import { runChainedMaintenance } from '../../../../../lib/admin/chained-maintenance.js';
 import { muapiOutput, firstOutputUrl } from '../../../../../lib/providers/muapi-output.js';
+import { currentRequestId, isBusyFailure, MAX_BUSY_RETRIES } from '../../../../../lib/generation/busy-retry.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -191,12 +192,13 @@ export async function POST(request) {
     for (const job of jobs) {
       try {
         const response = await fetch(
-          `${base}/api/v1/predictions/${encodeURIComponent(job.provider_request_id)}/result`,
+          `${base}/api/v1/predictions/${encodeURIComponent(currentRequestId(job))}/result`,
           { headers: { 'x-api-key': apiKey }, cache: 'no-store' }
         );
         const data = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(`provider status ${response.status}`);
         const status = normaliseStatus(data?.status || data?.state);
+        // MUAPI can answer a failed job with an error code; that is final.
+        if (!response.ok && status !== 'failed') throw new Error(`provider status ${response.status}`);
         const responseHeaders = Object.fromEntries(response.headers.entries());
         if (job.status === 'completed') {
           const cost = normalizeMuapiCost({ response: data, headers: responseHeaders });
@@ -225,6 +227,14 @@ export async function POST(request) {
         } else if (status === 'completed' && firstUrl(muapiOutput(data))) {
           await completeJob(job, data, responseHeaders);
           summary.completed += 1;
+        } else if (
+          isBusyFailure(data, response.status)
+          && job.output?.busy_retry?.input
+          && (Number(job.output.busy_retry.attempts) || 0) < MAX_BUSY_RETRIES
+          && Date.now() - Date.parse(job.created_at) < 30 * 60 * 1000
+        ) {
+          // Still inside its busy-retry window; the status route resubmits it.
+          summary.running += 1;
         } else {
           await failJob(job);
           summary.failed += 1;
