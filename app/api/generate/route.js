@@ -20,6 +20,7 @@ import { projectSong, sliceSongForScene } from '../../../lib/music/audio.js';
 import { FaceMismatchError, LIKENESS_VIDEO_MODEL, PERFORM_AUDIO_MIN_MS, PERFORM_MAX_MS, PERFORM_MIN_MS, PERFORM_MODEL, keyframeCents, likenessMotionPrompt, makeKeyframe, performPrompt, resolveSceneLikeness } from '../../../lib/music/likeness.js';
 import { PLAN_PRICING_POLICY, planCodeFor, planCredits } from '../../../lib/billing/plan-pricing.js';
 import { runStillJob } from '../../../lib/generation/still-job.js';
+import { retryState } from '../../../lib/generation/busy-retry.js';
 
 const SAFE_PROVIDER_FIELDS = new Set([
   'prompt',
@@ -217,7 +218,10 @@ export async function POST(request) {
       fromStill = sc;
       model = LIKENESS_VIDEO_MODEL;
       const windowMs = Number(sc.end_ms) - Number(sc.start_ms);
-      if (sc.lip_sync && sc.start_ms !== null && windowMs >= PERFORM_MIN_MS && windowMs <= PERFORM_MAX_MS) {
+      // engine 'two_step' = the fallback when the singing model is busy:
+      // clip from the still, then a separate lip sync (priced separately).
+      const twoStep = body.engine === 'two_step';
+      if (!twoStep && sc.lip_sync && sc.start_ms !== null && windowMs >= PERFORM_MIN_MS && windowMs <= PERFORM_MAX_MS) {
         const song = await projectSong(sc.project_id);
         if (!song) return safeError('Upload your song first.', 409);
         // Priced on the padded audio actually sent (see sliceSongForScene).
@@ -569,7 +573,8 @@ export async function POST(request) {
         const update = await updateRows(
           'generation_requests',
           { id: `eq.${jobId}` },
-          { provider_request_id: providerRequestId, status: 'running' }
+          // The input is kept so a "provider busy" failure can be resubmitted.
+          { provider_request_id: providerRequestId, status: 'running', output: retryState({ endpoint: providerEndpoint, input: canonicalInput }) }
         );
         persisted = update.ok;
         if (!persisted && attempt < 2) {

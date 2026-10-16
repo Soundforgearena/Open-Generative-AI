@@ -11,6 +11,7 @@ import { normalizeMuapiCost } from '../../../../lib/providers/muapi-cost-adapter
 import { settledGenerationCredits } from '../../../../lib/billing/at-cost.js';
 import { rateLimit } from '../../../../lib/rate-limit';
 import { muapiOutput, firstOutputUrl } from '../../../../lib/providers/muapi-output.js';
+import { currentRequestId, handleBusyFailure } from '../../../../lib/generation/busy-retry.js';
 
 function normaliseStatus(raw) {
   const value = String(raw || '').toLowerCase();
@@ -65,7 +66,7 @@ export async function GET(request, { params }) {
     const apiKey = requireSecret('MUAPI_API_KEY');
     const base = process.env.MUAPI_BASE_URL || 'https://api.muapi.ai';
     const response = await fetch(
-      `${base}/api/v1/predictions/${encodeURIComponent(requestId)}/result`,
+      `${base}/api/v1/predictions/${encodeURIComponent(currentRequestId(job) || requestId)}/result`,
       { headers: { 'x-api-key': apiKey }, cache: 'no-store' }
     );
     const data = await response.json().catch(() => null);
@@ -179,6 +180,14 @@ export async function GET(request, { params }) {
       });
     }
 
+    // The provider was at capacity: wait and resubmit (charged once, only on
+    // delivery) instead of failing the customer's scene.
+    const busy = await handleBusyFailure({ job, data, httpStatus: response.status, base, apiKey, updateRows });
+    if (busy.action === 'waiting' || busy.action === 'resubmitted') {
+      return Response.json({ status: 'running', output_url: null, scene_version: job.scene_version, busy_retry: busy.attempt });
+    }
+    const busyExhausted = busy.action === 'exhausted';
+
     // Failure path — the customer gets their credits back. Keep the
     // provider's reason on the job so failures can be diagnosed.
     const reasonRaw = data?.error ?? data?.detail ?? data?.message ?? null;
@@ -206,7 +215,7 @@ export async function GET(request, { params }) {
     const failedUpdate = await updateRows(
       'generation_requests',
       { id: `eq.${job.id}` },
-      { status: 'released', error_note: `provider_failed${providerReason ? `: ${providerReason}` : ''}`.slice(0, 500) }
+      { status: 'released', error_note: `${busyExhausted ? 'provider_busy' : 'provider_failed'}${providerReason ? `: ${providerReason}` : ''}`.slice(0, 500) }
     );
     if (!failedUpdate.ok) throw new Error('generation failure could not be recorded');
     if (job.scene_id) {
@@ -233,6 +242,7 @@ export async function GET(request, { params }) {
       output_url: null,
       scene_version: job.scene_version,
       credits_returned: job.credits_reserved,
+      ...(busyExhausted ? { busy: true } : {}),
       settled: true,
     });
   } catch (err) {

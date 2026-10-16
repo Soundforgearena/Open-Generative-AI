@@ -855,13 +855,13 @@ function StudioWorkspace() {
     };
   }
 
-  function payloadFor(s) {
+  function payloadFor(s, { twoStep = false } = {}) {
     const c = parseShotDirection(s.shot_direction);
     // Approved stills are animated; sung scenes then run as one performance
     // whose length the server takes from the song, so no client cap applies.
     const fromStill = Boolean(s.keyframe_approved);
     const raw = Math.ceil(Number(s.duration_seconds || 5));
-    const duration = fromStill && s.lip_sync ? raw : Math.min(raw, Number(videoOption?.max_duration_seconds || 10));
+    const duration = fromStill && s.lip_sync && !twoStep ? raw : Math.min(raw, Number(videoOption?.max_duration_seconds || 10));
     return {
       model: videoOption.model,
       operation: 'video',
@@ -870,6 +870,7 @@ function StudioWorkspace() {
       duration_seconds: duration,
       resolution: c.resolution,
       ...(fromStill ? { use_keyframe: true } : {}),
+      ...(fromStill && twoStep ? { engine: 'two_step' } : {}),
       input: {
         prompt: scenePrompt(s, c),
         aspect_ratio: aspect,
@@ -1024,6 +1025,50 @@ function StudioWorkspace() {
     }
   }
 
+  /**
+   * The singing model stayed busy after automatic retries (credits were
+   * returned). Offer the two-step path (clip from the still, then lip sync)
+   * at its own quoted price; nothing is charged until the user confirms.
+   */
+  async function offerFallback(list, isCurrent) {
+    const maxSec = Number(videoOption?.max_duration_seconds || 10);
+    const eligible = list.filter((s) => Number(s.duration_seconds) <= maxSec);
+    const skipped = list.length - eligible.length;
+    if (!eligible.length) {
+      setToast('The singing model is busy right now. Your credits were returned. Try again in a few minutes.');
+      return;
+    }
+    try {
+      const quotes = await Promise.all(eligible.map(async (s) => {
+        const [v, l] = await Promise.all([
+          quoteGeneration(payloadFor(s, { twoStep: true })),
+          needsLipSync(s) ? quoteGeneration(lipSyncPayload(s)) : Promise.resolve({ credits_required: 0, list_credits: 0 }),
+        ]);
+        const video = Number(v.credits_required); const lip = Number(l.credits_required);
+        return [s.id, { step: 'fallback', still: 0, video, lip, total: video + lip, list: Number(v.list_credits || video) + Number(l.list_credits || lip), plan: v.plan_code || null }];
+      }));
+      if (!isCurrent()) return;
+      const parts = Object.fromEntries(quotes);
+      const byScene = Object.fromEntries(quotes.map(([id, q]) => [id, q.total]));
+      setGenDialog({
+        scope: 'all', step: 'fallback', byScene, parts, total: byScene[eligible[0].id], plan: quotes[0][1].plan,
+        all: {
+          ids: eligible.map((s) => s.id),
+          total: quotes.reduce((t, [, q]) => t + q.total, 0),
+          list: quotes.reduce((t, [, q]) => t + q.list, 0),
+          lip: quotes.reduce((t, [, q]) => t + q.lip, 0),
+          synced: quotes.filter(([, q]) => q.lip > 0).length,
+          performed: 0,
+        },
+        waiting: 0,
+        skipped,
+      });
+      setToast('The singing model is busy. Your credits were returned. You can use the two-step method instead.');
+    } catch (error) {
+      if (isCurrent()) setToast(error.message || 'The singing model is busy. Your credits were returned. Try again in a few minutes.');
+    }
+  }
+
   async function confirmGenerate() {
     if (genLock.current || !genDialog) return;
     const targets = genDialog.scope === 'all' ? scenes.filter((x) => genDialog.all.ids.includes(x.id)) : [scene];
@@ -1050,6 +1095,7 @@ function StudioWorkspace() {
     setGenStartedAt(Date.now());
     let failed = 0;
     let lastDone = '';
+    const busy = [];
     if (dialog.step === 'still') {
       try {
         let made = 0;
@@ -1087,7 +1133,7 @@ function StudioWorkspace() {
         setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, status: 'generating' } : x)));
         setToast(`Generating ${s.title}...`);
         const part = dialog.parts?.[s.id] || { video: dialog.byScene[s.id], lip: 0 };
-        const job = await startGeneration({ ...payloadFor(s), confirmed_max_credits: part.video });
+        const job = await startGeneration({ ...payloadFor(s, { twoStep: dialog.step === 'fallback' }), confirmed_max_credits: part.video });
         let result = await waitForJob(job.request_id);
         if (!isCurrent()) return;
         // Sung scenes: lip sync the new take to its exact slice of the song.
@@ -1099,13 +1145,16 @@ function StudioWorkspace() {
           result = source ? await runLipSync(s, source.id, part.lip) : { status: 'failed' };
           if (!isCurrent()) return;
         }
-        if (result.status !== 'completed') failed += 1; else lastDone = s.id;
+        if (result.busy && dialog.step !== 'fallback') busy.push(s);
+        else if (result.status !== 'completed') failed += 1;
+        else lastDone = s.id;
       }
       const [fresh, account] = await Promise.all([getProject(project.id), getAccount()]);
       if (!isCurrent()) return;
       applyProject(fresh);
       setCredits(Number(account.credits ?? 0));
       if (lastDone) { setSelectedId(lastDone); setCelebrate(lastDone); }
+      if (busy.length) { await offerFallback(busy, isCurrent); return; }
       setToast(failed ? `${failed} scene${failed > 1 ? 's' : ''} failed. Credits for failed scenes were returned.` : 'Generation complete. New takes are ready to review.');
     } catch (error) {
       if (!isCurrent()) return;
@@ -1793,18 +1842,24 @@ function StudioWorkspace() {
         <div className="sx-backdrop" role="presentation" onClick={() => setGenDialog(null)}>
           <section className="sx-dialog" role="dialog" aria-modal="true" aria-labelledby="sx-gen-title" onClick={(e) => e.stopPropagation()}>
             <p className="sx-kicker">Final confirmation</p>
-            <h2 id="sx-gen-title">{genDialog.step === 'still'
+            <h2 id="sx-gen-title">{genDialog.step === 'fallback'
+              ? 'Singing model busy · use the two-step method?'
+              : genDialog.step === 'still'
               ? 'Step 1 · Make the stills first?'
               : atCost ? 'Step 2 · Animate at cost?' : 'Step 2 · Animate the approved stills?'}</h2>
-            <p className="sx-hint">{genDialog.step === 'still'
+            <p className="sx-hint">{genDialog.step === 'fallback'
+              ? `The one-step singing model stayed busy after several automatic retries, so nothing was charged. The two-step method animates your approved still, then lip syncs it to the vocal. It costs more, but you get your scene now.${genDialog.skipped ? ` ${genDialog.skipped} longer scene${genDialog.skipped === 1 ? '' : 's'} can only use the one-step model; try ${genDialog.skipped === 1 ? 'it' : 'them'} again in a few minutes.` : ''}`
+              : genDialog.step === 'still'
               ? 'Each scene starts as a still: its first frame, with the real face. Stills cost a few credits, so you fix faces and framing here before paying for video.'
               : 'Approved stills become moving video. Sung scenes are performed in one step with lip sync built in, timed to your song.'}</p>
             <div className="sx-scope" role="radiogroup" aria-label="What to generate">
+              {genDialog.step !== 'fallback' && (
               <button type="button" role="radio" aria-checked={genDialog.scope === 'scene'} className={genDialog.scope === 'scene' ? 'is-active' : ''} onClick={() => setGenDialog((d) => ({ ...d, scope: 'scene' }))}>
                 <strong>This scene</strong><span>{scene?.title} · {genDialog.total} credits</span>
               </button>
+              )}
               <button type="button" role="radio" aria-checked={genDialog.scope === 'all'} className={genDialog.scope === 'all' ? 'is-active' : ''} onClick={() => setGenDialog((d) => ({ ...d, scope: 'all' }))}>
-                <strong>{genDialog.step === 'still' ? `All ${genDialog.all.ids.length} scenes without an approved still` : `All ${genDialog.all.ids.length} approved scenes`}</strong><span>{genDialog.all.total} credits</span>
+                <strong>{genDialog.step === 'still' ? `All ${genDialog.all.ids.length} scenes without an approved still` : genDialog.step === 'fallback' ? `${genDialog.all.ids.length} busy scene${genDialog.all.ids.length === 1 ? '' : 's'}` : `All ${genDialog.all.ids.length} approved scenes`}</strong><span>{genDialog.all.total} credits</span>
               </button>
             </div>
             <dl className="sx-dl">
@@ -1829,7 +1884,7 @@ function StudioWorkspace() {
               : 'Credits are reserved first and settled on completion. Failed scenes are refunded automatically.'}</p>
             <div className="sx-dialog-actions">
               <button type="button" className="sx-btn" autoFocus onClick={() => setGenDialog(null)}>Cancel</button>
-              <button type="button" className="sx-btn sx-btn-gold" onClick={confirmGenerate}><Icon.Spark /> {genDialog.step === 'still' ? 'Make stills' : 'Animate'}</button>
+              <button type="button" className="sx-btn sx-btn-gold" onClick={confirmGenerate}><Icon.Spark /> {genDialog.step === 'still' ? 'Make stills' : genDialog.step === 'fallback' ? 'Use two-step' : 'Animate'}</button>
             </div>
           </section>
         </div>
