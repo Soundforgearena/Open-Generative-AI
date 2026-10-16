@@ -31,6 +31,10 @@ function songDuration(url) {
   });
 }
 
+const TIMING_STALE_MS = 20 * 60 * 1000;
+const POLL_MS = 5000;
+const isTimingRunning = (m) => m?.timing?.status === 'running' && Date.now() - Date.parse(m.timing.started_at || 0) < TIMING_STALE_MS;
+
 const isSinger = (c) => (c?.role || 'singer') === 'singer';
 
 function castSummary(cast) {
@@ -50,8 +54,10 @@ export default function SongSync({ project, audioAsset, demo = false, onRefresh,
   const [confirmTime, setConfirmTime] = useState(false);
   const [confirmBuild, setConfirmBuild] = useState(false);
   const [resolution, setResolution] = useState('1080p');
+  const [listening, setListening] = useState(false);
   const player = useRef(null);
   const stopAt = useRef(0);
+  const polling = useRef(false);
 
   const step = !audioAsset ? 'song' : !project?.has_lyrics ? 'lyrics' : !music?.lines?.length ? 'time' : !music.confirmed ? 'review' : !music.built_at ? 'build' : 'done';
 
@@ -83,14 +89,75 @@ export default function SongSync({ project, audioAsset, demo = false, onRefresh,
     await onRefresh?.();
   });
 
+  // Listening runs on the server in the background; wait for it here.
+  async function waitForTiming() {
+    if (polling.current) return;
+    polling.current = true;
+    setListening(true);
+    try {
+      const until = Date.now() + TIMING_STALE_MS;
+      while (Date.now() < until) {
+        await new Promise((r) => setTimeout(r, POLL_MS));
+        let data;
+        try { data = await getMusicSync(project.id); } catch { continue; }
+        const m = data?.music;
+        if (isTimingRunning(m)) continue;
+        await onRefresh?.();
+        if (m?.timing?.status === 'done') {
+          onCharged?.(m.timing.credits || 0);
+          const flagged = (m.lines || []).filter((l) => l.confidence < 0.5).length;
+          onToast?.(`Every line is timed (${m.timing.credits || 0} credits).${flagged ? ` ${flagged} line${flagged > 1 ? 's' : ''} to check.` : ''} Review the timing before building scenes.`);
+          openReview(m);
+        } else if (m?.timing?.status === 'failed') {
+          onToast?.(m.timing.message || 'Your song could not be timed right now. You were not charged.');
+        }
+        return;
+      }
+      onToast?.('Timing is taking longer than expected. Refresh the page in a few minutes.');
+    } finally {
+      polling.current = false;
+      setListening(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!demo && project?.id && isTimingRunning(music)) waitForTiming();
+  }, [demo, project?.id, music?.timing?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const startTiming = () => run('time', async () => {
     setConfirmTime(false);
-    const result = await timeLyrics(project.id, info?.timing_credits);
-    onCharged?.(result.credits_charged || 0);
-    onToast?.(`Every line is timed (${result.credits_charged} credits). Review the timing before building scenes.`);
-    await onRefresh?.();
-    openReview(result.music);
+    await timeLyrics(project.id, info?.timing_credits);
+    waitForTiming();
   });
+
+  const timingBusy = listening || busy === 'time' || isTimingRunning(music);
+
+  function timingControl(again) {
+    if (timingBusy) {
+      return (
+        <p className="sx-hint" role="status" aria-live="polite">
+          Listening to your song and timing every line. This takes about 2 to 4 minutes; you can keep working.
+        </p>
+      );
+    }
+    if (!confirmTime) {
+      return (
+        <button type="button" className={`sx-btn ${again ? 'sx-btn-ghost' : 'sx-btn-gold'}`} onClick={() => setConfirmTime(true)} disabled={!info?.timing_credits || Boolean(busy)}>
+          {info?.timing_credits ? `${again ? 'Time again' : 'Time my lyrics'} · ${info.timing_credits} credits` : 'Pricing...'}
+        </button>
+      );
+    }
+    return (
+      <div className="sx-readiness" role="group" aria-label="Confirm lyric timing">
+        <strong>{again ? 'Time your song again' : 'Time your lyrics'} for {info.timing_credits} credits (${(info.timing_credits / 100).toFixed(2)})?</strong>
+        <span>{again ? 'This replaces the current timing and any line edits. ' : ''}Paid with purchased credits. If timing fails you are not charged.</span>
+        <div className="sx-dialog-actions">
+          <button type="button" className="sx-btn" onClick={() => setConfirmTime(false)}>Cancel</button>
+          <button type="button" className="sx-btn sx-btn-gold" onClick={startTiming} disabled={Boolean(busy)}>Confirm</button>
+        </div>
+      </div>
+    );
+  }
 
   function openReview(m = music) {
     if (!m?.lines) return;
@@ -158,20 +225,7 @@ export default function SongSync({ project, audioAsset, demo = false, onRefresh,
       {step === 'time' && (
         <>
           <p className="sx-hint">{info?.parsed_lines || 0} lines found{castSummary(info?.cast)}. CineXVideo listens to your song and finds exactly when each line is sung.</p>
-          {!confirmTime ? (
-            <button type="button" className="sx-btn sx-btn-gold" onClick={() => setConfirmTime(true)} disabled={!info?.timing_credits || Boolean(busy)}>
-              {busy === 'time' ? 'Listening to your song...' : info?.timing_credits ? `Time my lyrics · ${info.timing_credits} credits` : 'Pricing...'}
-            </button>
-          ) : (
-            <div className="sx-readiness" role="group" aria-label="Confirm lyric timing">
-              <strong>Time your lyrics for {info.timing_credits} credits (${(info.timing_credits / 100).toFixed(2)})?</strong>
-              <span>Paid with purchased credits. If timing fails you are not charged.</span>
-              <div className="sx-dialog-actions">
-                <button type="button" className="sx-btn" onClick={() => setConfirmTime(false)}>Cancel</button>
-                <button type="button" className="sx-btn sx-btn-gold" onClick={startTiming} disabled={Boolean(busy)}>{busy === 'time' ? 'Listening...' : 'Confirm'}</button>
-              </div>
-            </div>
-          )}
+          {timingControl(false)}
         </>
       )}
 
@@ -196,11 +250,12 @@ export default function SongSync({ project, audioAsset, demo = false, onRefresh,
           <div className="sx-sync-actions">
             <button type="button" className={`sx-btn ${step === 'review' ? 'sx-btn-gold' : 'sx-btn-ghost'}`} onClick={() => openReview()}>Review timing</button>
             {step !== 'review' && (
-              <button type="button" className={`sx-btn ${step === 'build' ? 'sx-btn-gold' : 'sx-btn-ghost'}`} onClick={() => build(false)} disabled={busy === 'build'}>
+              <button type="button" className={`sx-btn ${step === 'build' ? 'sx-btn-gold' : 'sx-btn-ghost'}`} onClick={() => build(false)} disabled={busy === 'build' || timingBusy}>
                 {busy === 'build' ? 'Building...' : music.built_at ? 'Rebuild scenes' : 'Build scenes from song'}
               </button>
             )}
           </div>
+          {timingControl(true)}
           {confirmBuild && (
             <div className="sx-readiness is-blocked" role="alertdialog" aria-label="Replace scenes">
               <strong>Replace every scene?</strong>

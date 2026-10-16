@@ -3,16 +3,14 @@
 # ---------------------------------------------------------------- deps
 # Dependencies are installed in their own stage so this layer is only
 # rebuilt when package.json or the lockfile changes, not on every commit.
-FROM node:22-alpine AS deps
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
-RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json ./
 RUN npm ci
 
 # ---------------------------------------------------------------- builder
-FROM node:22-alpine AS builder
+FROM node:22-bookworm-slim AS builder
 WORKDIR /app
-RUN apk add --no-cache libc6-compat
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -46,7 +44,9 @@ RUN npm run build
 # next.config.mjs sets output: 'standalone', so the build emits a minimal
 # server bundled with only the modules it actually traced. The runner stage
 # therefore ships no package.json, no npm install and no dev dependencies.
-FROM node:22-alpine AS runner
+# Debian (glibc) rather than Alpine: the lyric-timing model's runtime ships
+# only glibc builds.
+FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -56,17 +56,30 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
-# ffmpeg renders the finished video (scenes joined, soundtrack, watermark).
-RUN apk add --no-cache ffmpeg
+# ffmpeg renders the finished video (scenes joined, soundtrack, watermark)
+# and cuts song slices. Python runs the lyric-timing model.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg python3 python3-venv ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
-RUN addgroup -g 1001 -S nodejs \
-  && adduser -u 1001 -S nextjs -G nodejs
+# Lyric timing: faster-whisper with the "small" model baked into the image,
+# so timing never depends on a download at request time.
+RUN python3 -m venv /opt/whisper/venv \
+  && /opt/whisper/venv/bin/pip install --no-cache-dir faster-whisper==1.2.1 \
+  && /opt/whisper/venv/bin/python -c "from faster_whisper import download_model; download_model('small', output_dir='/opt/whisper/small')" \
+  && test -f /opt/whisper/small/model.bin
+ENV LYRIC_TIMING_PYTHON=/opt/whisper/venv/bin/python
+ENV LYRIC_TIMING_MODEL_DIR=/opt/whisper/small
+
+RUN groupadd -g 1001 nodejs \
+  && useradd -u 1001 -g nodejs -M -s /usr/sbin/nologin nextjs
 
 # server.js plus its traced node_modules.
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 # Static assets are deliberately not traced, so they are copied explicitly.
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/lyric_timing.py ./scripts/lyric_timing.py
 
 USER nextjs
 

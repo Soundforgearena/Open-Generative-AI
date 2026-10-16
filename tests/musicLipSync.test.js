@@ -171,3 +171,31 @@ test('songs are heard in overlapping windows and stitched without duplicate or l
   assert.deepEqual(words.map((w) => w.word), ['a', 'x', 'b']);
   assert.equal(words[2].start, 44);
 });
+
+test('two listening passes: each line keeps its best-supported timing, in song order', async () => {
+  const { parseLyrics, alignFromPasses } = await import('../lib/music/lyrics.js');
+  const { lines } = parseLyrics('[Lead]\nfirst line of the song\nsecond line right here\nthird line to finish');
+  const w = (word, start) => ({ word, start, end: start + 0.3 });
+  // Pass A hears lines 1-2 but misses line 3; pass B hears only line 3.
+  const a = [...'first line of the song'.split(' ').map((x, i) => w(x, 10 + i * 0.4)), ...'second line right here'.split(' ').map((x, i) => w(x, 14 + i * 0.4))];
+  const b = [w('the', 2), ...'third line to finish'.split(' ').map((x, i) => w(x, 20 + i * 0.4))];
+  const t = alignFromPasses(lines, [a, b], 30000);
+  assert.equal(t[0].start_ms, 10000);
+  assert.equal(t[1].start_ms, 14000);
+  assert.equal(t[2].start_ms, 20000);
+  assert.ok(t.every((l) => l.confidence >= 0.5));
+});
+
+test('one stray heard word does not drag a line out of order', async () => {
+  const { parseLyrics, alignFromPasses } = await import('../lib/music/lyrics.js');
+  const { lines } = parseLyrics('[Lead]\nalpha bravo charlie delta\necho foxtrot golf hotel\nindia juliet kilo lima');
+  const w = (word, start) => ({ word, start, end: start + 0.3 });
+  const words = [
+    ...'alpha bravo charlie delta'.split(' ').map((x, i) => w(x, 5 + i * 0.4)),
+    w('echo', 40), // stray, far too late
+    ...'india juliet kilo lima'.split(' ').map((x, i) => w(x, 12 + i * 0.4)),
+  ];
+  const t = alignFromPasses(lines, [words], 60000);
+  assert.equal(t[1].confidence, 0); // flagged, re-placed between neighbours
+  assert.ok(t[1].start_ms >= t[0].end_ms && t[1].end_ms <= t[2].start_ms);
+});
