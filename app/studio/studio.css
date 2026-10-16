@@ -618,7 +618,8 @@
 .sx-sync-actions .sx-btn { flex: 1 1 140px; justify-content: center; }
 .sx-sync-dialog { width: min(760px, 100%); }
 .sx-cast { display: grid; gap: 6px; }
-.sx-cast-row { display: grid; grid-template-columns: minmax(90px, 140px) 1fr; gap: 8px; align-items: center; font-size: 13px; }
+.sx-cast-row { display: grid; grid-template-columns: minmax(90px, 140px) 1fr minmax(130px, 170px); gap: 8px; align-items: center; font-size: 13px; }
+.sx-cast-row select { width: 100%; min-height: 36px; }
 .sx-cast-row input { width: 100%; min-height: 36px; }
 .sx-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: min(48dvh, 460px); overflow-y: auto; overscroll-behavior: contain; }
 .sx-lines li { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--sx-line); border-radius: 8px; background: var(--sx-panel-2); }

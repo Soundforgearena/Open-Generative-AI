@@ -103,7 +103,7 @@ function cleanCast(input, parsed) {
     return {
       key: c.key,
       label: String(edit.label || c.label).slice(0, 60),
-      group: Boolean(edit.group ?? c.group),
+      role: ['singer', 'backing'].includes(edit.role) ? edit.role : c.role || 'singer',
       description: String(edit.description ?? c.description ?? '').slice(0, 400),
     };
   });
@@ -231,7 +231,7 @@ export async function POST(request, { params }) {
       ...line,
       start_ms: Number(edits[i]?.start_ms),
       end_ms: Number(edits[i]?.end_ms),
-      vocalist: typeof edits[i]?.vocalist === 'string' ? edits[i].vocalist.slice(0, 40) : line.vocalist,
+      vocalist: edits[i]?.vocalist === 'both' || (music.cast || []).some((c) => c.key === edits[i]?.vocalist) ? edits[i].vocalist : line.vocalist,
     }));
     if (merged.some((l) => !Number.isFinite(l.start_ms) || !Number.isFinite(l.end_ms))) return safeError('Every line needs a start and end time.', 400);
     const next = {
@@ -257,7 +257,8 @@ export async function POST(request, { params }) {
     }
     const vi = project.visual_identity || {};
     const style = [vi.style, vi.style_notes].filter(Boolean).join(', ').slice(0, 300);
-    const rows = timelineToScenes(buildTimeline(music.lines, music.duration_ms), { cast: music.cast || [], style, resolution: body.resolution });
+    const cast = music.cast || [];
+    const rows = timelineToScenes(buildTimeline(music.lines, music.duration_ms, { cast }), { cast, style, resolution: body.resolution });
     if (!rows.length) return safeError('No scenes could be built from this song.', 409);
     if (rows.length > 80) return safeError('This song needs more scenes than one project allows.', 409);
     if (scenes.length) {

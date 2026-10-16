@@ -57,7 +57,7 @@ function MusicVideoNewContent() {
     <form className="cinex-workflow-form" onSubmit={submit}>
       <div className="cinex-music-stepper"><span className="is-active">1 Music</span><span>2 Lyrics</span><span>3 Creative Direction</span><span>4 AI Director</span><span>5 Storyboard</span><span>6 Review</span></div>
       <label>Project title<input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Midnight Signal" /></label>
-      <MusicSourceStep trackId={track?.id || ''} onTrackChange={setTrack} rights={rights} onRightsChange={setRights} />
+      <MusicSourceStep trackId={track?.id || ''} onTrackChange={setTrack} />
       <LyricsStep mode={lyricsMode} onModeChange={setLyricsMode} value={lyrics} onChange={setLyrics} />
       <label>Video style<select value={style} onChange={(e) => setStyle(e.target.value)}><option>Performance</option><option>Narrative short film</option><option>Performance + narrative</option><option>Abstract / art film</option><option>Lyric video</option><option>Animated concept</option></select></label>
       <label>Final chorus feeling<select value={feeling} onChange={(e) => setFeeling(e.target.value)}><option>victorious</option><option>heartbroken</option><option>euphoric</option><option>mysterious</option><option>intimate</option><option>rebellious</option><option>hopeful</option></select></label>

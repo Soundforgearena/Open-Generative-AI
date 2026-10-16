@@ -31,6 +31,16 @@ function songDuration(url) {
   });
 }
 
+const isSinger = (c) => (c?.role || 'singer') === 'singer';
+
+function castSummary(cast) {
+  if (!cast?.length) return '';
+  const names = (list) => list.map((c) => c.label).join(' and ');
+  const singers = cast.filter(isSinger);
+  const backing = cast.filter((c) => !isSinger(c));
+  return ` · ${singers.length} ${singers.length === 1 ? 'singer' : 'singers'} (${names(singers)})${backing.length ? ` · backing chant: ${names(backing)}` : ''}`;
+}
+
 export default function SongSync({ project, audioAsset, demo = false, onRefresh, onToast, onCharged, onUpload }) {
   const music = project?.music || null;
   const [info, setInfo] = useState(null);
@@ -56,7 +66,7 @@ export default function SongSync({ project, audioAsset, demo = false, onRefresh,
       } catch { /* panel still works without the quote */ }
     })();
     return () => { live = false; };
-  }, [demo, project?.id, audioAsset, music?.duration_ms, music?.timed_at]);
+  }, [demo, project?.id, audioAsset?.id, music?.duration_ms, music?.timed_at]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const lowConfidence = useMemo(() => (music?.lines || []).filter((l) => l.confidence < 0.5).length, [music]);
 
@@ -147,7 +157,7 @@ export default function SongSync({ project, audioAsset, demo = false, onRefresh,
 
       {step === 'time' && (
         <>
-          <p className="sx-hint">{info?.parsed_lines || 0} lines found. CineXVideo listens to your song and finds exactly when each line is sung.</p>
+          <p className="sx-hint">{info?.parsed_lines || 0} lines found{castSummary(info?.cast)}. CineXVideo listens to your song and finds exactly when each line is sung.</p>
           {!confirmTime ? (
             <button type="button" className="sx-btn sx-btn-gold" onClick={() => setConfirmTime(true)} disabled={!info?.timing_credits || Boolean(busy)}>
               {busy === 'time' ? 'Listening to your song...' : info?.timing_credits ? `Time my lyrics · ${info.timing_credits} credits` : 'Pricing...'}
@@ -213,13 +223,21 @@ export default function SongSync({ project, audioAsset, demo = false, onRefresh,
             {audioAsset && <audio ref={player} src={audioAsset.preview_url} preload="auto" onTimeUpdate={(e) => { if (stopAt.current && e.currentTarget.currentTime >= stopAt.current) { e.currentTarget.pause(); stopAt.current = 0; } }} hidden />}
 
             <div className="sx-cast">
-              <p className="sx-menu-heading">Who sings</p>
+              <p className="sx-menu-heading">Who sings · {review.cast.filter(isSinger).length} {review.cast.filter(isSinger).length === 1 ? 'singer' : 'singers'}</p>
               {review.cast.map((c, i) => (
-                <label key={c.key} className="sx-cast-row">
+                <div key={c.key} className="sx-cast-row">
                   <span>{c.label}</span>
-                  <input className="sx-inline-input" value={c.description || ''} maxLength={400} placeholder={c.group ? 'Describe the group (one lead is shown in sharp focus)' : 'Describe how this performer looks'}
+                  <input className="sx-inline-input" value={c.description || ''} maxLength={400} aria-label={`Describe ${c.label}`}
+                    placeholder={isSinger(c) ? 'Describe how this singer looks' : 'Describe who is heard (shown at a distance, not lip-synced)'}
                     onChange={(e) => setReview((r) => ({ ...r, cast: r.cast.map((x, k) => (k === i ? { ...x, description: e.target.value } : x)) }))} />
-                </label>
+                  <span className="sx-select-wrap">
+                    <select value={c.role || 'singer'} aria-label={`Role of ${c.label}`}
+                      onChange={(e) => setReview((r) => ({ ...r, cast: r.cast.map((x, k) => (k === i ? { ...x, role: e.target.value } : x)) }))}>
+                      <option value="singer">Singer on camera</option>
+                      <option value="backing">Backing vocal</option>
+                    </select>
+                  </span>
+                </div>
               ))}
             </div>
 
@@ -231,7 +249,9 @@ export default function SongSync({ project, audioAsset, demo = false, onRefresh,
                     <span className="sx-line-text">{l.text}</span>
                     <span className="sx-line-meta">
                       <select value={l.vocalist || ''} onChange={(e) => patchLine(i, { vocalist: e.target.value })} aria-label={`Singer for line ${i + 1}`}>
-                        {review.cast.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                        {review.cast.filter(isSinger).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                        {review.cast.filter(isSinger).length > 1 && <option value="both">Both singers</option>}
+                        {review.cast.filter((c) => !isSinger(c)).map((c) => <option key={c.key} value={c.key}>{c.label} (backing, no lip sync)</option>)}
                       </select>
                       {l.confidence < 0.5 && <em>Check timing</em>}
                     </span>
