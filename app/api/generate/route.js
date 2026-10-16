@@ -562,7 +562,8 @@ export async function POST(request) {
         });
       }
       const canonicalInput = beat ? {
-        prompt: beatDancePrompt({ scenePrompt: beat.scene.prompt || input.prompt, bpm: beatSlice.bpm }),
+        // The Studio's prompt carries the visual style (location, look) and camera.
+        prompt: beatDancePrompt({ scenePrompt: String(input.prompt || beat.scene.prompt || ''), bpm: beatSlice.bpm }),
         images_list: [firstFrame],
         audio_files: [beatSlice.url],
         aspect_ratio: beatAspect(input.aspect_ratio),
