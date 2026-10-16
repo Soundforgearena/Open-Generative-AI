@@ -52,6 +52,25 @@ export async function PATCH(request, { params }) {
     patch.character_asset_id = face.id;
   }
 
+  // Dance shot: a consented dance clip from this project whose moves are
+  // copied onto the still, and where in the clip to start (ms).
+  if (body.motion_asset_id === null) patch.motion_asset_id = null;
+  else if (typeof body.motion_asset_id === 'string') {
+    const clip = await selectOne(
+      'project_assets',
+      { id: `eq.${body.motion_asset_id}`, project_id: `eq.${scene.project_id}` },
+      'id,kind,storage_path,likeness_consent'
+    );
+    if (!clip || clip.kind !== 'motion' || !clip.storage_path) return safeError('Choose a dance clip from this project.', 400);
+    if (clip.likeness_consent !== true) return safeError('Confirm you filmed this clip or have permission from everyone in it first.', 409);
+    patch.motion_asset_id = clip.id;
+  }
+  if (body.motion_start_ms !== undefined) {
+    const ms = Number(body.motion_start_ms);
+    if (!Number.isFinite(ms) || ms < 0 || ms > 600000) return safeError('Choose a start point within the clip.', 400);
+    patch.motion_start_ms = Math.round(ms);
+  }
+
   // Approve (or un-approve) the scene's still before paying to animate it.
   const current = (typeof body.keyframe_approved === 'boolean' || 'character_asset_id' in patch)
     ? await selectOne('scenes', { id: `eq.${id}` }, 'keyframe_url,character_asset_id')
