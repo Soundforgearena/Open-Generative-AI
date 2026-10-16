@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Icon, Logo } from './StudioIcons';
 import StudioDirector from './StudioDirector';
 import FacesPanel, { isFace } from './FacesPanel';
+import DancePanel from './DancePanel';
 import SongSync from './SongSync';
 import StudioTour, { SHORTCUTS, TOUR_KEY } from './StudioTour';
 import { demoModeEnabled } from '@/lib/demo-mode';
@@ -98,6 +99,8 @@ function mapScene(scene) {
     lyric_text: scene.lyric_text || '',
     vocalist: scene.vocalist || '',
     character_asset_id: scene.character_asset_id || null,
+    motion_asset_id: scene.motion_asset_id || null,
+    motion_start_ms: Number(scene.motion_start_ms) || 0,
     lip_sync: Boolean(scene.lip_sync),
     has_synced_take: versions.some((v) => v.kind === 'lip_sync' && v.status === 'completed' && v.output_url),
     continuity_locked: Boolean(scene.continuity_locked),
@@ -907,12 +910,13 @@ function StudioWorkspace() {
     const q = await quoteGeneration(payloadFor(s));
     const video = Number(q.credits_required);
     const perform = q.engine === 'perform';
+    const dance = q.engine === 'motion';
     let lip = 0; let lipList = 0;
     if (!perform && needsLipSync(s)) {
       const l = await quoteGeneration(lipSyncPayload(s));
       lip = Number(l.credits_required); lipList = Number(l.list_credits || l.credits_required);
     }
-    return { step: 'animate', still: 0, video, lip, perform, total: video + lip, list: Number(q.list_credits || video) + lipList, plan: q.plan_code || null };
+    return { step: 'animate', still: 0, video, lip, perform, dance, total: video + lip, list: Number(q.list_credits || video) + lipList, plan: q.plan_code || null };
   }
 
   async function runStill(s, maxCredits) {
@@ -1015,6 +1019,7 @@ function StudioWorkspace() {
           lip: same.reduce((t, [, q]) => t + q.lip, 0),
           synced: same.filter(([, q]) => q.lip > 0).length,
           performed: same.filter(([, q]) => q.perform).length,
+          danced: same.filter(([, q]) => q.dance).length,
         },
         waiting: step === 'animate' ? quotes.filter(([, q]) => q.step === 'still').length : 0,
       });
@@ -1622,6 +1627,12 @@ function StudioWorkspace() {
                   onToast={setToast}
                   onLinkScenes={(ids, assetId) => { ids.forEach((id) => patchScene(id, { character_asset_id: assetId })); setToast(`Linked ${ids.length} ${ids.length === 1 ? 'scene' : 'scenes'}.`); }} />
               </Section>
+              <Section icon={Icon.Camera} title="Dance Moves" open={open.dance} onToggle={() => setOpen((o) => ({ ...o, dance: !o.dance }))}>
+                <DancePanel project={project} scene={scene} index={index} assets={assets} demo={demoModeEnabled}
+                  onPatch={(patch) => scene && patchScene(scene.id, patch)}
+                  onRefresh={() => refreshProject(selectedIdRef.current)}
+                  onToast={setToast} />
+              </Section>
               <Section icon={Icon.Eye} title="Visual Direction" open={open.visual} onToggle={() => setOpen((o) => ({ ...o, visual: !o.visual }))}>
                 <div className="sx-vd">
                   <span className="sx-vd-thumb">{styleThumb ? <img src={styleThumb} alt="" referrerPolicy="no-referrer" /> : <span className="sx-thumb-empty" />}</span>
@@ -1768,8 +1779,8 @@ function StudioWorkspace() {
               <ul className="sx-asset-list">
                 {assets.map((a) => (
                   <li key={a.id} className="sx-asset">
-                    {a.kind === 'audio' ? <span className="sx-asset-icon"><Icon.Wave /></span> : a.preview_url ? <img src={a.preview_url} alt="" referrerPolicy="no-referrer" /> : <span className="sx-asset-icon"><Icon.Folder /></span>}
-                    <span className="sx-asset-text"><strong>{a.name}</strong><small>{a.kind}{a.locked ? ' · locked' : ''}</small></span>
+                    {a.kind === 'audio' ? <span className="sx-asset-icon"><Icon.Wave /></span> : a.kind === 'motion' ? <span className="sx-asset-icon"><Icon.Camera /></span> : a.preview_url ? <img src={a.preview_url} alt="" referrerPolicy="no-referrer" /> : <span className="sx-asset-icon"><Icon.Folder /></span>}
+                    <span className="sx-asset-text"><strong>{a.name}</strong><small>{a.kind === 'motion' ? 'dance clip' : a.kind}{a.locked ? ' · locked' : ''}</small></span>
                   </li>
                 ))}
               </ul>
@@ -1868,6 +1879,9 @@ function StudioWorkspace() {
               {genDialog.step !== 'still' && <div><dt>Model</dt><dd>{videoOption?.label}</dd></div>}
               {genDialog.step !== 'still' && (genDialog.scope === 'all' ? genDialog.all.performed > 0 : genDialog.parts?.[scene?.id]?.perform) && (
                 <div><dt>Sung performances</dt><dd>{genDialog.scope === 'all' ? `${genDialog.all.performed} scenes · lip sync included` : 'Lip sync included'}</dd></div>
+              )}
+              {genDialog.step !== 'still' && (genDialog.scope === 'all' ? genDialog.all.danced > 0 : genDialog.parts?.[scene?.id]?.dance) && (
+                <div><dt>Dance shots</dt><dd>{genDialog.scope === 'all' ? `${genDialog.all.danced} scene${genDialog.all.danced === 1 ? '' : 's'} · real moves from your clip` : 'Real moves from your clip'}</dd></div>
               )}
               {genDialog.plan && !atCost && (genDialog.scope === 'all' ? genDialog.all.list > genDialog.all.total : genDialog.parts?.[scene?.id]?.list > genDialog.total) && (
                 <div><dt>Subscriber price</dt><dd>You save {(genDialog.scope === 'all' ? genDialog.all.list - genDialog.all.total : genDialog.parts[scene.id].list - genDialog.total).toLocaleString()} credits on your plan</dd></div>

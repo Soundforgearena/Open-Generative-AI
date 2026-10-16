@@ -21,6 +21,7 @@ import { FaceMismatchError, LIKENESS_VIDEO_MODEL, PERFORM_AUDIO_MIN_MS, PERFORM_
 import { PLAN_PRICING_POLICY, planCodeFor, planCredits } from '../../../lib/billing/plan-pricing.js';
 import { runStillJob } from '../../../lib/generation/still-job.js';
 import { retryState } from '../../../lib/generation/busy-retry.js';
+import { MOTION_MAX_MS, MOTION_MIN_MS, MOTION_MODEL, motionPrompt, sceneMotion, trimMotionClip } from '../../../lib/music/motion.js';
 
 const SAFE_PROVIDER_FIELDS = new Set([
   'prompt',
@@ -210,8 +211,9 @@ export async function POST(request) {
     // in); everything else is image-to-video from the still.
     let fromStill = null;
     let perform = null;
+    let motion = null;
     if (operation === 'video' && sceneId && body.use_keyframe === true) {
-      const sc = await selectOne('scenes', { id: `eq.${sceneId}` }, 'id,project_id,start_ms,end_ms,lip_sync,lyric_text,keyframe_url,keyframe_approved');
+      const sc = await selectOne('scenes', { id: `eq.${sceneId}` }, 'id,project_id,start_ms,end_ms,duration_seconds,lip_sync,lyric_text,keyframe_url,keyframe_approved,motion_asset_id,motion_start_ms');
       if (!sc?.keyframe_url || sc.keyframe_approved !== true) {
         return safeError("Approve this scene's still first, then animate it.", 409);
       }
@@ -221,7 +223,16 @@ export async function POST(request) {
       // engine 'two_step' = the fallback when the singing model is busy:
       // clip from the still, then a separate lip sync (priced separately).
       const twoStep = body.engine === 'two_step';
-      if (!twoStep && sc.lip_sync && sc.start_ms !== null && windowMs >= PERFORM_MIN_MS && windowMs <= PERFORM_MAX_MS) {
+      // Dance shot: real moves copied from the scene's dance clip. Takes
+      // precedence; a sung dance shot gets a separate lip sync afterwards.
+      const clip = await sceneMotion(sc);
+      if (clip) {
+        const lengthMs = sc.start_ms !== null && windowMs > 0 ? windowMs : Math.round(Number(sc.duration_seconds || 0) * 1000);
+        if (lengthMs < MOTION_MIN_MS) return safeError('Dance shots need a scene of at least 3 seconds.', 409);
+        if (lengthMs > MOTION_MAX_MS) return safeError('Dance shots can be up to 30 seconds. Split this scene first.', 409);
+        motion = { scene: sc, asset: clip, lengthMs, seconds: Math.ceil(lengthMs / 1000) };
+        model = MOTION_MODEL;
+      } else if (!twoStep && sc.lip_sync && sc.start_ms !== null && windowMs >= PERFORM_MIN_MS && windowMs <= PERFORM_MAX_MS) {
         const song = await projectSong(sc.project_id);
         if (!song) return safeError('Upload your song first.', 409);
         // Priced on the padded audio actually sent (see sliceSongForScene).
@@ -241,7 +252,7 @@ export async function POST(request) {
 
     // Price exactly what is sent to the provider. Never trust duplicate
     // top-level values that can disagree with the provider payload.
-    const durationSeconds = lipSync ? lipSync.seconds : perform ? perform.seconds : Number(input.duration_seconds ?? input.duration ?? requestedDuration);
+    const durationSeconds = lipSync ? lipSync.seconds : perform ? perform.seconds : motion ? motion.seconds : Number(input.duration_seconds ?? input.duration ?? requestedDuration);
     const resolution = input.resolution ?? requestedResolution;
     let referenceCount;
     try {
@@ -293,7 +304,7 @@ export async function POST(request) {
         credits_required: credits,
         list_credits: listCredits,
         plan_code: planCode,
-        engine: perform ? 'perform' : fromStill ? 'still' : likeness ? 'real_face' : 'text',
+        engine: perform ? 'perform' : motion ? 'motion' : fromStill ? 'still' : likeness ? 'real_face' : 'text',
         duration_seconds: durationSeconds,
         model,
         operation,
@@ -503,6 +514,18 @@ export async function POST(request) {
         });
         if (Math.ceil(slice.durationMs / 1000) > durationSeconds) throw new Error('song slice longer than priced');
       }
+      let moves = null;
+      if (motion) {
+        const owner = await selectOne('projects', { id: `eq.${motion.scene.project_id}` }, 'owner_id');
+        moves = await trimMotionClip({
+          asset: motion.asset,
+          sceneId,
+          ownerId: owner?.owner_id || user.id,
+          projectId: motion.scene.project_id,
+          startMs: Number(motion.scene.motion_start_ms) || 0,
+          lengthMs: motion.lengthMs,
+        });
+      }
       let firstFrame = fromStill ? fromStill.keyframe_url : null;
       if (likeness && !fromStill) {
         firstFrame = await makeKeyframe({
@@ -515,7 +538,14 @@ export async function POST(request) {
           singing: Boolean(likeness.scene.lip_sync),
         });
       }
-      const canonicalInput = perform ? {
+      const canonicalInput = motion ? {
+        prompt: motionPrompt(),
+        image_url: firstFrame,
+        video_url: moves.url,
+        // Follow the dancer's body orientation (allows up to 30 s).
+        character_orientation: 'video',
+        keep_original_sound: false,
+      } : perform ? {
         image_url: firstFrame,
         audio_url: slice.url,
         prompt: performPrompt(perform.scene.lyric_text),
@@ -622,6 +652,9 @@ export async function POST(request) {
             { status: 'failed' }
           );
         }
+      }
+      if (providerError?.code === 'MOTION_TOO_SHORT') {
+        return safeError(`Your dance clip runs out before this scene ends (${(providerError.availableMs / 1000).toFixed(1)} s left after the start point). Choose an earlier start or a longer clip. Your credits were returned.`, 422);
       }
       if (providerError instanceof FaceMismatchError) {
         return safeError(`We couldn't keep ${likeness?.asset?.name || 'this person'}'s face accurate in this shot, so nothing was made and your credits were returned. Try a sharper, front-facing photo or a simpler scene description.`, 422);

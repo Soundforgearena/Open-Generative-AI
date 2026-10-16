@@ -77,8 +77,9 @@ export async function POST(request) {
       name: (name || safeName).slice(0, 200),
       notes,
       storage_path: path,
-      // Only a character photo can carry face permission.
-      ...(kind === 'character' && likenessConsent === true
+      // Only a character photo or a dance clip can carry permission to use
+      // the people in it.
+      ...((kind === 'character' || kind === 'motion') && likenessConsent === true
         ? { likeness_consent: true, likeness_consent_at: new Date().toISOString() }
         : {}),
     });
@@ -147,7 +148,7 @@ export async function PATCH(request) {
     if (typeof body.name === 'string' && body.name.trim()) patch.name = body.name.trim().slice(0, 200);
     if (typeof body.notes === 'string') patch.notes = body.notes.slice(0, 1000);
     if (typeof body.likeness_consent === 'boolean') {
-      if (body.likeness_consent && asset.kind !== 'character') return safeError('Only character photos can be used as a face.', 400);
+      if (body.likeness_consent && asset.kind !== 'character' && asset.kind !== 'motion') return safeError('Only character photos and dance clips can carry permission.', 400);
       if (body.likeness_consent && !asset.storage_path) return safeError('Add a photo first.', 409);
       patch.likeness_consent = body.likeness_consent;
       patch.likeness_consent_at = body.likeness_consent ? new Date().toISOString() : null;
@@ -157,6 +158,7 @@ export async function PATCH(request) {
     if (!updated.ok) return safeError('Reference could not be updated.', 500);
     if (patch.likeness_consent === false) {
       await updateRows('scenes', { character_asset_id: `eq.${assetId}` }, { character_asset_id: null });
+      await updateRows('scenes', { motion_asset_id: `eq.${assetId}` }, { motion_asset_id: null });
     }
     return Response.json({ asset: updated.data?.[0] || null });
   } catch (err) {
