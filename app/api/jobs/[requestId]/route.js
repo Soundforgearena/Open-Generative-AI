@@ -69,12 +69,13 @@ export async function GET(request, { params }) {
       { headers: { 'x-api-key': apiKey }, cache: 'no-store' }
     );
     const data = await response.json().catch(() => null);
-    const status = normaliseStatus(data?.status || data?.state || data?.data?.status);
+    const status = normaliseStatus(data?.status || data?.state || data?.data?.status || data?.detail?.status);
     // MUAPI can answer a failed job with an error status code. A clear
     // "failed" status is final (credits are returned below); anything else is
     // reported so it can be diagnosed instead of polling forever.
     if (!response.ok && status !== 'failed') {
-      const detail = String(data?.error || data?.detail?.[0]?.msg || data?.detail || data?.message || '').slice(0, 300);
+      const raw = data?.error ?? data?.detail ?? data?.message ?? data;
+      const detail = (typeof raw === 'string' ? raw : JSON.stringify(raw ?? '')).slice(0, 400);
       console.error('job status not ok', { requestId, status: response.status, detail });
       return Response.json(
         { error: 'Generation status is temporarily unavailable.', ...(admin ? { provider_status: response.status, provider_detail: detail } : {}) },
