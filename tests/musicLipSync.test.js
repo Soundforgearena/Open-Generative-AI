@@ -156,3 +156,18 @@ test('"Both" alternates the lip-synced singer and backing chants are never lip-s
   assert.equal(scenes[scenes.length - 1].end_ms, 22000);
   for (let i = 1; i < scenes.length; i += 1) assert.equal(scenes[i].start_ms, scenes[i - 1].end_ms);
 });
+
+test('songs are heard in overlapping windows and stitched without duplicate or lost words', async () => {
+  const { chunkPlan, stitchWords } = await import('../lib/music/transcribe.js');
+  const plan = chunkPlan(155800);
+  assert.equal(plan[0].start, 0);
+  assert.equal(plan[plan.length - 1].end, 155800);
+  for (let i = 1; i < plan.length; i += 1) assert.ok(plan[i].start < plan[i - 1].end); // overlap
+  // A word at 27 s appears in both window 0 (27 s) and window 1 (3 s); keep one.
+  const words = stitchWords([
+    { start: 0, end: 30000, words: [{ word: 'a', start: 10, end: 10.4 }, { word: 'x', start: 27, end: 27.3 }] },
+    { start: 24000, end: 54000, words: [{ word: 'x', start: 3, end: 3.3 }, { word: 'b', start: 20, end: 20.5 }] },
+  ]);
+  assert.deepEqual(words.map((w) => w.word), ['a', 'x', 'b']);
+  assert.equal(words[2].start, 44);
+});

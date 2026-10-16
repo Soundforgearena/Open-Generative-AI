@@ -425,7 +425,7 @@ function StudioWorkspace() {
   const resolutions = resolutionsFor(videoOption?.max_resolution);
   const audioAsset = assets.find((a) => a.kind === 'audio' && a.preview_url);
   const imageAssets = assets.filter((a) => a.kind !== 'audio');
-  const styleThumb = imageAssets.find((a) => a.preview_url)?.preview_url || scenes.find((s) => s.thumbnail_url)?.thumbnail_url || '';
+  const styleThumb = imageAssets.find((a) => a.preview_url && a.kind !== 'character')?.preview_url || scenes.find((s) => s.thumbnail_url)?.thumbnail_url || '';
   const continuity = continuityBetween(scene, scenes[index + 1]);
   const healthCounts = useMemo(() => scenes.reduce((acc, s) => { acc[sceneHealth(s)] += 1; return acc; }, { good: 0, warning: 0, issue: 0, pending: 0 }), [scenes]);
   const globalTime = (offsets[index]?.start || 0) + playhead;

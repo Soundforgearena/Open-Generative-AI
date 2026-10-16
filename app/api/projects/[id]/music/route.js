@@ -19,6 +19,8 @@ import {
   timelineToScenes,
 } from '../../../../../lib/music/lyrics';
 import { projectSong, withSongFile } from '../../../../../lib/music/audio';
+import { OVERLAP_FACTOR, transcribeSong } from '../../../../../lib/music/transcribe';
+import { run as runTool } from '../../../../../lib/exports/render-video';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -46,7 +48,8 @@ async function saveMusic(project, music) {
 
 /** Credits for timing a song of this length (purchased credits only). */
 async function alignmentCredits(durationMs, atCost) {
-  const minutes = Math.max(1, Math.ceil(durationMs / 60000));
+  // Overlapping windows mean ~1.25x the song is sent for transcription.
+  const minutes = Math.max(1, Math.ceil((durationMs * OVERLAP_FACTOR) / 60000));
   const rule = await selectOne(
     'model_cost_rules',
     { provider: 'eq.openai', model: 'eq.whisper-1', operation: 'eq.alignment', active: 'eq.true' },
@@ -68,32 +71,35 @@ async function alignmentCredits(durationMs, atCost) {
   return quote.ok && row?.approved ? Number(row.credits) : null;
 }
 
-async function transcribe(file, lyricsHint) {
+/** One window of the song -> words (seconds, relative to the window). */
+async function hearWindow(file, prompt) {
   const { readFile } = await import('node:fs/promises');
   const bytes = await readFile(file);
-  if (bytes.length > MAX_SONG_BYTES) throw new Error('song too large to time');
+  if (bytes.length > MAX_SONG_BYTES) throw new Error('song window too large to time');
   const form = new FormData();
-  form.append('file', new Blob([bytes]), 'song.mp3');
+  form.append('file', new Blob([bytes]), 'window.mp3');
   form.append('model', 'whisper-1');
   form.append('response_format', 'verbose_json');
   form.append('timestamp_granularities[]', 'word');
-  form.append('timestamp_granularities[]', 'segment');
   form.append('language', 'en');
-  // Whisper reads up to ~224 tokens of prompt: the start of the real lyrics
-  // steers spelling of slang and patois.
-  if (lyricsHint) form.append('prompt', lyricsHint.slice(0, 800));
-  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${requireSecret('OPENAI_API_KEY')}` },
-    body: form,
-    signal: AbortSignal.timeout(240_000),
-  });
-  if (!response.ok) {
-    console.error('lyric timing failed', response.status, (await response.text().catch(() => '')).slice(0, 300));
-    throw new Error('transcription failed');
+  // The lyrics expected in this window steer spelling of slang and patois
+  // and keep the recogniser locked onto the voice.
+  if (prompt) form.append('prompt', prompt.slice(0, 700));
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${requireSecret('OPENAI_API_KEY')}` },
+      body: form,
+      signal: AbortSignal.timeout(90_000),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return Array.isArray(data.words) ? data.words : [];
+    }
+    console.error('lyric timing window failed', response.status, (await response.text().catch(() => '')).slice(0, 300));
+    if (response.status < 500 && response.status !== 429) break;
   }
-  const data = await response.json();
-  return Array.isArray(data.words) ? data.words : [];
+  throw new Error('transcription failed');
 }
 
 function cleanCast(input, parsed) {
@@ -191,7 +197,7 @@ export async function POST(request, { params }) {
     if (!idempotencyKey) return safeError('An idempotency key is required.', 400);
 
     try {
-      return await withSongFile(song, async ({ file, durationMs }) => {
+      return await withSongFile(song, async ({ file, dir, durationMs }) => {
         if (durationMs > MAX_SONG_MS) return safeError('Songs can be up to 10 minutes long.', 409);
         const credits = await alignmentCredits(durationMs, atCost);
         if (!credits) return safeError('Lyric timing is temporarily unavailable.', 409);
@@ -217,7 +223,7 @@ export async function POST(request, { params }) {
         }
         let words;
         try {
-          words = await transcribe(file, parsed.lines.map((l) => l.text).join('\n'));
+          words = await transcribeSong({ run: runTool, file, dir, durationMs, lines: parsed.lines, hear: hearWindow });
         } catch (err) {
           await callRpc('release_reservation_v2', { p_reservation_id: reservation.id, p_reason: 'lyric_timing_failed' });
           console.error('lyric timing', err.message);
