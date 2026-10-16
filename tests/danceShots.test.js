@@ -56,12 +56,9 @@ test('scenes accept only a consented dance clip from the same project', () => {
   assert.match(uploads, /motion_asset_id: `eq\.\$\{assetId\}`/);
 });
 
-test('Studio offers dance clips and labels dance shots in the quote', () => {
+test('Studio never asks for a dance video; dancing is a per-scene beat setting', () => {
   const studio = read('components/studio/Studio.js');
-  assert.match(studio, /title="Dance Moves"/);
+  assert.doesNotMatch(studio, /DancePanel/);
+  assert.match(studio, /id="gen-dance" label="Dancing"/);
   assert.match(studio, /<dt>Dance shots<\/dt>/);
-  const panel = read('components/studio/DancePanel.js');
-  assert.match(panel, /video\/mp4,video\/quicktime/);
-  assert.match(panel, /kind: 'motion'/);
-  assert.match(panel, /have permission from everyone in it/);
 });

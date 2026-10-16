@@ -21,6 +21,9 @@ import { FaceMismatchError, LIKENESS_VIDEO_MODEL, PERFORM_AUDIO_MIN_MS, PERFORM_
 import { PLAN_PRICING_POLICY, planCodeFor, planCredits } from '../../../lib/billing/plan-pricing.js';
 import { runStillJob } from '../../../lib/generation/still-job.js';
 import { retryState } from '../../../lib/generation/busy-retry.js';
+import { BEAT_DANCE_MODEL, beatAspect, beatDanceFor, beatDancePrompt } from '../../../lib/music/beat-dance.js';
+import { sliceForBeatDance } from '../../../lib/music/beat-slice.js';
+import { parseShotDirection } from '../../../lib/studio/studio-model.js';
 import { MOTION_MAX_MS, MOTION_MIN_MS, MOTION_MODEL, motionPrompt, sceneMotion, trimMotionClip } from '../../../lib/music/motion.js';
 
 const SAFE_PROVIDER_FIELDS = new Set([
@@ -212,8 +215,9 @@ export async function POST(request) {
     let fromStill = null;
     let perform = null;
     let motion = null;
+    let beat = null;
     if (operation === 'video' && sceneId && body.use_keyframe === true) {
-      const sc = await selectOne('scenes', { id: `eq.${sceneId}` }, 'id,project_id,start_ms,end_ms,duration_seconds,lip_sync,lyric_text,keyframe_url,keyframe_approved,motion_asset_id,motion_start_ms');
+      const sc = await selectOne('scenes', { id: `eq.${sceneId}` }, 'id,project_id,title,purpose,prompt,shot_direction,start_ms,end_ms,duration_seconds,lip_sync,lyric_text,keyframe_url,keyframe_approved,motion_asset_id,motion_start_ms');
       if (!sc?.keyframe_url || sc.keyframe_approved !== true) {
         return safeError("Approve this scene's still first, then animate it.", 409);
       }
@@ -232,6 +236,13 @@ export async function POST(request) {
         if (lengthMs > MOTION_MAX_MS) return safeError('Dance shots can be up to 30 seconds. Split this scene first.', 409);
         motion = { scene: sc, asset: clip, lengthMs, seconds: Math.ceil(lengthMs / 1000) };
         model = MOTION_MODEL;
+      } else if (beatDanceFor(sc, parseShotDirection(sc.shot_direction).dance)) {
+        // Dance shot timed to the song: the still + its slice of the track.
+        const song = await projectSong(sc.project_id);
+        if (!song) return safeError('Upload your song first.', 409);
+        const plan = beatDanceFor(sc, parseShotDirection(sc.shot_direction).dance);
+        beat = { scene: sc, song, ...plan };
+        model = BEAT_DANCE_MODEL;
       } else if (!twoStep && sc.lip_sync && sc.start_ms !== null && windowMs >= PERFORM_MIN_MS && windowMs <= PERFORM_MAX_MS) {
         const song = await projectSong(sc.project_id);
         if (!song) return safeError('Upload your song first.', 409);
@@ -252,7 +263,7 @@ export async function POST(request) {
 
     // Price exactly what is sent to the provider. Never trust duplicate
     // top-level values that can disagree with the provider payload.
-    const durationSeconds = lipSync ? lipSync.seconds : perform ? perform.seconds : motion ? motion.seconds : Number(input.duration_seconds ?? input.duration ?? requestedDuration);
+    const durationSeconds = lipSync ? lipSync.seconds : perform ? perform.seconds : motion ? motion.seconds : beat ? beat.seconds : Number(input.duration_seconds ?? input.duration ?? requestedDuration);
     const resolution = input.resolution ?? requestedResolution;
     let referenceCount;
     try {
@@ -304,7 +315,7 @@ export async function POST(request) {
         credits_required: credits,
         list_credits: listCredits,
         plan_code: planCode,
-        engine: perform ? 'perform' : motion ? 'motion' : fromStill ? 'still' : likeness ? 'real_face' : 'text',
+        engine: perform ? 'perform' : motion ? 'motion' : beat ? 'beat_dance' : fromStill ? 'still' : likeness ? 'real_face' : 'text',
         duration_seconds: durationSeconds,
         model,
         operation,
@@ -526,6 +537,18 @@ export async function POST(request) {
           lengthMs: motion.lengthMs,
         });
       }
+      let beatSlice = null;
+      if (beat) {
+        const owner = await selectOne('projects', { id: `eq.${beat.scene.project_id}` }, 'owner_id');
+        beatSlice = await sliceForBeatDance({
+          song: beat.song,
+          sceneId,
+          ownerId: owner?.owner_id || user.id,
+          projectId: beat.scene.project_id,
+          startMs: beat.scene.start_ms === null ? 0 : Number(beat.scene.start_ms),
+          seconds: beat.seconds,
+        });
+      }
       let firstFrame = fromStill ? fromStill.keyframe_url : null;
       if (likeness && !fromStill) {
         firstFrame = await makeKeyframe({
@@ -538,7 +561,13 @@ export async function POST(request) {
           singing: Boolean(likeness.scene.lip_sync),
         });
       }
-      const canonicalInput = motion ? {
+      const canonicalInput = beat ? {
+        prompt: beatDancePrompt({ scenePrompt: beat.scene.prompt || input.prompt, bpm: beatSlice.bpm }),
+        images_list: [firstFrame],
+        audio_files: [beatSlice.url],
+        aspect_ratio: beatAspect(input.aspect_ratio),
+        duration: beat.seconds,
+      } : motion ? {
         prompt: motionPrompt(),
         image_url: firstFrame,
         video_url: moves.url,
