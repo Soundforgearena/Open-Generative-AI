@@ -14,6 +14,7 @@ export const Icon = {
   CheckCircle: (p) => <svg {...base} {...p}><circle cx="12" cy="12" r="9" /><path d="M8 12.5l2.6 2.6L16 9.5" /></svg>,
   Coin: (p) => <svg {...base} {...p}><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="5.5" stroke="#6b4a10" /></svg>,
   Eye: (p) => <svg {...base} {...p}><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></svg>,
+  Face: (p) => <svg {...base} {...p}><circle cx="12" cy="8.5" r="4" /><path d="M4.5 20c1.2-3.8 4-5.5 7.5-5.5s6.3 1.7 7.5 5.5" /></svg>,
   Camera: (p) => <svg {...base} {...p}><path d="M4 7h3l2-2.5h6L17 7h3v12H4z" /><circle cx="12" cy="13" r="3.5" /></svg>,
   Link: (p) => <svg {...base} {...p}><path d="M10 14a4.5 4.5 0 006.4 0l3-3a4.5 4.5 0 00-6.4-6.4l-1 1" /><path d="M14 10a4.5 4.5 0 00-6.4 0l-3 3a4.5 4.5 0 006.4 6.4l1-1" /></svg>,
   Wave: (p) => <svg {...base} {...p}><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 7v10M21 12h0" /></svg>,

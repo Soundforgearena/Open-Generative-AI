@@ -5,6 +5,7 @@ import {
   callRpc,
   insertRows,
   deleteRows,
+  updateRows,
   createSignedUploadUrl,
   createSignedDownloadUrl,
   deleteStorageObject,
@@ -38,6 +39,7 @@ export async function POST(request) {
       notes = null,
       content_type: contentType = null,
       size_bytes: sizeBytes = null,
+      likeness_consent: likenessConsent = false,
     } = body;
 
     if (!projectId || !filename) return safeError('Upload details are incomplete.');
@@ -75,6 +77,10 @@ export async function POST(request) {
       name: (name || safeName).slice(0, 200),
       notes,
       storage_path: path,
+      // Only a character photo can carry face permission.
+      ...(kind === 'character' && likenessConsent === true
+        ? { likeness_consent: true, likeness_consent_at: new Date().toISOString() }
+        : {}),
     });
     if (!inserted.ok) return safeError('Reference could not be saved.', 500);
 
@@ -119,5 +125,42 @@ export async function DELETE(request) {
   } catch (err) {
     console.error('uploads delete', err);
     return safeError('Reference could not be removed.', 500);
+  }
+}
+
+/**
+ * Confirm or withdraw permission to use the face in a character photo.
+ * Withdrawing unlinks it from every scene so it can never be generated again.
+ */
+export async function PATCH(request) {
+  const { user, admin, error } = await guard(request);
+  if (error) return error;
+  try {
+    const body = await request.json();
+    const assetId = String(body.asset_id || '');
+    if (!UUID_RE.test(assetId)) return safeError('Invalid reference id.', 400);
+    const asset = await selectOne('project_assets', { id: `eq.${assetId}` }, 'id,project_id,kind,storage_path');
+    if (!asset) return safeError('Reference not found.', 404);
+    const project = await selectOne('projects', { id: `eq.${asset.project_id}` }, 'id,owner_id');
+    if (!project || (project.owner_id !== user.id && !admin)) return safeError('Reference not found.', 404);
+    const patch = {};
+    if (typeof body.name === 'string' && body.name.trim()) patch.name = body.name.trim().slice(0, 200);
+    if (typeof body.notes === 'string') patch.notes = body.notes.slice(0, 1000);
+    if (typeof body.likeness_consent === 'boolean') {
+      if (body.likeness_consent && asset.kind !== 'character') return safeError('Only character photos can be used as a face.', 400);
+      if (body.likeness_consent && !asset.storage_path) return safeError('Add a photo first.', 409);
+      patch.likeness_consent = body.likeness_consent;
+      patch.likeness_consent_at = body.likeness_consent ? new Date().toISOString() : null;
+    }
+    if (!Object.keys(patch).length) return safeError('Nothing to update.');
+    const updated = await updateRows('project_assets', { id: `eq.${assetId}` }, patch);
+    if (!updated.ok) return safeError('Reference could not be updated.', 500);
+    if (patch.likeness_consent === false) {
+      await updateRows('scenes', { character_asset_id: `eq.${assetId}` }, { character_asset_id: null });
+    }
+    return Response.json({ asset: updated.data?.[0] || null });
+  } catch (err) {
+    console.error('uploads patch', err);
+    return safeError('Reference could not be updated.', 500);
   }
 }

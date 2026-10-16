@@ -115,10 +115,12 @@ export default function MusicSourceStep({ trackId, onTrackChange, rights, onRigh
         </div>
       )}
 
-      <label className="cinex-check-row">
-        <input type="checkbox" checked={rights} onChange={(event) => onRightsChange(event.target.checked)} />{' '}
-        I own this music or have permission to use it.
-      </label>
+      {onRightsChange && (
+        <label className="cinex-check-row">
+          <input type="checkbox" checked={rights} onChange={(event) => onRightsChange(event.target.checked)} />{' '}
+          I own this music or have permission to use it.
+        </label>
+      )}
     </section>
   );
 }

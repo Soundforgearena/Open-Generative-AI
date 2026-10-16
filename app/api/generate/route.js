@@ -17,6 +17,7 @@ import { buildPreflightReport } from '../../../lib/billing/generation-preflight.
 import { normalizeMuapiCost } from '../../../lib/providers/muapi-cost-adapter.js';
 import { rateLimit } from '../../../lib/rate-limit';
 import { projectSong, sliceSongForScene } from '../../../lib/music/audio.js';
+import { FaceMismatchError, LIKENESS_VIDEO_MODEL, keyframeCents, likenessMotionPrompt, makeKeyframe, resolveSceneLikeness } from '../../../lib/music/likeness.js';
 
 const SAFE_PROVIDER_FIELDS = new Set([
   'prompt',
@@ -115,8 +116,8 @@ export async function POST(request) {
 
   try {
     const body = await request.json();
+    let { model } = body;
     const {
-      model,
       scene_id: sceneId = null,
       project_id: projectId = null,
       operation = 'video',
@@ -186,6 +187,16 @@ export async function POST(request) {
       input = { video_url: source?.output_url || 'pending-take' };
     }
 
+    // Real faces: a scene linked to a consented character photo is generated
+    // from a photoreal first frame of that person (image-to-video). The server
+    // decides this, so the face can't be skipped and the price always
+    // includes both steps.
+    let likeness = null;
+    if (operation === 'video' && sceneId) {
+      likeness = await resolveSceneLikeness(sceneId);
+      if (likeness) model = LIKENESS_VIDEO_MODEL;
+    }
+
     // Server-side price rule. Only active, customer-visible models are allowed.
     const rule = await selectOne(
       'model_cost_rules',
@@ -220,7 +231,7 @@ export async function POST(request) {
       durationSeconds,
       resolution,
       ruleCostCents: rule.provider_cost_cents,
-    });
+    }) + (likeness ? keyframeCents(resolution) : 0);
     const quote = await callRpc('quote_generation', {
       p_provider: rule.provider,
       p_model: model,
@@ -244,6 +255,7 @@ export async function POST(request) {
         model,
         operation,
         at_cost: atCost,
+        real_face: Boolean(likeness),
       });
     }
     const runtimeSignals = await loadRuntimeSafetySignals({
@@ -444,7 +456,26 @@ export async function POST(request) {
         });
         if (Math.ceil(slice.durationMs / 1000) > durationSeconds) throw new Error('song slice longer than priced');
       }
-      const canonicalInput = lipSync ? {
+      let firstFrame = null;
+      if (likeness) {
+        firstFrame = await makeKeyframe({
+          base,
+          apiKey,
+          asset: likeness.asset,
+          scenePrompt: input.prompt,
+          aspectRatio: input.aspect_ratio,
+          resolution,
+          singing: Boolean(likeness.scene.lip_sync),
+        });
+      }
+      const canonicalInput = likeness ? {
+        prompt: likenessMotionPrompt(input.prompt),
+        images_list: [firstFrame],
+        duration: durationSeconds,
+        ...(resolution ? { resolution } : {}),
+        thinking_type: 'disabled',
+        generate_audio_switch: false,
+      } : lipSync ? {
         video_url: lipSync.source.output_url,
         audio_url: slice.url,
         // Lite = one frontal face. separate_vocal pulls the voice out of the
@@ -538,6 +569,9 @@ export async function POST(request) {
             { status: 'failed' }
           );
         }
+      }
+      if (providerError instanceof FaceMismatchError) {
+        return safeError(`We couldn't keep ${likeness?.asset?.name || 'this person'}'s face accurate in this shot, so nothing was made and your credits were returned. Try a sharper, front-facing photo or a simpler scene description.`, 422);
       }
       return safeError('Generation could not be started. Your credits were returned.', 502);
     }

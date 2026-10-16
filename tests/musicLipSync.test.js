@@ -24,8 +24,11 @@ Look calm`;
 
 test('parses vocalist tags, stage notes and section headings', () => {
   const { lines, cast } = parseLyrics(LYRICS);
-  assert.deepEqual(cast.map((c) => c.key), ['afro-canadian', 'both', 'ladies', 'jamaican']);
-  assert.equal(cast.find((c) => c.key === 'ladies').group, true);
+  // Two singers; [Both] is the pair together and [Ladies] is a backing chant.
+  assert.deepEqual(cast.map((c) => c.key), ['afro-canadian', 'ladies', 'jamaican']);
+  assert.deepEqual(cast.filter((c) => c.role === 'singer').map((c) => c.key), ['afro-canadian', 'jamaican']);
+  assert.equal(cast.find((c) => c.key === 'ladies').role, 'backing');
+  assert.equal(lines.find((l) => l.text === 'Act normal now').vocalist, 'both');
   assert.equal(lines[0].text, 'Ishy..');
   assert.equal(lines[0].vocalist, 'afro-canadian'); // before any tag: first singer
   assert.equal(lines.find((l) => l.text === 'Look calm').vocalist, 'jamaican'); // [Flow Switch] keeps singer
@@ -133,4 +136,23 @@ test('lip sync generation is server-controlled', () => {
   const migration = readFileSync(new URL('../supabase/migrations/20261015120000_music_lip_sync.sql', import.meta.url), 'utf8');
   assert.match(migration, /'lip_sync'/);
   assert.match(migration, /volcengine-video-to-video-lip-sync/);
+});
+
+test('"Both" alternates the lip-synced singer and backing chants are never lip-synced', () => {
+  const { lines, cast } = parseLyrics(`[Afro-Canadian]\nOne two three four\n[Both]\nAct normal now\n[Ladies]\nAct normal now\n[Jamaican]\nFive six seven eight\n[Both]\nAct normal now`);
+  const timed = lines.map((l, i) => ({ ...l, start_ms: 1000 + i * 4000, end_ms: 3500 + i * 4000, confidence: 1 }));
+  const timeline = buildTimeline(timed, 22000, { cast });
+  const scenes = timelineToScenes(timeline, { cast, resolution: '1080p' });
+  const sung = scenes.filter((s) => s.lip_sync);
+  assert.ok(sung.every((s) => ['afro-canadian', 'jamaican'].includes(s.vocalist)));
+  assert.ok(!scenes.some((s) => s.lip_sync && /ladies/i.test(s.title)));
+  const both = sung.filter((s) => s.title.startsWith('Both'));
+  assert.equal(both.length, 2);
+  assert.notEqual(both[0].vocalist, both[1].vocalist);
+  assert.ok(scenes.some((s) => !s.lip_sync && s.lyric_text === 'Act normal now' && /chanting/.test(s.prompt)));
+  assert.ok(scenes.every((s) => s.shot_direction.includes('1080p') && !s.shot_direction.includes('720p')));
+  // Contiguous, whole song.
+  assert.equal(scenes[0].start_ms, 0);
+  assert.equal(scenes[scenes.length - 1].end_ms, 22000);
+  for (let i = 1; i < scenes.length; i += 1) assert.equal(scenes[i].start_ms, scenes[i - 1].end_ms);
 });

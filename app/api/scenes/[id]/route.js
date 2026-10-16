@@ -38,6 +38,19 @@ export async function PATCH(request, { params }) {
   }
   if (typeof body.continuity_locked === 'boolean') patch.continuity_locked = body.continuity_locked;
   if (Number.isFinite(Number(body.position))) patch.position = Number(body.position);
+  // Whose real face this shot shows: a consented character photo from this
+  // same project, or null for none.
+  if (body.character_asset_id === null) patch.character_asset_id = null;
+  else if (typeof body.character_asset_id === 'string') {
+    const face = await selectOne(
+      'project_assets',
+      { id: `eq.${body.character_asset_id}`, project_id: `eq.${scene.project_id}` },
+      'id,kind,storage_path,likeness_consent'
+    );
+    if (!face || face.kind !== 'character' || !face.storage_path) return safeError('Choose a character photo from this project.', 400);
+    if (face.likeness_consent !== true) return safeError('Confirm you have permission to use this face first.', 409);
+    patch.character_asset_id = face.id;
+  }
 
   // Promote a specific take to be the scene's active version.
   if (Number.isFinite(Number(body.approve_version))) {
