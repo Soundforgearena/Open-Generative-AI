@@ -122,7 +122,7 @@ export default function FacesPanel({ project, assets = [], scenes = [], demo = f
                     </button>
                     {isFace(p) && suggested.length > 0 && (
                       <button type="button" className="sx-link-btn" onClick={() => onLinkScenes?.(suggested, p.id)}>
-                        Use in {suggested.length} {suggested.length === 1 ? 'scene' : 'scenes'} that mention {p.name}
+                        Use in {suggested.length === 1 ? '1 scene that mentions' : `${suggested.length} scenes that mention`} {p.name}
                       </button>
                     )}
                   </div>
