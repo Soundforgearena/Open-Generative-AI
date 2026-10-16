@@ -22,7 +22,7 @@ export async function checkPhoto(file) {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = url; });
-    if (Math.min(img.naturalWidth, img.naturalHeight) < 512) return 'This photo is too small to keep the face accurate. Use one at least 512 pixels on its shortest side.';
+    if (Math.min(img.naturalWidth, img.naturalHeight) < 400) return 'This photo is too small to keep the face accurate. Use one at least 400 pixels on its shortest side.';
     if (typeof window !== 'undefined' && 'FaceDetector' in window) {
       try {
         const faces = await new window.FaceDetector({ fastMode: true, maxDetectedFaces: 3 }).detect(img);
@@ -95,7 +95,7 @@ export default function FacesPanel({ project, assets = [], scenes = [], demo = f
   return (
     <div className="sx-faces">
       <p className="sx-hint">Add a clear, front-facing, well-lit photo of each real person. Every scene linked to them starts from their real face, and each shot is checked against the photo before it is animated, so a shot that drifts or looks malformed is redone or refunded.</p>
-      <p className="sx-hint sx-muted">Best photo: one person, face fully visible, eyes open, no sunglasses, hats pushed back from the eyes, no beauty filters, at least 512 px.</p>
+      <p className="sx-hint sx-muted">Best photo: one person, face fully visible, eyes open, no sunglasses, hats pushed back from the eyes, no beauty filters, at least 400 px.</p>
 
       {people.length > 0 && (
         <ul className="sx-face-list">
@@ -122,7 +122,7 @@ export default function FacesPanel({ project, assets = [], scenes = [], demo = f
                     </button>
                     {isFace(p) && suggested.length > 0 && (
                       <button type="button" className="sx-link-btn" onClick={() => onLinkScenes?.(suggested, p.id)}>
-                        Use in {suggested.length} {suggested.length === 1 ? 'scene' : 'scenes'} that mention {p.name}
+                        Use in {suggested.length === 1 ? '1 scene that mentions' : `${suggested.length} scenes that mention`} {p.name}
                       </button>
                     )}
                   </div>
