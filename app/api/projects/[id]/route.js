@@ -6,25 +6,28 @@ import {
   createSignedDownloadUrl,
   safeError,
 } from '../../../../lib/cinexvideo-server';
+import { canRead, canWrite } from '../../../../lib/studio/access';
+import { resolveMedia } from '../../../../lib/storage/media.js';
 
 const BUCKET = 'cinexvideo-references';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-async function ownedProject(id, user, admin) {
+// Owner can change it; the super admin may open it read-only for support.
+async function ownedProject(id, user, superAdmin, mode = 'write') {
   const project = await selectOne('projects', { id: `eq.${id}` });
   if (!project) return null;
-  if (project.owner_id !== user.id && !admin) return null;
-  return project;
+  const ok = mode === 'read' ? canRead(project, { user, superAdmin }) : canWrite(project, { user });
+  return ok ? project : null;
 }
 
 /** Full project payload: scenes with their takes, plus the reference library. */
 export async function GET(request, { params }) {
-  const { user, admin, error } = await guard(request);
+  const { user, superAdmin, error } = await guard(request);
   if (error) return error;
   const { id } = await params;
   if (!UUID_RE.test(id || '')) return safeError('Invalid project id.', 400);
 
-  const project = await ownedProject(id, user, admin);
+  const project = await ownedProject(id, user, superAdmin, 'read');
   if (!project) return safeError('Project not found.', 404);
 
   const scenes = await selectRows('scenes', { project_id: `eq.${id}`, order: 'position.asc' });
@@ -65,21 +68,28 @@ export async function GET(request, { params }) {
       has_lyrics: Boolean(String(project.director_plan?.lyrics || '').trim()),
     },
     active_jobs: activeJobs.map((job) => ({ request_id: job.provider_request_id, scene_id: job.scene_id, started_at: job.created_at })),
+    // Takes and stills kept in our storage get 15-minute signed links; the
+    // Studio reloads the project to refresh them (never stored or logged).
     scenes: scenes.map((scene) => ({
       ...scene,
-      versions: versions.filter((version) => version.scene_id === scene.id),
+      keyframe_url: resolveMedia(scene.keyframe_url),
+      versions: versions
+        .filter((version) => version.scene_id === scene.id)
+        .map((version) => ({ ...version, output_url: resolveMedia(version.output_url), thumbnail_url: resolveMedia(version.thumbnail_url) })),
     })),
     assets: library,
+    // The super admin can open any project for support, but only its owner edits it.
+    read_only: !canWrite(project, { user }),
   });
 }
 
 /** Rename a project, change lane, or archive it. */
 export async function PATCH(request, { params }) {
-  const { user, admin, error } = await guard(request);
+  const { user, error } = await guard(request);
   if (error) return error;
   const { id } = await params;
   if (!UUID_RE.test(id || '')) return safeError('Invalid project id.', 400);
-  if (!(await ownedProject(id, user, admin))) return safeError('Project not found.', 404);
+  if (!(await ownedProject(id, user, false, 'write'))) return safeError('Project not found.', 404);
 
   const body = await request.json();
   const patch = {};

@@ -81,6 +81,9 @@ function baseTake(s) {
   return (s?.versions || []).find((v) => v.status === 'completed' && v.output_url && v.kind !== 'lip_sync') || null;
 }
 
+// Text fields a person edits; used to merge a scene changed on another device.
+const STALE_FIELDS = ['title', 'purpose', 'prompt', 'shot_direction', 'lyric_text', 'vocalist'];
+
 function mapScene(scene) {
   const versions = orderVersions(scene.versions);
   const take = previewTake(versions);
@@ -196,6 +199,8 @@ function StudioWorkspace() {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [project, setProject] = useState(null);
   const [scenes, setScenes] = useState([]);
+  const scenesRef = useRef([]);
+  scenesRef.current = scenes;
   const [assets, setAssets] = useState([]);
   const [projects, setProjects] = useState([]);
   const [videoOptions, setVideoOptions] = useState([]);
@@ -268,11 +273,19 @@ function StudioWorkspace() {
     };
   }, []);
   const resumed = useRef(new Set());
+  // Last saved time of each scene, so a save from a stale tab or device is
+  // caught instead of silently overwriting newer work.
+  const stamps = useRef(new Map());
+  const [readOnly, setReadOnly] = useState(false);
+  const readOnlyRef = useRef(false);
+  readOnlyRef.current = readOnly;
 
   /* ------------------------------------------------------------- loading */
 
   const applyProject = useCallback((result) => {
     const mapped = (result.scenes || []).map(mapScene).sort((a, b) => a.position - b.position);
+    stamps.current = new Map(mapped.map((x) => [x.id, x.updated_at]));
+    setReadOnly(result.read_only === true);
     if (projectIdRef.current && projectIdRef.current !== result.project.id) guardRef.current.invalidate();
     setProject({
       id: result.project.id,
@@ -480,6 +493,36 @@ function StudioWorkspace() {
 
   /* ------------------------------------------------------------ autosave */
 
+  /**
+   * Save one scene's edited fields. If the scene changed elsewhere since this
+   * tab loaded it (another tab, another device, or a finished generation), the
+   * server answers 409 "stale". We then take the newer scene, keep the fields
+   * the user just edited on top, and save again — nothing is silently lost.
+   */
+  const saveScenePatch = useCallback(async (id, patch, opts = {}) => {
+    const send = (base) => updateScene(id, { ...patch, base_updated_at: base || undefined }, opts);
+    try {
+      const r = await send(stamps.current.get(id));
+      if (r?.scene?.updated_at) stamps.current.set(id, r.scene.updated_at);
+      return r;
+    } catch (error) {
+      if (error.status !== 409 || error.data?.code !== 'stale' || !error.data?.scene) throw error;
+      const fresh = error.data.scene;
+      const changedElsewhere = STALE_FIELDS.some((f) => !(f in patch) && fresh[f] !== undefined
+        && String(fresh[f] ?? '') !== String(scenesRef.current.find((x) => x.id === id)?.[f] ?? ''));
+      setScenes((cur) => cur.map((x) => {
+        if (x.id !== id) return x;
+        const merged = { ...x, updated_at: fresh.updated_at };
+        STALE_FIELDS.forEach((f) => { if (!(f in patch) && fresh[f] !== undefined) merged[f] = fresh[f] ?? ''; });
+        return { ...merged, ...patch };
+      }));
+      if (changedElsewhere) setToast('This scene was also changed in another tab or device. We loaded those changes and kept your latest edits.');
+      const r = await send(fresh.updated_at);
+      if (r?.scene?.updated_at) stamps.current.set(id, r.scene.updated_at);
+      return r;
+    }
+  }, []);
+
   const flush = useCallback(async ({ keepalive = false } = {}) => {
     window.clearTimeout(saveTimer.current);
     const isCurrent = guardRef.current.capture();
@@ -489,11 +532,12 @@ function StudioWorkspace() {
     dirty.current.clear();
     projectDirty.current = null;
     if (!scenePatches.length && !projectPatch) return;
+    if (readOnlyRef.current) return; // support view never writes
     if (demoModeEnabled) { if (isCurrent()) setSavedAt(new Date()); return; }
     setSaving(true);
     try {
       await Promise.all([
-        ...scenePatches.map(([id, patch]) => updateScene(id, patch, { keepalive })),
+        ...scenePatches.map(([id, patch]) => saveScenePatch(id, patch, { keepalive })),
         projectPatch ? updateProject(savingProjectId, projectPatch, { keepalive }) : null,
       ]);
       if (!isCurrent()) return;
@@ -518,7 +562,7 @@ function StudioWorkspace() {
     } finally {
       if (isCurrent()) setSaving(false);
     }
-  }, [project?.id, persistJournal]);
+  }, [project?.id, persistJournal, saveScenePatch]);
   flushRef.current = flush;
 
   const scheduleSave = useCallback(() => {
@@ -591,7 +635,33 @@ function StudioWorkspace() {
     return () => { cancelled = true; };
   }, [loadState, resumeJobs, project?.id, applyProject]);
 
+  /**
+   * Takes and stills in our private storage use 15-minute signed links. When
+   * one has expired (the image or video fails to load), fetch fresh links and
+   * swap in only the media fields, so unsaved edits are untouched.
+   */
+  const lastMediaRefresh = useRef(0);
+  const refreshMedia = useCallback(async () => {
+    if (demoModeEnabled || !projectIdRef.current) return;
+    if (Date.now() - lastMediaRefresh.current < 30_000) return;
+    lastMediaRefresh.current = Date.now();
+    try {
+      const fresh = await getProject(projectIdRef.current);
+      const byId = new Map((fresh.scenes || []).map((x) => [x.id, mapScene(x)]));
+      setScenes((cur) => cur.map((x) => {
+        const f = byId.get(x.id);
+        return f ? { ...x, output_url: f.output_url, thumbnail_url: f.thumbnail_url, keyframe_url: f.keyframe_url, output_is_image: f.output_is_image, versions: f.versions } : x;
+      }));
+    } catch { /* next failed load will try again */ }
+  }, []);
+  const onMediaError = useCallback((event) => {
+    const el = event.target;
+    const src = el?.currentSrc || el?.src || '';
+    if ((el?.tagName === 'IMG' || el?.tagName === 'VIDEO') && /r2\.cloudflarestorage\.com/.test(src)) refreshMedia();
+  }, [refreshMedia]);
+
   function patchScene(id, patch) {
+    if (readOnlyRef.current) { setToast('View only: this project belongs to another user.'); return; }
     setScenes((cur) => cur.map((s) => (s.id === id ? { ...s, ...patch } : s)));
     dirty.current.set(id, { ...(dirty.current.get(id) || {}), ...patch });
     persistJournal();
@@ -1392,7 +1462,12 @@ function StudioWorkspace() {
   const generating = genState === 'running';
 
   return (
-    <main className="sx-root" onClick={() => menu && setMenu('')}>
+    <main className="sx-root" onClick={() => menu && setMenu('')} onErrorCapture={onMediaError}>
+      {readOnly && (
+        <div className="sx-readonly" role="status">
+          View only. This project belongs to another user, so nothing you do here is saved or generated.
+        </div>
+      )}
       {/* ------------------------------------------------------- top bar */}
       <header className="sx-top">
         <Link href="/dashboard" className="sx-brand" aria-label="CinexVideo dashboard">

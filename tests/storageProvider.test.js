@@ -22,6 +22,10 @@ test('R2 plan covers Supabase behavior, safe migration, dual reads and rollback 
   }
   assert.match(plan, /Supabase Storage remains the active and default backend/);
   assert.match(plan, /does not create buckets or tokens/);
+  // Phase 1 moves only generated takes and stills, under the plan's rules.
+  assert.match(plan, /Phase 1: generated media/);
+  assert.match(plan, /never stored or logged/);
+  assert.match(plan, /Nothing is deleted automatically/);
   assert.doesNotMatch(plan, /AKIA[0-9A-Z]{12,}|-----BEGIN [A-Z ]*PRIVATE KEY-----/);
 });
 

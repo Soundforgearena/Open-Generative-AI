@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { canWrite } from '../../../../lib/studio/access';
+import { resolveMedia, PROVIDER_TTL_SECONDS } from '../../../../lib/storage/media.js';
 import { createReadStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { isAtCostUser } from '../../../../lib/billing/at-cost.js';
@@ -52,7 +54,7 @@ export async function POST(request) {
   if (limited) return limited;
 
   const project = body.project_id ? await selectOne('projects', { id: `eq.${body.project_id}` }, 'id,owner_id,title,lane') : null;
-  if (!project || (project.owner_id !== user.id && !admin)) return safeError('Project not found.', 404);
+  if (!canWrite(project, { user })) return safeError('Project not found.', 404);
 
   const scenes = await selectRows('scenes', { project_id: `eq.${project.id}`, order: 'position.asc' }, 'id,position,title,duration_seconds,start_ms,end_ms,lip_sync');
   if (!scenes.length) return safeError('Add and generate scenes before downloading your video.', 409);
@@ -147,7 +149,9 @@ export async function POST(request) {
 
   let rendered;
   try {
-    rendered = await renderFinishedVideo({ takes, soundtrackUrl, watermark: !clean });
+    // Takes kept in our storage are read through short-lived signed links.
+    const readable = takes.map((t) => ({ ...t, url: resolveMedia(t.url, { expiresIn: PROVIDER_TTL_SECONDS }) }));
+    rendered = await renderFinishedVideo({ takes: readable, soundtrackUrl, watermark: !clean });
   } catch (err) {
     if (reservation) {
       const released = await callRpc('release_reservation_v2', { p_reservation_id: reservation.id, p_reason: 'export_failed' });

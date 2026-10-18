@@ -11,6 +11,7 @@ import {
 import { normalizeMuapiCost } from '../../../../../lib/providers/muapi-cost-adapter.js';
 import { settledGenerationCredits } from '../../../../../lib/billing/at-cost.js';
 import { runChainedMaintenance } from '../../../../../lib/admin/chained-maintenance.js';
+import { archiveSoon, sweepMedia } from '../../../../../lib/storage/archive.js';
 import { muapiOutput, firstOutputUrl } from '../../../../../lib/providers/muapi-output.js';
 import { currentRequestId, isBusyFailure, MAX_BUSY_RETRIES } from '../../../../../lib/generation/busy-retry.js';
 
@@ -95,11 +96,12 @@ async function completeJob(job, data, headers = {}) {
   }
 
   if (job.scene_id && job.scene_version) {
-    await updateRows(
+    const savedTake = await updateRows(
       'scene_versions',
       { scene_id: `eq.${job.scene_id}`, version: `eq.${job.scene_version}` },
       { status: 'completed', output_url: outputUrl }
     );
+    archiveSoon('take', savedTake.data?.[0], { selectOne, selectRows, insertRows, updateRows });
     await updateRows('scenes', { id: `eq.${job.scene_id}` }, { status: 'needs_review' });
   }
 }
@@ -249,6 +251,8 @@ export async function POST(request) {
       event_type: 'generation_reconciliation',
       status: summary.errors ? 'partial' : 'completed',
     });
+    // Copy any takes and stills still living only at the provider (oldest first).
+    summary.media = await sweepMedia({ selectOne, selectRows, insertRows, updateRows });
     await chainedMaintenance(request, summary);
     return Response.json({ status: summary.errors ? 'partial' : 'ok', ...summary });
   } catch (error) {

@@ -2,11 +2,13 @@ import {
   guard,
   callRpc,
   selectOne,
+  selectRows,
   updateRows,
   insertRows,
   requireSecret,
   safeError,
 } from '../../../../lib/cinexvideo-server';
+import { archiveSoon } from '../../../../lib/storage/archive.js';
 import { normalizeMuapiCost } from '../../../../lib/providers/muapi-cost-adapter.js';
 import { settledGenerationCredits } from '../../../../lib/billing/at-cost.js';
 import { rateLimit } from '../../../../lib/rate-limit';
@@ -153,11 +155,13 @@ export async function GET(request, { params }) {
       if (!platformJob) await callRpc('settle_generation_revenue', { p_generation_request_id: job.id });
 
       if (job.scene_id && job.scene_version) {
-        await updateRows(
+        const savedTake = await updateRows(
           'scene_versions',
           { scene_id: `eq.${job.scene_id}`, version: `eq.${job.scene_version}` },
           { status: 'completed', output_url: outputUrl }
         );
+        // Copy the take into our own storage before the provider's link expires.
+        archiveSoon('take', savedTake.data?.[0], { selectOne, selectRows, insertRows, updateRows });
         // A finished take waits for approval; it does not silently replace the
         // scene the user already signed off on.
         await updateRows('scenes', { id: `eq.${job.scene_id}` }, { status: 'needs_review' });

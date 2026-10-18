@@ -9,6 +9,7 @@ import {
   selectRows,
   updateRows,
 } from '../../../../../lib/cinexvideo-server';
+import { canRead, canWrite } from '../../../../../lib/studio/access';
 import { AT_COST_POLICY, atCostCredits, isAtCostUser } from '../../../../../lib/billing/at-cost';
 import { rateLimit } from '../../../../../lib/rate-limit';
 import {
@@ -37,11 +38,12 @@ const ALIGN_POLICY = 'lyric-timing-2026-10-15-v1';
 const MAX_SONG_MS = 10 * 60 * 1000;
 const MAX_SONG_BYTES = 24 * 1024 * 1024; // transcription upload limit is 25 MB
 
-async function ownedProject(id, user, admin) {
+// Owner can change it; the super admin may read it for support.
+async function ownedProject(id, user, superAdmin, mode = 'write') {
   if (!UUID_RE.test(id || '')) return null;
   const project = await selectOne('projects', { id: `eq.${id}` }, 'id,owner_id,lane,director_plan,visual_identity');
-  if (!project || (project.owner_id !== user.id && !admin)) return null;
-  return project;
+  const ok = mode === 'read' ? canRead(project, { user, superAdmin }) : canWrite(project, { user });
+  return ok ? project : null;
 }
 
 function musicOf(project) {
@@ -264,7 +266,7 @@ export async function GET(request, { params }) {
   const { user, admin, superAdmin, error } = await guard(request);
   if (error) return error;
   const { id } = await params;
-  const project = await ownedProject(id, user, admin);
+  const project = await ownedProject(id, user, superAdmin, 'read');
   if (!project) return safeError('Project not found.', 404);
   const song = await projectSong(project.id);
   const music = musicOf(project);
@@ -289,7 +291,7 @@ export async function POST(request, { params }) {
   const limited = rateLimit(`music:${user.id}`, { limit: 20, windowMs: 60_000 });
   if (limited) return limited;
   const { id } = await params;
-  const project = await ownedProject(id, user, admin);
+  const project = await ownedProject(id, user, superAdmin, 'write');
   if (!project) return safeError('Project not found.', 404);
   const atCost = isAtCostUser({ superAdmin });
 

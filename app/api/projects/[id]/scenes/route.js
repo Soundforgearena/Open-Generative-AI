@@ -1,13 +1,14 @@
 import { guard, selectOne, insertRows, safeError } from '../../../../../lib/cinexvideo-server';
+import { canWrite } from '../../../../../lib/studio/access';
 import { MAX_SCENES, moveId, newSceneFields } from '../../../../../lib/studio/scene-order';
 import { sceneIds, writeSceneOrder } from '../../../../../lib/studio/scene-store';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-async function ownedProject(id, user, admin) {
+// Only the owner can add, reorder or change scenes.
+async function ownedProject(id, user) {
   const project = await selectOne('projects', { id: `eq.${id}` }, 'id,owner_id');
-  if (!project || (project.owner_id !== user.id && !admin)) return null;
-  return project;
+  return canWrite(project, { user }) ? project : null;
 }
 
 /** Add a scene (blank or duplicated from another scene) after a given scene. */
@@ -16,7 +17,7 @@ export async function POST(request, { params }) {
   if (error) return error;
   const { id } = await params;
   if (!UUID_RE.test(id || '')) return safeError('Invalid project id.', 400);
-  if (!(await ownedProject(id, user, admin))) return safeError('Project not found.', 404);
+  if (!(await ownedProject(id, user))) return safeError('Project not found.', 404);
 
   const body = await request.json().catch(() => ({}));
   const ids = await sceneIds(id);
@@ -48,7 +49,7 @@ export async function PATCH(request, { params }) {
   if (error) return error;
   const { id } = await params;
   if (!UUID_RE.test(id || '')) return safeError('Invalid project id.', 400);
-  if (!(await ownedProject(id, user, admin))) return safeError('Project not found.', 404);
+  if (!(await ownedProject(id, user))) return safeError('Project not found.', 404);
 
   const body = await request.json().catch(() => ({}));
   const ids = await sceneIds(id);

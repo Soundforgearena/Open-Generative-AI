@@ -8,6 +8,8 @@ import {
   requireSecret,
   safeError,
 } from '../../../lib/cinexvideo-server';
+import { canWrite } from '../../../lib/studio/access.js';
+import { resolveMedia, PROVIDER_TTL_SECONDS } from '../../../lib/storage/media.js';
 import { AT_COST_POLICY, atCostCredits, isAtCostUser } from '../../../lib/billing/at-cost.js';
 import { providerCostCents } from '../../../lib/billing/provider-pricing.js';
 import { evaluateProviderExposure } from '../../../lib/billing/provider-exposure-guard.js';
@@ -149,7 +151,7 @@ export async function POST(request) {
     let ownedProject = null;
     if (projectId) {
       ownedProject = await selectOne('projects', { id: `eq.${projectId}` }, 'id,owner_id');
-      if (!ownedProject || (ownedProject.owner_id !== user.id && !admin)) {
+      if (!canWrite(ownedProject, { user })) {
         return safeError('Project not found.', 404);
       }
     }
@@ -159,7 +161,7 @@ export async function POST(request) {
       const sceneProject = ownedProject?.id === ownedScene.project_id
         ? ownedProject
         : await selectOne('projects', { id: `eq.${ownedScene.project_id}` }, 'id,owner_id');
-      if (!sceneProject || (sceneProject.owner_id !== user.id && !admin)) {
+      if (!canWrite(sceneProject, { user })) {
         return safeError('Scene not found.', 404);
       }
       if (projectId && ownedScene.project_id !== projectId) {
@@ -550,7 +552,8 @@ export async function POST(request) {
           seconds: beat.seconds,
         });
       }
-      let firstFrame = fromStill ? fromStill.keyframe_url : null;
+      // Stills kept in our storage reach the model through a 1-hour signed link.
+      let firstFrame = fromStill ? resolveMedia(fromStill.keyframe_url, { expiresIn: PROVIDER_TTL_SECONDS }) : null;
       if (likeness && !fromStill) {
         firstFrame = await makeKeyframe({
           base,
@@ -590,7 +593,7 @@ export async function POST(request) {
         thinking_type: 'disabled',
         generate_audio_switch: false,
       } : lipSync ? {
-        video_url: lipSync.source.output_url,
+        video_url: resolveMedia(lipSync.source.output_url, { expiresIn: PROVIDER_TTL_SECONDS }),
         audio_url: slice.url,
         // Lite = one frontal face. separate_vocal pulls the voice out of the
         // full mix so drums and bass never drive the mouth.
