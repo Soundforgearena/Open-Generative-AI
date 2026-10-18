@@ -15,14 +15,18 @@ import {
   alignFromPasses,
   buildTimeline,
   normalizeTimedLines,
+  feelTimeline,
   parseLyrics,
   timelineToScenes,
 } from '../../../../../lib/music/lyrics';
+import { loudnessCurve, windowEnergies } from '../../../../../lib/music/energy';
+import { cameraFor, emotionNote } from '../../../../../lib/director/emotion';
+import { parseShotDirection, serializeShotDirection } from '../../../../../lib/studio/studio-model';
 import { projectSong, withSongFile } from '../../../../../lib/music/audio';
 import { OVERLAP_FACTOR, transcribeSong } from '../../../../../lib/music/transcribe';
 import { run as runTool } from '../../../../../lib/exports/render-video';
 import { existsSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export const dynamic = 'force-dynamic';
@@ -97,6 +101,31 @@ async function hearLocal(wavFile, prompt) {
 }
 
 // One timing job at a time per server so two songs never fight for the CPU.
+/**
+ * How loud each window of the song is (0-1, relative to the whole song), so
+ * the Director knows where the video should rise and fall. Free: measured
+ * locally from the audio. Falls back to neutral if the song can't be read.
+ */
+async function songEnergies(projectId, windows) {
+  const neutral = windows.map(() => 0.5);
+  try {
+    const song = await projectSong(projectId);
+    if (!song) return neutral;
+    return await withSongFile(song, async ({ file, dir }) => {
+      const pcmPath = path.join(dir, 'energy.f32');
+      await runTool('ffmpeg', ['-v', 'error', '-y', '-i', file, '-vn', '-ac', '1', '-ar', '11025', '-f', 'f32le', pcmPath], { timeoutMs: 120_000 });
+      const raw = await readFile(pcmPath);
+      const pcm = new Float32Array(raw.buffer, raw.byteOffset, Math.floor(raw.length / 4));
+      return windowEnergies(loudnessCurve(pcm, 11025), windows);
+    });
+  } catch (err) {
+    console.error('song energy failed', err?.message);
+    return neutral;
+  }
+}
+
+const FEELING_RE = /^Feeling: [^.]*\.[^.]*\.\s*/;
+
 let timingQueue = Promise.resolve();
 function enqueueTiming(job) {
   const next = timingQueue.then(job, job);
@@ -369,7 +398,9 @@ export async function POST(request, { params }) {
     const vi = project.visual_identity || {};
     const style = [vi.style, vi.style_notes].filter(Boolean).join(', ').slice(0, 300);
     const cast = await verifiedFaces(project.id, music.cast || []);
-    const rows = timelineToScenes(buildTimeline(music.lines, music.duration_ms, { cast }), { cast, style, resolution: body.resolution, brollResolution: body.broll_resolution });
+    const timeline = buildTimeline(music.lines, music.duration_ms, { cast });
+    const energies = await songEnergies(project.id, timeline);
+    const rows = timelineToScenes(timeline, { cast, style, resolution: body.resolution, brollResolution: body.broll_resolution, energies });
     if (!rows.length) return safeError('No scenes could be built from this song.', 409);
     if (rows.length > 80) return safeError('This song needs more scenes than one project allows.', 409);
     if (scenes.length) {
@@ -385,6 +416,48 @@ export async function POST(request, { params }) {
     if (!inserted.ok) return safeError('Scenes could not be created.', 500);
     await saveMusic(project, { ...music, built_at: new Date().toISOString(), scene_count: rows.length });
     return Response.json({ scenes: rows.length, lip_sync_scenes: rows.filter((r) => r.lip_sync).length });
+  }
+
+  // Give existing scenes the Director's emotional read without rebuilding
+  // them (takes and stills are kept). Free. Scenes the creator already set a
+  // feeling for are left alone unless overwrite is true. Shots with no still
+  // or take yet also get the camera that suits their feeling.
+  if (action === 'feel') {
+    const music = musicOf(project);
+    const scenes = await selectRows('scenes', { project_id: `eq.${project.id}`, order: 'position.asc' }, 'id,title,purpose,lip_sync,lyric_text,start_ms,end_ms,shot_direction,keyframe_url');
+    if (!scenes.length) return safeError('Build your scenes first.', 409);
+    const timeline = music?.lines?.length ? buildTimeline(music.lines, music.duration_ms, { cast: music.cast || [] }) : [];
+    const items = scenes.map((sc) => {
+      const match = timeline.find((t) => t.start_ms === sc.start_ms && t.end_ms === sc.end_ms);
+      return {
+        section: match?.section || String(sc.title || '').split(' · ')[0],
+        lip_sync: Boolean(sc.lip_sync),
+        lyric_text: sc.lip_sync ? sc.lyric_text || '' : '',
+        chant: sc.lip_sync ? '' : sc.lyric_text || '',
+        start_ms: sc.start_ms ?? 0,
+        end_ms: sc.end_ms ?? 0,
+      };
+    });
+    const energies = await songEnergies(project.id, items);
+    const feelings = feelTimeline(items, energies);
+    const takes = await selectRows('scene_versions', { scene_id: `in.(${scenes.map((s) => s.id).join(',')})` }, 'scene_id');
+    const hasTake = new Set(takes.map((t) => t.scene_id));
+    const overwrite = body.overwrite === true;
+    let updated = 0;
+    for (const [i, sc] of scenes.entries()) {
+      const c = parseShotDirection(sc.shot_direction);
+      if (c.emotion && !overwrite) continue;
+      const f = feelings[i];
+      const fresh = !sc.keyframe_url && !hasTake.has(sc.id);
+      const next = { ...c, emotion: f.emotion, intensity: f.intensity, ...(fresh ? cameraFor(f.emotion, { sung: Boolean(sc.lip_sync) }) : {}) };
+      const purpose = `${emotionNote(f)} ${String(sc.purpose || '').replace(FEELING_RE, '')}`.trim().slice(0, 5000);
+      const r = await updateRows('scenes', { id: `eq.${sc.id}` }, { shot_direction: serializeShotDirection(next), purpose });
+      if (r.ok) updated += 1;
+    }
+    return Response.json({
+      updated,
+      arc: feelings.map((f, i) => ({ position: i + 1, emotion: f.emotion, intensity: f.intensity, energy: energies[i] })),
+    });
   }
 
   return safeError('Unknown music action.', 400);

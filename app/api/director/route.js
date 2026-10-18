@@ -19,6 +19,7 @@ import {
   isDirectorAction,
 } from '../../../lib/director-actions';
 import { rateLimit } from '../../../lib/rate-limit';
+import { EMOTION_KEYS } from '../../../lib/director/emotion';
 
 const DIRECTOR_MODEL = process.env.OPENAI_DIRECTOR_MODEL || 'gpt-5';
 
@@ -128,6 +129,7 @@ async function handleAssist(body) {
     context.genre ? `Genre: ${context.genre}` : null,
     context.sceneContext ? `Scene context: ${String(context.sceneContext).slice(0, 1000)}` : null,
     context.duration ? `Target duration: ${context.duration} seconds` : null,
+    context.feeling ? `Target feeling for the audience: ${String(context.feeling).slice(0, 300)}` : null,
     instruction ? `Writer's instruction: ${String(instruction).slice(0, 1000)}` : null,
   ]
     .filter(Boolean)
@@ -154,7 +156,15 @@ async function handleAssist(body) {
   };
 }
 
-const PLAN_SCHEMA = { type: 'object', additionalProperties: false, properties: { creative_title: { type: 'string' }, logline: { type: 'string' }, visual_identity: { type: 'object', additionalProperties: false, properties: { palette: { type: 'array', items: { type: 'string' } }, lighting: { type: 'string' }, camera_language: { type: 'string' } }, required: ['palette','lighting','camera_language'] }, characters: { type: 'array', items: { type: 'string' } }, locations: { type: 'array', items: { type: 'string' } }, outfits: { type: 'array', items: { type: 'string' } }, scenes: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { title: { type: 'string' }, purpose: { type: 'string' }, duration_seconds: { type: 'integer' }, shot_direction: { type: 'string' }, prompt: { type: 'string' } }, required: ['title','purpose','duration_seconds','shot_direction','prompt'] } } }, required: ['creative_title','logline','visual_identity','characters','locations','outfits','scenes'] };
+const PLAN_SCHEMA = { type: 'object', additionalProperties: false, properties: { creative_title: { type: 'string' }, logline: { type: 'string' }, visual_identity: { type: 'object', additionalProperties: false, properties: { palette: { type: 'array', items: { type: 'string' } }, lighting: { type: 'string' }, camera_language: { type: 'string' } }, required: ['palette','lighting','camera_language'] }, characters: { type: 'array', items: { type: 'string' } }, locations: { type: 'array', items: { type: 'string' } }, outfits: { type: 'array', items: { type: 'string' } }, scenes: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { title: { type: 'string' }, purpose: { type: 'string' }, emotion: { type: 'string', enum: EMOTION_KEYS }, intensity: { type: 'integer' }, viewer_feeling: { type: 'string' }, duration_seconds: { type: 'integer' }, shot_direction: { type: 'string' }, prompt: { type: 'string' } }, required: ['title','purpose','emotion','intensity','viewer_feeling','duration_seconds','shot_direction','prompt'] } }, emotional_arc: { type: 'object', additionalProperties: false, properties: { audience_feeling: { type: 'string' }, journey: { type: 'string' } }, required: ['audience_feeling','journey'] } }, required: ['creative_title','logline','visual_identity','characters','locations','outfits','scenes','emotional_arc'] };
+
+// Before any image: how should the audience feel, scene by scene?
+const EMOTION_BRIEF =
+  'Start with the emotion. Decide the overall feeling you want the audience to leave with (emotional_arc.audience_feeling) ' +
+  'and how it travels from start to finish (emotional_arc.journey): it must rise and fall and build to a clear peak. ' +
+  'For every scene pick its emotion, intensity 1-10 and one short sentence on what the viewer should feel (viewer_feeling). ' +
+  'Then let that feeling drive the scene: write what the performers\' faces and bodies do with genuine human expressions, ' +
+  'and put framing, lens, camera movement, light and colour in shot_direction. Prompts must describe real people, never generic stock poses.';
 
 const LANE_BRIEF = {
   music_video:
@@ -277,7 +287,7 @@ export async function POST(request) {
     return await once(() => charge('plan', idempotencyKey, async () => {
       const model = await callDirectorModel({
         kind: 'plan',
-        system: `${DIRECTOR_PERSONA} ${laneBrief} Return concise production-ready direction as JSON with creative_title, logline, visual_identity, characters, locations, outfits, and scenes. Plan between 4 and 12 scenes. Do not mention vendors, APIs, costs, or internal business rules.`,
+        system: `${DIRECTOR_PERSONA} ${laneBrief} ${EMOTION_BRIEF} Return concise production-ready direction as JSON with creative_title, logline, visual_identity, characters, locations, outfits, scenes and emotional_arc. Plan between 4 and 12 scenes. Do not mention vendors, APIs, costs, or internal business rules.`,
         user: body.prompt.slice(0, 6000),
         schemaName: 'cinexvideo_director_plan',
         schema: PLAN_SCHEMA,

@@ -660,3 +660,16 @@
 .sx-face-add input[type=file] { font-size: 13px; max-width: 100%; }
 .sx-check { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start; font-size: 12.5px; line-height: 1.4; cursor: pointer; }
 .sx-check input { width: 16px; height: 16px; margin-top: 1px; accent-color: #e7b85a; }
+
+/* Emotion: how the audience should feel */
+.sx-scene-time .sx-feel { margin-left: 8px; vertical-align: 1px; }
+.sx-feel { display: inline-block; flex-shrink: 0; font-size: 10.5px; font-weight: 700; letter-spacing: .02em; padding: 2px 6px; border-radius: 999px; border: 1px solid #3a3326; color: var(--sx-gold); background: #1d1a13; white-space: nowrap; }
+.sx-feel.is-sadness, .sx-feel.is-longing, .sx-feel.is-nostalgia { color: #9cc3ff; border-color: #24364f; background: #121a26; }
+.sx-feel.is-anger, .sx-feel.is-defiance { color: #ff9a8a; border-color: #4f2a24; background: #26130f; }
+.sx-feel.is-intimacy, .sx-feel.is-playful { color: #ffb3d9; border-color: #4a2a3c; background: #22131b; }
+.sx-feel.is-tension { color: #c8b6ff; border-color: #352c52; background: #17132a; }
+.sx-feel-range { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sx-feel-range input { flex: 1; min-width: 0; accent-color: var(--sx-gold); }
+.sx-feel-num { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--sx-gold); min-width: 34px; text-align: right; }
+.sx-feel-note strong { color: #d9dbe0; font-weight: 600; margin-right: 4px; }
+.sx-feel-btn { justify-content: center; gap: 6px; width: 100%; white-space: normal; text-align: center; }
