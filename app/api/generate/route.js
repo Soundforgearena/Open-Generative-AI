@@ -9,7 +9,7 @@ import {
   safeError,
 } from '../../../lib/cinexvideo-server';
 import { canWrite } from '../../../lib/studio/access.js';
-import { resolveMedia, PROVIDER_TTL_SECONDS } from '../../../lib/storage/media.js';
+import { resolveInputMedia } from '../../../lib/storage/media.js';
 import { AT_COST_POLICY, atCostCredits, isAtCostUser } from '../../../lib/billing/at-cost.js';
 import { providerCostCents } from '../../../lib/billing/provider-pricing.js';
 import { evaluateProviderExposure } from '../../../lib/billing/provider-exposure-guard.js';
@@ -552,8 +552,9 @@ export async function POST(request) {
           seconds: beat.seconds,
         });
       }
-      // Stills kept in our storage reach the model through a 1-hour signed link.
-      let firstFrame = fromStill ? resolveMedia(fromStill.keyframe_url, { expiresIn: PROVIDER_TTL_SECONDS }) : null;
+      // Stored stills stay as permanent references here; they are signed
+      // (1 hour) only in the request body sent to the model.
+      let firstFrame = fromStill ? fromStill.keyframe_url : null;
       if (likeness && !fromStill) {
         firstFrame = await makeKeyframe({
           base,
@@ -581,10 +582,10 @@ export async function POST(request) {
         character_orientation: 'video',
         keep_original_sound: false,
       } : perform ? {
+        // Kling Avatar: the approved still sings this scene's slice of the song.
+        prompt: performPrompt(performWords(parseShotDirection(perform.scene.shot_direction).emotion)),
         image_url: firstFrame,
         audio_url: slice.url,
-        prompt: performPrompt(performWords(parseShotDirection(perform.scene.shot_direction).emotion)),
-        output_resolution: resolution === '1080p' ? '1080' : '720',
       } : (likeness || fromStill) ? {
         prompt: likeness ? likenessMotionPrompt(input.prompt) : String(input.prompt || '').slice(0, 2000),
         images_list: [firstFrame],
@@ -593,7 +594,7 @@ export async function POST(request) {
         thinking_type: 'disabled',
         generate_audio_switch: false,
       } : lipSync ? {
-        video_url: resolveMedia(lipSync.source.output_url, { expiresIn: PROVIDER_TTL_SECONDS }),
+        video_url: lipSync.source.output_url,
         audio_url: slice.url,
         // Lite = one frontal face. separate_vocal pulls the voice out of the
         // full mix so drums and bass never drive the mouth.
@@ -612,7 +613,7 @@ export async function POST(request) {
       const providerResponse = await fetch(`${base}/api/v1/${providerEndpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-        body: JSON.stringify(canonicalInput),
+        body: JSON.stringify(resolveInputMedia(canonicalInput)),
       });
       const providerText = await providerResponse.text();
       let providerData = null;
