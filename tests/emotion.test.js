@@ -126,3 +126,20 @@ test('the paid AI Director thinks emotion-first', () => {
   const gen = read('app/api/generate/route.js');
   assert.match(gen, /performPrompt\(performWords\(parseShotDirection\(perform\.scene\.shot_direction\)\.emotion\)\)/);
 });
+
+test('face-locked stills carry the feeling and the full scene, not a cut-off prompt', async () => {
+  const { keyframePrompt } = await import('../lib/music/likeness.js');
+  const { serializeShotDirection } = await import('../lib/studio/studio-model.js');
+  const long = `${'photoreal realism detail, '.repeat(60)}Caribbean street party at night with string lights`;
+  const p = keyframePrompt(long, { name: 'Lead', singing: true, shotDirection: serializeShotDirection({ shot: 'Medium Shot', emotion: 'release', intensity: 10 }) });
+  assert.match(p, /Caribbean street party at night/);
+  assert.match(p, /viewers should feel catharsis/);
+  assert.match(p, /huge exhale into a smile/);
+  assert.match(p, /^Photorealistic[^]*Medium shot, face fully visible and frontal/);
+  assert.doesNotMatch(p, /natural relaxed expression/);
+  assert.ok(p.indexOf('viewers should feel') < p.indexOf('Caribbean'));
+  assert.match(keyframePrompt('x', { singing: true }), /Medium close-up[^]*natural relaxed expression/);
+  const route = read('app/api/generate/route.js');
+  assert.match(route, /shotDirection: likeness\.scene\.shot_direction/);
+  assert.match(read('lib/generation/still-job.js'), /shotDirection: scene\.shot_direction/);
+});
