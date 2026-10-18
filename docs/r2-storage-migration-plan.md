@@ -1,6 +1,6 @@
 # Cloudflare R2 storage migration plan
 
-**Status: phase 1 (generated media) in progress; references unchanged.** Supabase Storage remains the backend for reference uploads. Generated takes and stills, which previously stayed only at provider URLs that expire after about 30 days, are copied into a private R2 bucket following the rules in this plan (see "Phase 1: generated media" below). Cloudflare DNS/SSL/cache/security settings are untouched.
+**Status: phase 1 (generated media) in progress; references unchanged.** Supabase Storage remains the active and default backend for reference uploads, and this phase does not create buckets or tokens for them. Generated takes and stills, which previously stayed only at provider URLs that expire after about 30 days, are copied into a private R2 bucket following the rules in this plan (see "Phase 1: generated media" below). Cloudflare DNS/SSL/cache/security settings are untouched.
 
 ## Phase 1: generated media (takes and stills)
 
