@@ -673,3 +673,8 @@
 .sx-feel-num { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--sx-gold); min-width: 34px; text-align: right; }
 .sx-feel-note strong { color: #d9dbe0; font-weight: 600; margin-right: 4px; }
 .sx-feel-btn { justify-content: center; gap: 6px; width: 100%; white-space: normal; text-align: center; }
+
+/* Words on signs */
+.sx-signs { display: grid; grid-template-columns: 110px minmax(0, 1fr); align-items: center; gap: 8px; margin-top: 10px; }
+.sx-signs input { width: 100%; min-width: 0; padding: 7px 9px; border: 1px solid var(--sx-line, #2a2c33); border-radius: 6px; background: #121318; color: inherit; font-size: 13px; }
+.sx-signs-hint { margin: 6px 0 8px; }

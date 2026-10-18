@@ -17,7 +17,7 @@ import { buildPreflightReport } from '../../../lib/billing/generation-preflight.
 import { normalizeMuapiCost } from '../../../lib/providers/muapi-cost-adapter.js';
 import { rateLimit } from '../../../lib/rate-limit';
 import { projectSong, sliceSongForScene } from '../../../lib/music/audio.js';
-import { FaceMismatchError, LIKENESS_VIDEO_MODEL, PERFORM_AUDIO_MIN_MS, PERFORM_MAX_MS, PERFORM_MIN_MS, PERFORM_MODEL, keyframeCents, likenessMotionPrompt, makeKeyframe, performPrompt, resolveSceneLikeness } from '../../../lib/music/likeness.js';
+import { FaceMismatchError, StillQualityError, LIKENESS_VIDEO_MODEL, PERFORM_AUDIO_MIN_MS, PERFORM_MAX_MS, PERFORM_MIN_MS, PERFORM_MODEL, keyframeCents, likenessMotionPrompt, makeKeyframe, performPrompt, resolveSceneLikeness } from '../../../lib/music/likeness.js';
 import { PLAN_PRICING_POLICY, planCodeFor, planCredits } from '../../../lib/billing/plan-pricing.js';
 import { runStillJob } from '../../../lib/generation/still-job.js';
 import { retryState } from '../../../lib/generation/busy-retry.js';
@@ -687,6 +687,9 @@ export async function POST(request) {
       }
       if (providerError?.code === 'MOTION_TOO_SHORT') {
         return safeError(`Your dance clip runs out before this scene ends (${(providerError.availableMs / 1000).toFixed(1)} s left after the start point). Choose an earlier start or a longer clip. Your credits were returned.`, 422);
+      }
+      if (providerError instanceof StillQualityError) {
+        return safeError('The writing on signs in this shot kept coming out as gibberish, so nothing was made and your credits were returned. Try again, or set real words under Visual Direction → Words on signs.', 422);
       }
       if (providerError instanceof FaceMismatchError) {
         return safeError(`We couldn't keep ${likeness?.asset?.name || 'this person'}'s face accurate in this shot, so nothing was made and your credits were returned. Try a sharper, front-facing photo or a simpler scene description.`, 422);

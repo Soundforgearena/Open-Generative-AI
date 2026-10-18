@@ -164,7 +164,7 @@ const EMOTION_BRIEF =
   'and how it travels from start to finish (emotional_arc.journey): it must rise and fall and build to a clear peak. ' +
   'For every scene pick its emotion, intensity 1-10 and one short sentence on what the viewer should feel (viewer_feeling). ' +
   'Then let that feeling drive the scene: write what the performers\' faces and bodies do with genuine human expressions, ' +
-  'and put framing, lens, camera movement, light and colour in shot_direction. Prompts must describe real people, never generic stock poses.';
+  'and put framing, lens, camera movement, light and colour in shot_direction. Prompts must describe real people, never generic stock poses. Any sign, poster, screen or paper in a prompt names its exact, real, correctly spelled words (for example a bar sign reading "RUM BAR"), or keeps writing out of frame.';
 
 const LANE_BRIEF = {
   music_video:
