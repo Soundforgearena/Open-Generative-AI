@@ -560,6 +560,7 @@ export async function POST(request) {
           aspectRatio: input.aspect_ratio,
           resolution,
           singing: Boolean(likeness.scene.lip_sync),
+          shotDirection: likeness.scene.shot_direction,
         });
       }
       const canonicalInput = beat ? {
