@@ -11,6 +11,7 @@ import {
   deleteStorageObject,
   safeError,
 } from '../../../lib/cinexvideo-server';
+import { canWrite } from '../../../lib/studio/access';
 import { validateUploadDetails } from '../../../lib/upload-validation';
 import { rateLimit } from '../../../lib/rate-limit';
 
@@ -49,7 +50,7 @@ export async function POST(request) {
     if (!resolved.ok) return safeError(resolved.message, resolved.status || 415);
 
     const project = await selectOne('projects', { id: `eq.${projectId}` }, 'id,owner_id');
-    if (!project || (project.owner_id !== user.id && !admin)) return safeError('Project not found.', 404);
+    if (!canWrite(project, { user })) return safeError('Project not found.', 404);
 
     // Storage protection: cap files per project and total bytes per user so
     // no single account can fill the storage the whole app depends on.
@@ -116,7 +117,7 @@ export async function DELETE(request) {
     if (asset.locked && !admin) return safeError('That reference is locked and cannot be removed.', 409);
 
     const project = await selectOne('projects', { id: `eq.${asset.project_id}` }, 'id,owner_id');
-    if (!project || (project.owner_id !== user.id && !admin)) return safeError('Reference not found.', 404);
+    if (!canWrite(project, { user })) return safeError('Reference not found.', 404);
 
     if (asset.storage_path) await deleteStorageObject(BUCKET, asset.storage_path);
     const removed = await deleteRows('project_assets', { id: `eq.${assetId}` });
@@ -143,7 +144,7 @@ export async function PATCH(request) {
     const asset = await selectOne('project_assets', { id: `eq.${assetId}` }, 'id,project_id,kind,storage_path');
     if (!asset) return safeError('Reference not found.', 404);
     const project = await selectOne('projects', { id: `eq.${asset.project_id}` }, 'id,owner_id');
-    if (!project || (project.owner_id !== user.id && !admin)) return safeError('Reference not found.', 404);
+    if (!canWrite(project, { user })) return safeError('Reference not found.', 404);
     const patch = {};
     if (typeof body.name === 'string' && body.name.trim()) patch.name = body.name.trim().slice(0, 200);
     if (typeof body.notes === 'string') patch.notes = body.notes.slice(0, 1000);

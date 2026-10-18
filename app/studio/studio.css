@@ -345,6 +345,7 @@
 .sx-dl dd { margin: 0; font-weight: 600; }
 .sx-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .sx-toast { position: fixed; left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 70; background: #1a1c21; border: 1px solid var(--sx-line-2); padding: 12px 18px; border-radius: 10px; font-size: 13px; max-width: calc(100vw - 32px); box-shadow: 0 16px 40px -12px #000; }
+.sx-readonly { background: #2a2210; border-bottom: 1px solid #6b5420; color: #f3dfa8; font-size: 13px; padding: 9px 16px; text-align: center; line-height: 1.4; }
 .sx-state { align-items: center; justify-content: center; padding: 24px; }
 .sx-state-card { text-align: center; display: grid; justify-items: center; gap: 10px; max-width: 420px; }
 .sx-state-card h1 { margin: 6px 0 0; font-family: var(--sx-serif); font-weight: 500; font-size: 24px; letter-spacing: .04em; }

@@ -1,14 +1,14 @@
 import { guard, selectOne, selectRows, updateRows, deleteRows, safeError } from '../../../../lib/cinexvideo-server';
+import { canWrite, isStale } from '../../../../lib/studio/access';
 import { sceneIds, writeSceneOrder } from '../../../../lib/studio/scene-store';
 import { rateLimit } from '../../../../lib/rate-limit';
 
-async function ownedScene(id, user, admin) {
+async function ownedScene(id, user) {
   const scene = await selectOne('scenes', { id: `eq.${id}` });
   if (!scene) return null;
   const project = await selectOne('projects', { id: `eq.${scene.project_id}` }, 'owner_id');
-  if (!project) return null;
-  if (project.owner_id !== user.id && !admin) return null;
-  return scene;
+  // Only the project owner can change or delete its scenes.
+  return canWrite(project, { user }) ? scene : null;
 }
 
 /**
@@ -23,10 +23,15 @@ export async function PATCH(request, { params }) {
   if (limited) return limited;
   const { id } = await params;
 
-  const scene = await ownedScene(id, user, admin);
+  const scene = await ownedScene(id, user);
   if (!scene) return safeError('Scene not found.', 404);
 
   const body = await request.json();
+  // A save from a tab or device that loaded an older copy of this scene is
+  // refused, and the newer scene is returned so the Studio can merge.
+  if (isStale(scene.updated_at, body.base_updated_at)) {
+    return Response.json({ error: 'This scene changed somewhere else.', code: 'stale', scene }, { status: 409 });
+  }
   const patch = {};
 
   if (typeof body.title === 'string' && body.title.trim()) patch.title = body.title.trim().slice(0, 200);
@@ -116,7 +121,7 @@ export async function DELETE(request, { params }) {
   const { user, admin, error } = await guard(request, { blockOnMaintenance: true });
   if (error) return error;
   const { id } = await params;
-  const scene = await ownedScene(id, user, admin);
+  const scene = await ownedScene(id, user);
   if (!scene) return safeError('Scene not found.', 404);
   if (scene.status === 'generating') return safeError('Wait for this scene to finish generating before deleting it.', 409);
 

@@ -1,6 +1,16 @@
 # Cloudflare R2 storage migration plan
 
-**Status: planning only.** Supabase Storage remains the active and default backend. This plan does not create buckets or tokens, change Cloudflare DNS/SSL/cache/security settings, migrate media, apply schema changes, or alter billing/database contracts.
+**Status: phase 1 (generated media) in progress; references unchanged.** Supabase Storage remains the backend for reference uploads. Generated takes and stills, which previously stayed only at provider URLs that expire after about 30 days, are copied into a private R2 bucket following the rules in this plan (see "Phase 1: generated media" below). Cloudflare DNS/SSL/cache/security settings are untouched.
+
+## Phase 1: generated media (takes and stills)
+
+- Buckets (owner-approved 2026-10-18): `cinexvideo-media` (production) and `cinexvideo-media-staging`, both private with no `r2.dev` access. CORS: exact origins only (`https://cinexvideo.app`, `https://www.cinexvideo.app`; staging `http://localhost:3456`), GET/HEAD only. Lifecycle: incomplete multipart uploads aborted after 1 day, `_cinex-healthcheck/` objects expired after 1 day, no expiry on user media.
+- Keys: `takes/<user_id>/<project_id>/<scene_id>/<scene_version_id>.<ext>` and `stills/<user_id>/<project_id>/<scene_id>/<scene_id>-<url hash>.<ext>`. Ids make the backfill idempotent.
+- Per-row backend (dual-read): a row holding `media:r2/<key>` reads from R2, and a row still holding a provider URL reads from the provider. Signed URLs are created on demand (900 s for previews, 3600 s for AI-model and renderer reads) and are never stored or logged.
+- Write path (`lib/storage/archive.js`): download from the provider (HTTPS only, video/image types only, 400 MiB cap), PUT to R2, verify with a server-side HEAD (size), compute a SHA-256, record the file in `media_objects` (size, type, checksum, original provider URL as the migration log), and only then switch the row, and only if it still holds the same provider URL. Any failed step leaves the row on the provider URL for retry. It runs right after each take or still completes, and the every-minute scheduler sweeps leftovers, oldest first.
+- Accounting and orphans: `media_objects` (additive migration `20261018190000_media_objects.sql`, needs approval) gives per-user byte totals. The `media_orphans` view is the weekly orphan report in the super admin storage view. Nothing is deleted automatically; deletion needs review.
+- Separate, narrowly scoped R2 tokens for production and staging (Object Read & Write on one bucket each). No token values in source control.
+
 
 ## Current Supabase Storage behavior
 
