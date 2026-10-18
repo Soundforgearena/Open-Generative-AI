@@ -24,6 +24,7 @@ import { retryState } from '../../../lib/generation/busy-retry.js';
 import { BEAT_DANCE_MODEL, beatAspect, beatDanceFor, beatDancePrompt } from '../../../lib/music/beat-dance.js';
 import { sliceForBeatDance } from '../../../lib/music/beat-slice.js';
 import { parseShotDirection } from '../../../lib/studio/studio-model.js';
+import { performWords } from '../../../lib/director/emotion.js';
 import { MOTION_MAX_MS, MOTION_MIN_MS, MOTION_MODEL, motionPrompt, sceneMotion, trimMotionClip } from '../../../lib/music/motion.js';
 
 const SAFE_PROVIDER_FIELDS = new Set([
@@ -578,7 +579,7 @@ export async function POST(request) {
       } : perform ? {
         image_url: firstFrame,
         audio_url: slice.url,
-        prompt: performPrompt(perform.scene.lyric_text),
+        prompt: performPrompt(performWords(parseShotDirection(perform.scene.shot_direction).emotion)),
         output_resolution: resolution === '1080p' ? '1080' : '720',
       } : (likeness || fromStill) ? {
         prompt: likeness ? likenessMotionPrompt(input.prompt) : String(input.prompt || '').slice(0, 2000),

@@ -1,4 +1,6 @@
 import { guard, insertRows, selectRows, safeError } from '../../../lib/cinexvideo-server';
+import { EMOTION_KEYS, cameraFor, emotionNote } from '../../../lib/director/emotion';
+import { serializeShotDirection } from '../../../lib/studio/studio-model';
 
 /** List the signed-in user's projects. */
 export async function GET(request) {
@@ -43,9 +45,21 @@ export async function POST(request) {
           project_id: project.id,
           position: index + 1,
           title: scene.title || `Scene ${index + 1}`,
-          purpose: scene.purpose || null,
+          purpose: EMOTION_KEYS.includes(scene.emotion)
+            ? `${emotionNote({ emotion: scene.emotion, intensity: Math.min(10, Math.max(1, Number(scene.intensity) || 6)), why: '' })} ${scene.viewer_feeling ? `${String(scene.viewer_feeling).slice(0, 300)} ` : ''}${scene.purpose || ''}`.trim().slice(0, 5000)
+            : scene.purpose || null,
           duration_seconds: Math.min(Math.max(Number(scene.duration_seconds) || 8, 1), 600),
-          shot_direction: scene.shot_direction || null,
+          // The Director's emotional read becomes structured shot settings
+          // (feeling, strength and the camera that suits it); its own
+          // written direction is kept as notes.
+          shot_direction: EMOTION_KEYS.includes(scene.emotion)
+            ? serializeShotDirection({
+              ...cameraFor(scene.emotion, { sung: false }),
+              emotion: scene.emotion,
+              intensity: Number(scene.intensity) || 6,
+              notes: String(scene.shot_direction || '').slice(0, 2000),
+            })
+            : scene.shot_direction || null,
           prompt: scene.prompt || null,
         }))
       );

@@ -10,12 +10,15 @@ import { getDirectorPricing } from '@/lib/cinexvideo-client';
 import { createStaleGuard } from '@/lib/studio/async-guard';
 import { createActionLock } from '@/lib/studio/action-lock';
 import { createRetryIdempotencyKey } from '@/lib/studio/retry-idempotency-key';
+import { parseShotDirection } from '@/lib/studio/studio-model';
+import { EMOTIONS } from '@/lib/director/emotion';
 
 // Shown until the live price list loads (default model).
 const FALLBACK = { max_credits: maxDirectorCredits('assist', 'gpt-5'), typical_credits: typicalDirectorCredits('assist', 'gpt-5') };
 const usd = (credits) => `$${(credits / 100).toFixed(2)}`;
 
 const ACTIONS = [
+  { id: 'emotionalPass', label: 'Make them feel it', hint: 'Faces, bodies, light and pace for the target feeling', always: true },
   { id: 'cinematicPrompt', label: 'Write this shot for me', hint: 'A production-ready prompt from your scene', empty: true },
   { id: 'cinematicPrompt', label: 'Make it more cinematic', hint: 'Sharper light, lens and atmosphere', needsText: true },
   { id: 'raiseStakes', label: 'Raise the stakes', hint: 'More tension and consequence', needsText: true },
@@ -116,6 +119,11 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
         style: styleName,
         sceneContext: scene?.purpose || '',
         duration: scene?.duration_seconds,
+        feeling: (() => {
+          const c = parseShotDirection(scene?.shot_direction);
+          const e = EMOTIONS[c.emotion];
+          return e ? `${e.label} at ${c.intensity}/10: ${e.viewer}` : '';
+        })(),
       },
     };
     setBusy(action + custom);
@@ -163,7 +171,7 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
         <div className="sx-menu sx-director-menu" role="menu">
           <p className="sx-menu-heading">AI Director · {atCost ? 'at cost' : 'purchased credits'}</p>
           {<p className="sx-dir-price">{atCost ? 'Super admin, at cost (no markup). ' : ''}Usually ~{price.typical_credits} credits ({usd(price.typical_credits)}), never more than {price.max_credits} ({usd(price.max_credits)}). You only pay for what the Director uses. 1 credit = $0.01.</p>}
-          {ACTIONS.filter((a) => (hasText ? !a.empty || a.id === 'createVisualDirection' : !a.needsText)).map((a) => (
+          {ACTIONS.filter((a) => a.always || (hasText ? !a.empty || a.id === 'createVisualDirection' : !a.needsText)).map((a) => (
             <button key={a.label} type="button" role="menuitem" onClick={() => run(a.id)} disabled={Boolean(busy)}>
               <span className="sx-dir-text"><strong>{a.label}</strong><small>{a.hint}</small></span>
               {busy === a.id ? <span className="sx-mini-spin" aria-hidden="true" /> : <span className="sx-dir-cost">~{price.typical_credits} cr</span>}

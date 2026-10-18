@@ -8,11 +8,11 @@ import { buildAppliedValue } from '@/lib/director-apply';
 import AiDirectorWritingWindow from './AiDirectorWritingWindow';
 
 const ACTIONS = {
-  idea: [['generateIdeaDirections', 'Give me 3 story concepts'], ['raiseStakes', 'Suggest a conflict'], ['createCharacter', 'Create a main character'], ['suggestEnding', 'Suggest 3 endings'], ['buildStoryArc', 'Turn this into a short film premise']],
-  story: [['expandStory', 'Expand this story'], ['buildStoryArc', 'Create a beginning, middle, and end'], ['improvePacing', 'Improve pacing'], ['raiseStakes', 'Raise the stakes'], ['suggestEnding', 'Add a twist'], ['tightenScene', 'Simplify for a short film']],
-  script: [['writeNextScene', 'Write the next scene'], ['improveDialogue', 'Improve dialogue'], ['tightenScene', 'Tighten this scene'], ['createVisualDirection', 'Make it more cinematic'], ['improveScenePurpose', 'Improve character motivation']],
+  idea: [['mapEmotionalArc', 'Map how the audience should feel'], ['generateIdeaDirections', 'Give me 3 story concepts'], ['raiseStakes', 'Suggest a conflict'], ['createCharacter', 'Create a main character'], ['suggestEnding', 'Suggest 3 endings'], ['buildStoryArc', 'Turn this into a short film premise']],
+  story: [['mapEmotionalArc', 'Map the emotional journey'], ['emotionalPass', 'Make the audience feel it'], ['expandStory', 'Expand this story'], ['buildStoryArc', 'Create a beginning, middle, and end'], ['improvePacing', 'Improve pacing'], ['raiseStakes', 'Raise the stakes'], ['suggestEnding', 'Add a twist'], ['tightenScene', 'Simplify for a short film']],
+  script: [['emotionalPass', 'Make the audience feel it'], ['writeNextScene', 'Write the next scene'], ['improveDialogue', 'Improve dialogue'], ['tightenScene', 'Tighten this scene'], ['createVisualDirection', 'Make it more cinematic'], ['improveScenePurpose', 'Improve character motivation']],
   visualNotes: [['createVisualDirection', 'Suggest a visual style'], ['createVisualDirection', 'Suggest lighting and color'], ['createVisualDirection', 'Suggest camera language'], ['createVisualDirection', 'Create a mood board description']],
-  scene: [['improveScenePurpose', 'Strengthen scene purpose'], ['raiseStakes', 'Improve emotional turn'], ['createVisualDirection', 'Add visual detail'], ['improveDialogue', 'Improve narration'], ['tightenScene', 'Shorten this scene']],
+  scene: [['emotionalPass', 'Make the audience feel it'], ['improveScenePurpose', 'Strengthen scene purpose'], ['raiseStakes', 'Improve emotional turn'], ['createVisualDirection', 'Add visual detail'], ['improveDialogue', 'Improve narration'], ['tightenScene', 'Shorten this scene']],
   title: [['applyDirectorInstruction', 'Find a stronger title'], ['generateIdeaDirections', 'Find a stronger hook']],
 };
 

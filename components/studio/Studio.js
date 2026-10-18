@@ -12,6 +12,7 @@ import { demoModeEnabled } from '@/lib/demo-mode';
 import {
   createScene,
   deleteScene,
+  feelScenes,
   renderFinishedVideoFile,
   saveBlobToDevice,
   getAccount,
@@ -53,6 +54,7 @@ import {
   waveformBars,
 } from '@/lib/studio/studio-model';
 import { demoStudioData } from '@/lib/studio/demo-studio';
+import { EMOTIONS, EMOTION_KEYS, cameraFor } from '@/lib/director/emotion';
 import { createStaleGuard } from '@/lib/studio/async-guard';
 
 const LANE_LABEL = { music_video: 'Music Video', episode: 'Episode', short_film: 'Short Film', film: 'Short Film' };
@@ -207,7 +209,7 @@ function StudioWorkspace() {
   const [now, setNow] = useState(() => Date.now());
   const [toast, setToast] = useState('');
   const [tab, setTab] = useState('inspector');
-  const [open, setOpen] = useState({ sync: true, faces: true, visual: true, camera: true, continuity: true, audio: true, generation: true });
+  const [open, setOpen] = useState({ sync: true, faces: true, visual: true, emotion: true, camera: true, continuity: true, audio: true, generation: true });
   const [promptOpen, setPromptOpen] = useState(true);
   const [tagDraft, setTagDraft] = useState(null);
   const [playing, setPlaying] = useState(false);
@@ -601,6 +603,22 @@ function StudioWorkspace() {
     patchScene(scene.id, { shot_direction: serializeShotDirection({ ...controls, ...patch }) });
   }
 
+  const [feeling, setFeeling] = useState(false);
+  async function readSongFeelings() {
+    if (!project || feeling) return;
+    setFeeling(true);
+    try {
+      if (demoModeEnabled) { setToast('The Director read the song and gave each scene a feeling.'); return; }
+      const r = await feelScenes(project.id);
+      await refreshProject(scene?.id);
+      setToast(r.updated ? `The Director felt out ${r.updated} scene${r.updated === 1 ? '' : 's'}. Scenes you set yourself were kept.` : 'Every scene already has a feeling.');
+    } catch (err) {
+      setToast(err?.message || 'The song could not be read right now.');
+    } finally {
+      setFeeling(false);
+    }
+  }
+
   function patchVisualIdentity(patch) {
     setProject((p) => ({ ...p, visual_identity: { ...p.visual_identity, ...patch } }));
     projectDirty.current = { ...(projectDirty.current || {}), visual_identity: { ...(projectDirty.current?.visual_identity || {}), ...patch } };
@@ -842,7 +860,7 @@ function StudioWorkspace() {
 
   /* ---------------------------------------------------------- generation */
 
-  const scenePrompt = (s, c) => buildProviderPrompt({ prompt: s.prompt || s.purpose || s.title, controls: c, style: [styleName, vi.style_notes].filter(Boolean).join(', ') });
+  const scenePrompt = (s, c) => buildProviderPrompt({ prompt: s.prompt || s.purpose || s.title, controls: c, style: [styleName, vi.style_notes].filter(Boolean).join(', '), sung: Boolean(s.lip_sync) });
 
   /** Step 1: the scene's still (first frame), approved before any video is paid for. */
   function stillPayload(s) {
@@ -1451,7 +1469,7 @@ function StudioWorkspace() {
                         <strong>{s.title}</strong>
                         <span className={`sx-dot is-${h}`} title={HEALTH_LABEL[h]} />
                       </span>
-                      <span className="sx-scene-time">{formatClock(s.duration_seconds)}</span>
+                      <span className="sx-scene-time">{formatClock(s.duration_seconds)}{(() => { const c = parseShotDirection(s.shot_direction); return EMOTIONS[c.emotion] ? <span className={`sx-feel is-${c.emotion}`} title={`Viewers should feel ${EMOTIONS[c.emotion].viewer}`}>{EMOTIONS[c.emotion].label} {c.intensity}/10</span> : null; })()}</span>
                       {listMode !== 'compact' && <span className="sx-scene-desc">{s.purpose || s.prompt || 'No description yet.'}</span>}
                     </span>
                   </button>
@@ -1639,6 +1657,38 @@ function StudioWorkspace() {
                     <button key={t} type="button" className="sx-chip" aria-label={`Remove style tag ${t}`} onClick={() => patchVisualIdentity({ style_tags: styleTags.filter((x) => x !== t) })}>{t}</button>
                   ))}
                   <button type="button" className="sx-chip sx-chip-add" aria-label="Add style tag" onClick={() => { const t = window.prompt('Add a style tag'); if (t) patchVisualIdentity({ style_tags: normalizeTags([...styleTags, t]) }); }}><Icon.Plus /></button>
+                </div>
+              </Section>
+
+              <Section icon={Icon.Spark} title="Emotion" open={open.emotion} onToggle={() => setOpen((o) => ({ ...o, emotion: !o.emotion }))}>
+                <div className="sx-rows">
+                  <Select id="in-feel" label="Feeling" value={controls.emotion}
+                    options={[{ value: '', label: 'Director decides' }, ...EMOTION_KEYS.map((k) => ({ value: k, label: EMOTIONS[k].label }))]}
+                    onChange={(v) => patchControls({ emotion: v })} />
+                  <label className="sx-field" htmlFor="in-intensity">
+                    <span className="sx-field-label">Intensity</span>
+                    <span className="sx-feel-range">
+                      <input id="in-intensity" type="range" min="1" max="10" step="1" value={controls.intensity} disabled={!controls.emotion}
+                        onChange={(e) => patchControls({ intensity: Number(e.target.value) })} aria-valuetext={`${controls.intensity} out of 10`} />
+                      <span className="sx-feel-num">{controls.intensity}/10</span>
+                    </span>
+                  </label>
+                  {EMOTIONS[controls.emotion] ? (
+                    <>
+                      <p className="sx-hint sx-feel-note"><strong>Viewers should feel</strong> {EMOTIONS[controls.emotion].viewer}.</p>
+                      <p className="sx-hint sx-feel-note"><strong>Light and colour</strong> {EMOTIONS[controls.emotion].light}; {EMOTIONS[controls.emotion].grade}.</p>
+                      <button type="button" className="sx-btn sx-feel-btn" onClick={() => patchControls(cameraFor(controls.emotion, { sung: Boolean(scene?.lip_sync) }))}>
+                        <Icon.Camera /> Use the Director&apos;s camera for this feeling
+                      </button>
+                    </>
+                  ) : (
+                    <p className="sx-hint">Pick how the audience should feel. Faces, movement, light and colour follow it.</p>
+                  )}
+                  {project.lane === 'music_video' && (
+                    <button type="button" className="sx-btn sx-feel-btn" onClick={readSongFeelings} disabled={feeling}>
+                      <Icon.Wave /> {feeling ? 'Reading the song…' : 'Read the song’s emotions (free)'}
+                    </button>
+                  )}
                 </div>
               </Section>
 
