@@ -860,7 +860,7 @@ function StudioWorkspace() {
 
   /* ---------------------------------------------------------- generation */
 
-  const scenePrompt = (s, c) => buildProviderPrompt({ prompt: s.prompt || s.purpose || s.title, controls: c, style: [styleName, vi.style_notes].filter(Boolean).join(', '), sung: Boolean(s.lip_sync) });
+  const scenePrompt = (s, c) => buildProviderPrompt({ prompt: s.prompt || s.purpose || s.title, controls: c, style: [styleName, vi.style_notes].filter(Boolean).join(', '), sung: Boolean(s.lip_sync), signText: vi.sign_text || '' });
 
   /** Step 1: the scene's still (first frame), approved before any video is paid for. */
   function stillPayload(s) {
@@ -1652,6 +1652,13 @@ function StudioWorkspace() {
                     <textarea className="sx-inline-input sx-vd-notes" rows={2} value={vi.style_notes ?? 'Moody lighting, dramatic contrast, rich color grading, filmic look.'} onChange={(e) => patchVisualIdentity({ style_notes: e.target.value })} aria-label="Style notes" maxLength={1000} />
                   </div>
                 </div>
+                <label className="sx-field sx-signs" htmlFor="in-signs">
+                  <span className="sx-field-label">Words on signs</span>
+                  <input id="in-signs" className="sx-inline-input" value={vi.sign_text || ''} maxLength={120}
+                    placeholder="e.g. Act Normal Now, Rum Bar"
+                    onChange={(e) => patchVisualIdentity({ sign_text: e.target.value })} />
+                </label>
+                <p className="sx-hint sx-signs-hint">Up to three, separated by commas. Signs and posters show only real words; leave empty and the Director picks words that suit the place.</p>
                 <div className="sx-chips">
                   {styleTags.map((t) => (
                     <button key={t} type="button" className="sx-chip" aria-label={`Remove style tag ${t}`} onClick={() => patchVisualIdentity({ style_tags: styleTags.filter((x) => x !== t) })}>{t}</button>

@@ -92,6 +92,8 @@ export async function PATCH(request, { params }) {
     if (['16:9', '9:16', '1:1', '4:5', '21:9'].includes(vi.aspect_ratio)) next.aspect_ratio = vi.aspect_ratio;
     if (typeof vi.style === 'string') next.style = vi.style.slice(0, 120);
     if (typeof vi.style_notes === 'string') next.style_notes = vi.style_notes.slice(0, 1000);
+    // Words signs and posters may show (real words only; see director/signage).
+    if (typeof vi.sign_text === 'string') next.sign_text = vi.sign_text.replace(/[\u0000-\u001f<>]/g, '').slice(0, 120);
     if (Array.isArray(vi.style_tags)) next.style_tags = vi.style_tags.map((t) => String(t).slice(0, 32)).slice(0, 12);
     patch.visual_identity = next;
   }
