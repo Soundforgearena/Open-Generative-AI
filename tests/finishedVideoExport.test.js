@@ -43,7 +43,9 @@ test('watermark stays small and clear of the picture centre', () => {
 
 test('output keeps the first clip shape and caps at 1080p', () => {
   assert.deepEqual(outputSize([{ width: 3840, height: 2160 }]), { width: 1920, height: 1080 });
-  assert.deepEqual(outputSize([{ width: 720, height: 1280 }]), { width: 720, height: 1280 });
+  assert.deepEqual(outputSize([{ width: 720, height: 1280 }]), { width: 1080, height: 1920 });
+  assert.deepEqual(outputSize([{ width: 1286, height: 716 }]), { width: 1920, height: 1080 });
+  assert.deepEqual(outputSize([{ width: 1000, height: 500 }]), { width: 2160, height: 1080 });
 });
 
 test('only public https media is fetched', () => {

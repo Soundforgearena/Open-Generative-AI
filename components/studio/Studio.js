@@ -59,6 +59,29 @@ import { EMOTIONS, EMOTION_KEYS, cameraFor } from '@/lib/director/emotion';
 import { createStaleGuard } from '@/lib/studio/async-guard';
 
 const LANE_LABEL = { music_video: 'Music Video', episode: 'Episode', short_film: 'Short Film', film: 'Short Film' };
+function FinalCutCard({ finalCut, justSaved = false }) {
+  if (!finalCut) {
+    return justSaved ? <p className="sx-hint sx-finalcut-wait">Saving a copy as this project&apos;s Final cut...</p> : null;
+  }
+  const when = finalCut.saved_at ? new Date(finalCut.saved_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  const mb = finalCut.bytes ? `${(finalCut.bytes / (1024 * 1024)).toFixed(finalCut.bytes > 100 * 1024 * 1024 ? 0 : 1)} MB` : '';
+  const len = Number(finalCut.seconds) > 0 ? formatClock(finalCut.seconds) : '';
+  const res = finalCut.height ? `${Math.min(finalCut.width, finalCut.height)}p` : '';
+  return (
+    <div className="sx-finalcut" role="group" aria-label="Final cut">
+      <div className="sx-finalcut-text">
+        <span className="sx-kicker">Final cut</span>
+        <strong>{finalCut.clean ? 'No watermark' : 'With watermark'}</strong>
+        <span className="sx-muted">{[when, len, res, mb].filter(Boolean).join(' · ')}</span>
+      </div>
+      <div className="sx-finalcut-actions">
+        <a className="sx-btn sx-btn-ghost sx-btn-sm" href={finalCut.play_url} target="_blank" rel="noopener noreferrer">Watch</a>
+        <a className="sx-btn sx-btn-gold sx-btn-sm" href={finalCut.download_url} download={finalCut.file_name}>Download again</a>
+      </div>
+    </div>
+  );
+}
+
 const HEALTH_LABEL = { good: 'Good', warning: 'Warning', issue: 'Continuity Issue', pending: 'Not generated' };
 const IMAGE_RE = /\.(avif|gif|jpe?g|png|webp)(\?|$)/i;
 
@@ -305,6 +328,7 @@ function StudioWorkspace() {
       visual_identity: result.project.visual_identity || {},
       music: result.project.music || null,
       has_lyrics: Boolean(result.project.has_lyrics),
+      final_cut: result.project.final_cut || null,
     });
     setAspect(result.project.visual_identity?.aspect_ratio || '16:9');
     setScenes(mapped);
@@ -1297,6 +1321,19 @@ function StudioWorkspace() {
   }
 
   /* ------------------------------------------------ finished video */
+  /** Re-reads the project's Final cut (fresh 15-minute links). */
+  async function refreshFinalCut() {
+    if (!project?.id || demoModeEnabled) return null;
+    try {
+      const fresh = await getProject(project.id);
+      const fc = fresh?.project?.final_cut || null;
+      setProject((p) => (p && p.id === fresh?.project?.id ? { ...p, final_cut: fc } : p));
+      return fc;
+    } catch {
+      return null;
+    }
+  }
+
   async function openExport() {
     if (demoModeEnabled) {
       setExportState({ open: true, phase: 'choose', progress: 0, demo: true });
@@ -1310,6 +1347,7 @@ function StudioWorkspace() {
     setCloud({ ...connected, busy: '' });
     setDestinations((d) => ({ device: d.device, drive: d.drive && connected.drive, dropbox: d.dropbox && connected.dropbox }));
     setExportState({ open: true, phase: 'quoting', progress: 0, error: '' });
+    refreshFinalCut();
     try {
       // The free watermarked cut never depends on the paid quote: if the
       // no-watermark price can't be checked, only that option is unavailable.
@@ -1385,6 +1423,13 @@ function StudioWorkspace() {
       setExportState((st) => ({ ...st, result: file }));
       if (file.credits) getAccount().then((account) => { if (isCurrent()) setCredits(Number(account.credits ?? 0)); }).catch(() => {});
       await deliver(file, keys, isCurrent);
+      // The server saves this video as the Final cut in the background.
+      const before = project.final_cut?.saved_at || '';
+      for (const wait of [3000, 8000, 20000]) {
+        await new Promise((r) => setTimeout(r, wait));
+        const fc = await refreshFinalCut();
+        if (fc?.saved_at && fc.saved_at !== before) break;
+      }
     } catch (error) {
       if (!isCurrent()) return;
       setExportState((st) => ({ ...st, phase: 'choose', error: error.message || 'Your video could not be rendered.', needsCredits: error.status === 402 }));
@@ -1913,7 +1958,7 @@ function StudioWorkspace() {
                 {scene?.versions?.length > 0 && (
                   <div className="sx-takes">
                     <p className="sx-menu-heading">Takes</p>
-                    <p className="sx-hint">When every scene is ready, use Download at the top to save your finished video to this device. Generated takes are kept by the video provider for a limited time, so download your finished video soon.</p>
+                    <p className="sx-hint">When every scene is ready, use Download at the top to save your finished video. Your takes are kept safely in your project, and your latest finished video is kept as its Final cut.</p>
                     {scene.versions.map((v) => (
                       <div key={v.id || v.version} className="sx-take">
                         <span>Take {v.version}{v.kind === 'lip_sync' ? (v.source_version_id ? ' · lip sync' : ' · sung performance') : ''} · {v.status}</span>
@@ -2178,7 +2223,8 @@ function StudioWorkspace() {
                     </em>
                   </button>
                 </div>
-                <p className="sx-hint">MP4 up to 1080p, with your uploaded track as the soundtrack. Credits are charged only when the video is ready, and downloading the same cut again within 7 days is free. CineXVideo does not keep a copy, so save it somewhere safe.</p>
+                <p className="sx-hint">Full HD MP4 (1080p), with your uploaded track as the soundtrack. Credits are charged only when the video is ready, and downloading the same cut again within 7 days is free. Your latest video is kept below as this project&apos;s Final cut; each new download replaces it.</p>
+                <FinalCutCard finalCut={project?.final_cut} />
               </>
             )}
             {(exportState.phase === 'rendering' || exportState.phase === 'downloading') && (
@@ -2204,6 +2250,7 @@ function StudioWorkspace() {
                   ))}
                 </ul>
                 {exportState.phase === 'done' && <span className="sx-hint">On iPhone and iPad, device downloads go to Files › Downloads. On Android, to Downloads. On Mac and Windows, to your Downloads folder.</span>}
+                {exportState.phase === 'done' && <FinalCutCard finalCut={project?.final_cut} justSaved />}
               </div>
             )}
             <div className="sx-dialog-actions">
