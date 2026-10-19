@@ -1,5 +1,12 @@
 import { callRpc, guard, requireSecret, safeError, insertRows, selectOne, updateRows } from '../../../lib/cinexvideo-server';
 import { runDirectorOnce } from '../../../lib/director-idempotency';
+import { blockedMessage, moderate } from '../../../lib/moderation/moderate.js';
+import { handleModeration } from '../../../lib/moderation/cases.js';
+
+/** What the user typed for the Director (not the project context). */
+function directorText(body) {
+  return [body.prompt, body.value, body.instruction].filter((v) => typeof v === 'string' && v.trim()).join('\n').slice(0, 12000);
+}
 import { AT_COST_POLICY, isAtCostUser } from '../../../lib/billing/at-cost';
 import {
   CHARS_PER_TOKEN,
@@ -277,6 +284,13 @@ export async function POST(request) {
       },
       run,
     });
+    // Content check before anything is charged.
+    {
+      const text = directorText(body);
+      const verdict = await moderate({ text });
+      await handleModeration(verdict, { userId: user.id, kind: 'director', where: body.action ? `director_${String(body.action).slice(0, 30)}` : 'director_plan', prompt: text }, { insertRows, updateRows });
+      if (!verdict.allowed) return Response.json({ error: blockedMessage(verdict), blocked: true, policy: '/content-policy' }, { status: 422 });
+    }
     if (body.action) {
       const invalid = validateAssist(body);
       if (invalid) return invalid;

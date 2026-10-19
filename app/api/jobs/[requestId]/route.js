@@ -9,6 +9,9 @@ import {
   safeError,
 } from '../../../../lib/cinexvideo-server';
 import { archiveSoon } from '../../../../lib/storage/archive.js';
+import { blockedMessage } from '../../../../lib/moderation/moderate.js';
+import { handleModeration } from '../../../../lib/moderation/cases.js';
+import { checkTakeOnce } from '../../../../lib/moderation/take-check.js';
 import { normalizeMuapiCost } from '../../../../lib/providers/muapi-cost-adapter.js';
 import { settledGenerationCredits } from '../../../../lib/billing/at-cost.js';
 import { rateLimit } from '../../../../lib/rate-limit';
@@ -94,7 +97,17 @@ export async function GET(request, { params }) {
 
     // A "completed" result with no usable video link is treated as a failure:
     // the customer gets their credits back instead of paying for nothing.
+    // Every finished take is checked (start, middle and end frames) before it
+    // is charged or shown. A blocked take is withheld, refunded and sent to
+    // the super admin's review queue.
+    let blockedTake = null;
     if (status === 'completed' && outputUrl) {
+      const verdict = await checkTakeOnce(job.id, outputUrl);
+      if (verdict.pending) return Response.json({ status: 'running', output_url: null, scene_version: job.scene_version, checking: true });
+      await handleModeration(verdict, { userId: user.id, kind: 'take', where: `take_${job.operation || 'video'}`, projectId: job.project_id || null, sceneId: job.scene_id || null, mediaUrl: outputUrl }, { insertRows, updateRows });
+      if (!verdict.allowed) blockedTake = verdict;
+    }
+    if (status === 'completed' && outputUrl && !blockedTake) {
       const costNormalized = normalizeMuapiCost({
         response: data,
         headers: Object.fromEntries(response.headers.entries()),
@@ -186,7 +199,7 @@ export async function GET(request, { params }) {
 
     // The provider was at capacity: wait and resubmit (charged once, only on
     // delivery) instead of failing the customer's scene.
-    const busy = await handleBusyFailure({ job, data, httpStatus: response.status, base, apiKey, updateRows });
+    const busy = blockedTake ? { action: 'not_busy' } : await handleBusyFailure({ job, data, httpStatus: response.status, base, apiKey, updateRows });
     if (busy.action === 'waiting' || busy.action === 'resubmitted') {
       return Response.json({ status: 'running', output_url: null, scene_version: job.scene_version, busy_retry: busy.attempt });
     }
@@ -204,7 +217,7 @@ export async function GET(request, { params }) {
       if (reservation.status === 'reserved') {
         const release = await callRpc('release_reservation_v2', {
           p_reservation_id: reservation.id,
-          p_reason: 'provider_failed',
+          p_reason: blockedTake ? 'moderation_blocked' : 'provider_failed',
         });
         if (!release.ok) throw new Error('reservation release failed');
       }
@@ -219,7 +232,7 @@ export async function GET(request, { params }) {
     const failedUpdate = await updateRows(
       'generation_requests',
       { id: `eq.${job.id}` },
-      { status: 'released', error_note: `${busyExhausted ? 'provider_busy' : 'provider_failed'}${providerReason ? `: ${providerReason}` : ''}`.slice(0, 500) }
+      { status: 'released', error_note: blockedTake ? `moderation_blocked: ${blockedTake.categories.join(',')}` : `${busyExhausted ? 'provider_busy' : 'provider_failed'}${providerReason ? `: ${providerReason}` : ''}`.slice(0, 500) }
     );
     if (!failedUpdate.ok) throw new Error('generation failure could not be recorded');
     if (job.scene_id) {
@@ -233,7 +246,7 @@ export async function GET(request, { params }) {
       }
     }
     await insertRows('admin_metric_events', {
-      event_type: 'generation_failed',
+      event_type: blockedTake ? 'generation_blocked' : 'generation_failed',
       operation: job.operation,
       model: job.model,
       user_id: user.id,
@@ -247,6 +260,7 @@ export async function GET(request, { params }) {
       scene_version: job.scene_version,
       credits_returned: job.credits_reserved,
       ...(busyExhausted ? { busy: true } : {}),
+      ...(blockedTake ? { blocked: true, error: blockedMessage(blockedTake, { charged: true }) } : {}),
       settled: true,
     });
   } catch (err) {

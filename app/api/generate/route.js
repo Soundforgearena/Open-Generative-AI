@@ -19,7 +19,9 @@ import { buildPreflightReport } from '../../../lib/billing/generation-preflight.
 import { normalizeMuapiCost } from '../../../lib/providers/muapi-cost-adapter.js';
 import { rateLimit } from '../../../lib/rate-limit';
 import { projectSong, sliceSongForScene } from '../../../lib/music/audio.js';
-import { FaceMismatchError, StillQualityError, LIKENESS_VIDEO_MODEL, PERFORM_AUDIO_MIN_MS, PERFORM_MAX_MS, PERFORM_MIN_MS, PERFORM_MODEL, keyframeCents, likenessMotionPrompt, makeKeyframe, performPrompt, resolveSceneLikeness } from '../../../lib/music/likeness.js';
+import { blockedMessage, moderate } from '../../../lib/moderation/moderate.js';
+import { handleModeration } from '../../../lib/moderation/cases.js';
+import { FaceMismatchError, StillQualityError, LIKENESS_VIDEO_MODEL, PERFORM_AUDIO_MIN_MS, PERFORM_MAX_MS, PERFORM_MIN_MS, PERFORM_MODEL, keyframeCents, likenessMotionPrompt, SAFETY_RULE, makeKeyframe, performPrompt, resolveSceneLikeness } from '../../../lib/music/likeness.js';
 import { PLAN_PRICING_POLICY, planCodeFor, planCredits } from '../../../lib/billing/plan-pricing.js';
 import { runStillJob } from '../../../lib/generation/still-job.js';
 import { retryState } from '../../../lib/generation/busy-retry.js';
@@ -369,6 +371,13 @@ export async function POST(request) {
       return safeError('An idempotency key is required.', 400);
     }
     const idempotencyKey = request.headers.get('idempotency-key');
+    // Content check before anything is charged (stills were checked when made).
+    {
+      const promptText = typeof input?.prompt === 'string' ? input.prompt : '';
+      const verdict = await moderate({ text: promptText });
+      await handleModeration(verdict, { userId: user.id, kind: 'prompt', where: `generate_${operation}`, projectId: projectId || null, sceneId: sceneId || null, prompt: promptText }, { insertRows, updateRows });
+      if (!verdict.allowed) return Response.json({ error: blockedMessage(verdict), blocked: true, policy: '/content-policy' }, { status: 422 });
+    }
     let reference = null;
     {
       // At-cost jobs may only spend purchased credits (bonus credits would mean
@@ -587,7 +596,7 @@ export async function POST(request) {
         image_url: firstFrame,
         audio_url: slice.url,
       } : (likeness || fromStill) ? {
-        prompt: likeness ? likenessMotionPrompt(input.prompt) : String(input.prompt || '').slice(0, 2000),
+        prompt: likeness ? likenessMotionPrompt(input.prompt) : `${String(input.prompt || '').slice(0, 1850)} ${SAFETY_RULE}`,
         images_list: [firstFrame],
         duration: durationSeconds,
         ...(resolution ? { resolution } : {}),

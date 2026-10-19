@@ -1229,6 +1229,7 @@ function StudioWorkspace() {
     setGenStartedAt(Date.now());
     let failed = 0;
     let lastDone = '';
+    let blockedNote = '';
     const busy = [];
     if (dialog.step === 'still') {
       try {
@@ -1241,6 +1242,7 @@ function StudioWorkspace() {
             made += 1; lastDone = s.id;
           } catch (error) {
             failed += 1;
+            if (error.data?.blocked || error.blocked) blockedNote = ` ${s.title} breaks our content policy, so it was not made.`;
             setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, status: 'draft' } : x)));
             if (error.status === 402) throw error;
             if (targets.length === 1) throw error;
@@ -1252,7 +1254,7 @@ function StudioWorkspace() {
         setCredits(Number(account.credits ?? 0));
         if (lastDone) setSelectedId(lastDone);
         setToast(failed
-          ? `${made} still${made === 1 ? '' : 's'} ready, ${failed} failed and were refunded. Review them, then approve.`
+          ? `${made} still${made === 1 ? '' : 's'} ready, ${failed} failed and were refunded.${blockedNote} Review them, then approve.`
           : `${made === 1 ? 'Still' : `${made} stills`} ready. Check the face and framing, then approve before animating.`);
       } catch (error) {
         if (isCurrent()) setToast(error.status === 402 ? 'Not enough credits. Open Account and billing to add more.' : error.message || 'The still could not be made.');
@@ -1280,7 +1282,7 @@ function StudioWorkspace() {
           if (!isCurrent()) return;
         }
         if (result.busy && dialog.step !== 'fallback') busy.push(s);
-        else if (result.status !== 'completed') failed += 1;
+        else if (result.status !== 'completed') { failed += 1; if (result.blocked) blockedNote = ` ${result.error}`; }
         else lastDone = s.id;
       }
       const [fresh, account] = await Promise.all([getProject(project.id), getAccount()]);
@@ -1289,7 +1291,7 @@ function StudioWorkspace() {
       setCredits(Number(account.credits ?? 0));
       if (lastDone) { setSelectedId(lastDone); setCelebrate(lastDone); }
       if (busy.length) { await offerFallback(busy, isCurrent); return; }
-      setToast(failed ? `${failed} scene${failed > 1 ? 's' : ''} failed. Credits for failed scenes were returned.` : 'Generation complete. New takes are ready to review.');
+      setToast(failed ? `${failed} scene${failed > 1 ? 's' : ''} failed. Credits for failed scenes were returned.${blockedNote}` : 'Generation complete. New takes are ready to review.');
     } catch (error) {
       if (!isCurrent()) return;
       setToast(error.status === 402 ? 'Not enough credits. Open Account and billing to add more.' : error.message || 'Generation could not be started.');

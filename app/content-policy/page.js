@@ -14,13 +14,33 @@ export default function ContentPolicyPage() {
   return (
     <CinexRoutePage
       eyebrow="Content policy"
-      title="What can premiere on CineXVideo"
-      description="CineX Premieres is open to everyone, including younger viewers. These rules apply to every episode, poster, thumbnail, title and description. When in doubt, it is held for a person to review before anyone sees it."
+      title="What you can make and share on CineXVideo"
+      description="These rules apply to everything made in the Studio (prompts, face photos, AI Director requests, stills, takes and finished videos) and to everything shared on CineX Premieres. There is no explicit content on CineXVideo."
     >
       <div className="cinex-legal">
-        <p><strong>Version {POLICY_VERSION}.</strong> CineX Premieres is coming soon. This policy will be reviewed by legal counsel before launch and may change; creators will be told about any change before it takes effect.</p>
+        <h2>Making videos in the Studio</h2>
+        <p>CineXVideo is a clean, all-audiences creative tool. Fictional action, drama, heartbreak, anger, power and explicit song lyrics are all fine. The pictures must always stay within these rules:</p>
+        <ul>
+          <li><strong>No nudity or sexual content of anyone, ever.</strong> That includes partial or implied nudity, sexual acts, see-through or lingerie-only outfits, and sexualised poses or camera angles. Every visual prompt we send to the AI also tells it that everyone is fully clothed.</li>
+          <li><strong>Nothing that sexualises or endangers minors.</strong> Never upload a photo of a child.</li>
+          <li><strong>No hate, harassment or threats</strong> against any person or group.</li>
+          <li><strong>No graphic gore,</strong> cruelty, or content that encourages or explains self-harm.</li>
+          <li><strong>Real faces only with consent</strong> from an adult who agreed, or yourself. No deceptive deepfakes or impersonation.</li>
+          <li><strong>Only music and material you have the rights to.</strong></li>
+        </ul>
+        <h2>How we keep explicit content out</h2>
+        <ol>
+          <li><strong>Before anything is made:</strong> every prompt, face photo and AI Director request is checked automatically. If it breaks the rules, it is refused and nothing is charged.</li>
+          <li><strong>After it is made:</strong> every still, and frames from the start, middle and end of every take, are checked before you see them. Anything that breaks the rules is withheld (never shown to you or put in your project or downloads) and your credits are returned.</li>
+          <li><strong>Private review:</strong> blocked items go to a review queue only CineXVideo’s super administrator can open. Previews stay heavily blurred until the reviewer chooses to look, so nobody is exposed to harmful material without need.</li>
+          <li><strong>Appeals:</strong> automated checks can make mistakes. Email <a href="mailto:safety@cinexvideo.app">safety@cinexvideo.app</a> and a person will review the decision and tell you the reason.</li>
+          <li><strong>Child safety:</strong> anything that may sexualise a minor suspends the account immediately, the evidence is preserved, and it is reported to the authorities (see below).</li>
+        </ol>
+        <p>Repeated attempts to make content that breaks these rules can lead to the account being closed. See our <Link href="/terms">Terms of Service</Link>.</p>
+        <h2>CineX Premieres (coming soon)</h2>
+        <p>CineX Premieres will be open to everyone, including younger viewers, so it adds stricter rules for every episode, poster, thumbnail, title and description: when in doubt, it is held for a person to review before anyone sees it. Premieres policy version {POLICY_VERSION}; creators will be told about any change before it takes effect.</p>
 
-        <h2>Never allowed, or held for review</h2>
+        <h2>Premieres: never allowed, or held for review</h2>
         <div className="cinex-admin-table-wrap">
           <table className="cinex-admin-table">
             <thead><tr><th>Content</th><th>What happens</th></tr></thead>
@@ -33,7 +53,7 @@ export default function ContentPolicyPage() {
         </div>
         <p>AI-generated content follows exactly the same rules as filmed content. Prompting a model to create nudity, sexual content or revealing imagery is a breach of this policy, even if it is fictional or animated.</p>
 
-        <h2>How review works</h2>
+        <h2>Premieres: how review works</h2>
         <ol>
           <li><strong>Upload.</strong> You confirm you own or have the rights to everything in the episode and that it follows this policy.</li>
           <li><strong>Automatic scan.</strong> Frames, audio, thumbnails and text are checked for nudity, sexual or suggestive content, violence, hate and signs that a minor may be shown. The thresholds are deliberately strict.</li>
