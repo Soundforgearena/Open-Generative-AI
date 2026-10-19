@@ -3428,3 +3428,48 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .cinex-plan-confirm strong { font-size: 1.05rem; }
 .cinex-plan-confirm a { color: #e9b65c; }
 @media (max-width: 600px) { .cinex-plan-actions { flex-direction: column; align-items: stretch; } .cinex-plan-actions .cinex-route-primary { width: 100%; } }
+
+/* Moderation review queue (super admin). Previews are blurred by default. */
+.cinex-mod-counts { display: flex; flex-wrap: wrap; gap: 8px; }
+.cinex-mod-counts span { padding: 6px 10px; border: 1px solid var(--cinex-line); border-radius: 999px; font-size: .9rem; }
+.cinex-mod-counts .is-alert { border-color: #e5484d; color: #ffb4b4; }
+.cinex-mod-note { margin: 0 0 14px; padding: 10px 12px; border-left: 3px solid #e5484d; background: rgba(229, 72, 77, .08); border-radius: 8px; font-size: .92rem; }
+.cinex-mod-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.cinex-mod-filters button { min-height: 40px; padding: 6px 14px; border: 1px solid var(--cinex-line); border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
+.cinex-mod-filters .is-current { border-color: var(--cinex-gold-light); color: var(--cinex-gold-light); }
+.cinex-mod-empty { opacity: .75; }
+.cinex-mod-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.cinex-mod-case { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 14px; padding: 12px; border: 1px solid var(--cinex-line); border-radius: 12px; }
+.cinex-mod-case.is-severe { border-color: #e5484d; }
+.cinex-mod-preview { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 8px; background: #05070b; }
+.cinex-mod-preview img, .cinex-mod-preview video { width: 100%; height: 100%; object-fit: cover; filter: blur(28px) grayscale(1) brightness(.7); transform: scale(1.15); transition: filter .2s; }
+.cinex-mod-preview.is-shown img, .cinex-mod-preview.is-shown video { filter: none; transform: none; }
+.cinex-mod-preview.is-empty { display: grid; place-items: center; font-size: .85rem; opacity: .7; }
+.cinex-mod-reveal { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); min-height: 36px; padding: 4px 14px; border: 1px solid rgba(255,255,255,.4); border-radius: 999px; background: rgba(0,0,0,.65); color: #fff; cursor: pointer; }
+.cinex-mod-body { min-width: 0; }
+.cinex-mod-body p { margin: 0 0 6px; overflow-wrap: anywhere; }
+.cinex-mod-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cinex-mod-flag { padding: 2px 8px; border-radius: 999px; background: rgba(229, 72, 77, .18); color: #ffb4b4; font-size: .8rem; }
+.cinex-mod-user, .cinex-mod-cats { font-size: .9rem; opacity: .85; }
+.cinex-mod-prompt { padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,.04); font-size: .9rem; max-height: 7.5em; overflow: auto; }
+.cinex-mod-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.cinex-mod-probe { margin-top: 18px; display: grid; gap: 8px; }
+.cinex-mod-probe > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.cinex-mod-probe input { flex: 1 1 260px; min-width: 0; min-height: 44px; padding: 8px 12px; border: 1px solid var(--cinex-line); border-radius: 10px; background: rgba(0,0,0,.3); color: inherit; font-size: 16px; }
+@media (max-width: 640px) { .cinex-mod-case { grid-template-columns: 1fr; } }
+.cinex-auth-legal { margin: 14px 0 0; font-size: .9rem; line-height: 1.5; opacity: .85; }
+.cinex-auth-legal a { color: var(--cinex-gold-light); text-decoration: underline; }
+
+/* Legal pages (terms, privacy, content policy): a readable document panel. */
+.cinex-route-content .cinex-legal { width: min(100%, 860px); margin: 18px auto 8px; padding: clamp(18px, 4vw, 40px); border: 1px solid var(--cinex-line, rgba(255,255,255,.12)); border-radius: 16px; background: rgba(8, 10, 16, 0.9); text-align: left; line-height: 1.65; font-size: 1rem; color: rgba(255, 255, 255, 0.9); }
+.cinex-legal h2 { margin: 28px 0 10px; color: var(--cinex-gold-light, #f6c76b); font-size: 1.2rem; text-align: left; }
+.cinex-legal > h2:first-child, .cinex-legal > p:first-child { margin-top: 0; }
+.cinex-legal p { margin: 0 0 12px; text-align: left; }
+.cinex-legal ul, .cinex-legal ol { margin: 0 0 14px; padding-left: 1.3em; text-align: left; }
+.cinex-legal li { margin: 0 0 8px; padding-left: .2em; }
+.cinex-legal a { color: var(--cinex-gold-light, #f6c76b); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.cinex-legal strong { color: #fff; }
+.cinex-legal small { opacity: .8; }
+.cinex-mod-actions button, .cinex-mod-probe button { min-height: 40px; padding: 6px 14px; border: 1px solid var(--cinex-line, rgba(255,255,255,.18)); border-radius: 10px; background: rgba(255,255,255,.06); color: #fff; font: inherit; cursor: pointer; }
+.cinex-mod-actions button:hover, .cinex-mod-probe button:hover { border-color: var(--cinex-gold-light, #f6c76b); }
+.cinex-mod-actions button:disabled, .cinex-mod-probe button:disabled { opacity: .5; cursor: default; }

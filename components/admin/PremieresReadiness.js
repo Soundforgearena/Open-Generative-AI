@@ -54,7 +54,7 @@ export default function PremieresReadiness() {
                 : <>Add in Railway: <code>{storage?.missing.join(', ')}</code>. Works with Cloudflare R2 (recommended, no viewer bandwidth fees), Backblaze B2, Wasabi, AWS S3 or your own server running MinIO.</>}
             </Row>
             <Row ok={moderation?.configured} title="Safety scanning">
-              {moderation?.configured ? `Connected: ${moderation.provider}` : <>Add <code>MODERATION_PROVIDER</code> (sightengine, hive or rekognition) and its keys. Until then every upload would need manual review.</>}
+              {moderation?.configured ? <>Connected: {moderation.provider}. <Link href="/admin/moderation">Review queue</Link></> : <>Add <code>OPENAI_API_KEY</code> (free moderation), or <code>MODERATION_PROVIDER</code> (sightengine, hive or rekognition) and its keys.</>}
             </Row>
             <Row ok={state.ads?.configured} title="Ad server">
               {state.ads?.configured ? 'VAST ad tag connected.' : <>Add <code>ADS_VAST_TAG_URL</code> from Google Ad Manager (or any VAST ad server) once your ad account is approved.</>}

@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import CinexRoutePage from '@/components/CinexRoutePage';
 import {
   createClient,
@@ -90,6 +91,7 @@ function AuthContent() {
       >
         {isOpening ? 'OPENING GOOGLE SIGN-IN…' : 'CONTINUE WITH GOOGLE'}
       </button>
+      <p className="cinex-auth-legal">By continuing you confirm you are 18 or older and agree to the <Link href="/terms">Terms of Service</Link>, <Link href="/content-policy">Content Policy</Link> and <Link href="/privacy">Privacy Policy</Link>.</p>
       {process.env.NODE_ENV === 'development' && (
         <p className="cinex-auth-dev-marker">Google OAuth build: active</p>
       )}
