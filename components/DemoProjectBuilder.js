@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { createProject } from '@/lib/cinexvideo-client';
+import { useRouter } from 'next/navigation';
+import { createProject, getDirectorPricing, requestDirectorPlan } from '@/lib/cinexvideo-client';
 import { createDemoProject, saveDemoProject } from '@/lib/demo-project-store';
 import { demoModeEnabled } from '@/lib/demo-mode';
 import { createStoryboard } from '@/lib/storyboard';
@@ -26,6 +27,74 @@ export default function DemoProjectBuilder({ sourceType = 'idea', template, onCr
   const [message, setMessage] = useState('');
   const [project, setProject] = useState(null);
   const [saving, setSaving] = useState(false);
+  // AI Director planning (paid with purchased credits, price shown first).
+  const router = useRouter();
+  const [pricing, setPricing] = useState(null);
+  const [confirmPlan, setConfirmPlan] = useState(false);
+  const [planning, setPlanning] = useState(false);
+  const [needsCredits, setNeedsCredits] = useState(false);
+  useEffect(() => {
+    if (demoModeEnabled) return;
+    getDirectorPricing().then(setPricing).catch(() => setPricing(null));
+  }, []);
+  const planPrice = pricing?.plan;
+  const paidAvailable = Number(pricing?.paid_credits_available);
+  const canAffordPlan = !planPrice || !Number.isFinite(paidAvailable) || pricing?.at_cost || paidAvailable >= planPrice.max_credits;
+
+  function openStudio(id) {
+    if (onCreated) onCreated(id);
+    else router.push(`/studio?project=${encodeURIComponent(id)}&welcome=1`);
+  }
+
+  function directorBrief() {
+    const kind = sourceType === 'script' ? 'script' : sourceType === 'story' ? 'story' : 'idea';
+    return [
+      `Plan a ${values.duration}-second ${values.style} episode, shot by shot, from this ${kind}.`,
+      `${kind[0].toUpperCase()}${kind.slice(1)}: ${values.sourceText.trim()}`,
+      values.title.trim() ? `Working title: ${values.title.trim()}.` : '',
+      values.notes.trim() ? `Visual notes: ${values.notes.trim()}` : '',
+      `Frame everything for ${values.aspectRatio}. Scene durations should add up to about ${values.duration} seconds.`,
+      template?.title ? `Template: ${template.title}.` : '',
+    ].filter(Boolean).join('\n');
+  }
+
+  function askPlan(event) {
+    event.preventDefault();
+    if (saving || planning) return;
+    const nextErrors = validateProjectInput(values);
+    setErrors(nextErrors);
+    setMessage('');
+    setNeedsCredits(false);
+    if (Object.keys(nextErrors).length) return;
+    setConfirmPlan(true);
+  }
+
+  async function runPlan() {
+    if (planning) return;
+    setPlanning(true);
+    setMessage('');
+    try {
+      const plan = await requestDirectorPlan(directorBrief(), 'episode');
+      if (!plan?.scenes?.length) throw new Error('The Director could not plan this one. You were not charged. Try adding more detail.');
+      const result = await createProject({
+        lane: 'episode',
+        title: values.title,
+        plan: {
+          ...plan,
+          creative_title: values.title.trim() || plan.creative_title,
+          visual_identity: { ...(plan.visual_identity || {}), style: values.style, aspect_ratio: values.aspectRatio, duration: values.duration, style_notes: values.notes.trim() || undefined },
+        },
+      });
+      setConfirmPlan(false);
+      setMessage(`The Director planned ${plan.scenes.length} scenes. Opening the Studio...`);
+      openStudio(result.project_id);
+    } catch (planError) {
+      setNeedsCredits(/credit/i.test(planError.message || ''));
+      setMessage(planError.message || 'The Director is unavailable right now. You were not charged.');
+    } finally {
+      setPlanning(false);
+    }
+  }
 
   useEffect(() => {
     if (!template) return;
@@ -82,7 +151,8 @@ export default function DemoProjectBuilder({ sourceType = 'idea', template, onCr
       }
       setProject(nextProject);
       setMessage('Draft saved. Review the shot plan before generation.');
-      onCreated?.(nextProject.id);
+      if (!demoModeEnabled) openStudio(nextProject.id);
+      else onCreated?.(nextProject.id);
     } catch (saveError) {
       setMessage(saveError.message || 'The draft could not be saved. Please try again.');
     } finally {
@@ -137,11 +207,34 @@ export default function DemoProjectBuilder({ sourceType = 'idea', template, onCr
             </select>
           </label>
         </div>
-        <button type="submit" className="cinex-route-primary" disabled={saving}>
-          {saving ? 'Saving draft...' : 'Save draft and build shot plan'}
-        </button>
-        {message && <p className="cinex-form-success" role="status">{message}</p>}
-        {project && (
+        {demoModeEnabled ? (
+          <button type="submit" className="cinex-route-primary" disabled={saving}>
+            {saving ? 'Saving draft...' : 'Save draft and build shot plan'}
+          </button>
+        ) : (
+          <div className="cinex-plan-actions">
+            <button type="button" className="cinex-route-primary" disabled={saving || planning} onClick={askPlan}>
+              {planning ? 'The Director is planning...' : `Plan with the AI Director${planPrice ? ` · about ${planPrice.typical_credits} credits` : ''}`}
+            </button>
+            <button type="submit" className="cinex-route-secondary-link" disabled={saving || planning}>
+              {saving ? 'Saving draft...' : 'Or save a basic draft (free)'}
+            </button>
+          </div>
+        )}
+        {confirmPlan && !demoModeEnabled && (
+          <div className="cinex-plan-confirm" role="dialog" aria-label="Confirm AI Director plan">
+            <strong>Let the AI Director plan your episode?</strong>
+            <span>It decides how viewers should feel, then builds every scene: emotion, camera, light, cast, places and readable signs. Usually about {planPrice?.typical_credits ?? 10} credits, never more than {planPrice?.max_credits ?? 23} (1 credit = $0.01), paid with purchased credits. If it fails, you are not charged.</span>
+            {Number.isFinite(paidAvailable) && !pricing?.at_cost && <span>Your purchased credits: {paidAvailable}</span>}
+            {!canAffordPlan && <span className="cinex-form-error">You need at least {planPrice.max_credits} purchased credits. <Link href="/account?buy=1">Buy credits</Link></span>}
+            <div className="cinex-plan-actions">
+              <button type="button" className="cinex-route-primary" disabled={planning || !canAffordPlan} onClick={runPlan}>{planning ? 'Planning...' : `Confirm · max ${planPrice?.max_credits ?? 23} credits`}</button>
+              <button type="button" className="cinex-route-secondary-link" disabled={planning} onClick={() => setConfirmPlan(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
+        {message && <p className="cinex-form-success" role="status">{message}{needsCredits && <> <Link href="/account?buy=1">Buy credits</Link></>}</p>}
+        {project && demoModeEnabled && (
           <div className="cinex-dashboard-actions">
             <Link href={`/create/review?project=${encodeURIComponent(project.id)}`} className="cinex-route-primary">Review Shot Plan</Link>
             <Link href="/create" className="cinex-route-secondary-link">Back to Creation Hub</Link>

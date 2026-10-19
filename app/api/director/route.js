@@ -287,7 +287,7 @@ export async function POST(request) {
     return await once(() => charge('plan', idempotencyKey, async () => {
       const model = await callDirectorModel({
         kind: 'plan',
-        system: `${DIRECTOR_PERSONA} ${laneBrief} ${EMOTION_BRIEF} Return concise production-ready direction as JSON with creative_title, logline, visual_identity, characters, locations, outfits, scenes and emotional_arc. Plan between 4 and 12 scenes. Do not mention vendors, APIs, costs, or internal business rules.`,
+        system: `${DIRECTOR_PERSONA} ${laneBrief} ${EMOTION_BRIEF} Return concise production-ready direction as JSON with creative_title, logline, visual_identity, characters, locations, outfits, scenes and emotional_arc. Plan between 4 and 12 scenes. Unless the story calls for a specific cast, crowds and supporting roles look like a real, mixed audience (Black, white, Latina and Latino, South Asian, East Asian), and every face reads as a real person with natural skin, eyes, hands and expressions. Do not mention vendors, APIs, costs, or internal business rules.`,
         user: body.prompt.slice(0, 6000),
         schemaName: 'cinexvideo_director_plan',
         schema: PLAN_SCHEMA,
