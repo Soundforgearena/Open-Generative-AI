@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { canWrite } from '../../../../lib/studio/access';
-import { resolveMedia, PROVIDER_TTL_SECONDS } from '../../../../lib/storage/media.js';
+import { resolveMedia, storageOn, PROVIDER_TTL_SECONDS } from '../../../../lib/storage/media.js';
+import { cutFingerprint, saveFinalCut, shouldReplaceFinal } from '../../../../lib/storage/final-cut.js';
 import { createReadStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { isAtCostUser } from '../../../../lib/billing/at-cost.js';
@@ -10,6 +11,7 @@ import {
   selectOne,
   selectRows,
   createSignedDownloadUrl,
+  insertRows,
   updateRows,
   safeError,
 } from '../../../../lib/cinexvideo-server';
@@ -53,7 +55,7 @@ export async function POST(request) {
   const limited = rateLimit(`${quoteOnly ? 'export-quote' : 'export-render'}:${user.id}`, quoteOnly ? { limit: 60, windowMs: 60_000 } : { limit: 4, windowMs: 60_000 });
   if (limited) return limited;
 
-  const project = body.project_id ? await selectOne('projects', { id: `eq.${body.project_id}` }, 'id,owner_id,title,lane') : null;
+  const project = body.project_id ? await selectOne('projects', { id: `eq.${body.project_id}` }, 'id,owner_id,title,lane,final_cut') : null;
   if (!canWrite(project, { user })) return safeError('Project not found.', 404);
 
   const scenes = await selectRows('scenes', { project_id: `eq.${project.id}`, order: 'position.asc' }, 'id,position,title,duration_seconds,start_ms,end_ms,lip_sync');
@@ -163,7 +165,7 @@ export async function POST(request) {
     console.error('export render failed', err.message);
     return safeError(
       /expired|fetch failed|no playable/.test(err.message)
-        ? 'One of your takes is no longer available from the video provider. Regenerate that scene and try again. You were not charged.'
+        ? 'One of your takes could not be read. Regenerate that scene and try again. You were not charged.'
         : 'Your video could not be rendered. You were not charged. Please try again.',
       502
     );
@@ -175,10 +177,32 @@ export async function POST(request) {
   }
   await updateRows('projects', { id: `eq.${project.id}` }, { status: 'delivered' });
 
+  // Keep this video as the project's Final cut (one file per project, replaced
+  // by the next download) while it streams to the user.
+  const cut = cutFingerprint(takes);
+  const saving = storageOn() && shouldReplaceFinal(project.final_cut, { clean, cut })
+    ? saveFinalCut({ file: rendered.file, size: rendered.size, ownerId: project.owner_id, projectId: project.id, clean, cut, seconds: rendered.duration, width: rendered.width, height: rendered.height })
+      .then(async (saved) => {
+        if (!saved.ok) { console.warn('final cut not saved', project.id, saved.reason, saved.status || ''); return; }
+        await updateRows('projects', { id: `eq.${project.id}` }, { final_cut: saved.record });
+        await insertRows('media_objects', {
+          object_key: saved.key, owner_id: project.owner_id, project_id: project.id, kind: 'final',
+          size_bytes: saved.record.bytes, content_type: 'video/mp4', sha256: saved.sha256,
+        }, { upsert: true });
+      })
+      .catch((err) => console.error('final cut save failed', project.id, err?.message))
+    : Promise.resolve();
+
+  // Delete the rendered file once the download has ended (finished, failed or
+  // cancelled) and the Final cut copy is done.
   const stream = createReadStream(rendered.file);
-  // Delete the finished file the moment the download ends, fails or is cancelled.
-  stream.on('close', () => rendered.cleanup());
-  stream.on('error', () => rendered.cleanup());
+  let streamDone = false;
+  const streamEnded = new Promise((resolve) => {
+    const end = () => { if (!streamDone) { streamDone = true; resolve(); } };
+    stream.on('close', end);
+    stream.on('error', end);
+  });
+  Promise.all([streamEnded, saving]).finally(() => rendered.cleanup());
   const name = safeFileName(`${project.title || 'CineXVideo'}${clean ? '' : ' - CineXVideo'}`);
   return new Response(Readable.toWeb(stream), {
     headers: {

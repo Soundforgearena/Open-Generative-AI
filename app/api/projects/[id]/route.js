@@ -8,6 +8,7 @@ import {
 } from '../../../../lib/cinexvideo-server';
 import { canRead, canWrite } from '../../../../lib/studio/access';
 import { resolveMedia } from '../../../../lib/storage/media.js';
+import { finalCutView } from '../../../../lib/storage/final-cut.js';
 
 const BUCKET = 'cinexvideo-references';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -66,6 +67,8 @@ export async function GET(request, { params }) {
       updated_at: project.updated_at,
       music: project.director_plan?.music || null,
       has_lyrics: Boolean(String(project.director_plan?.lyrics || '').trim()),
+      // Latest finished video, with 15-minute links to watch or download it.
+      final_cut: finalCutView(project.final_cut, project.title),
     },
     active_jobs: activeJobs.map((job) => ({ request_id: job.provider_request_id, scene_id: job.scene_id, started_at: job.created_at })),
     // Takes and stills kept in our storage get 15-minute signed links; the
