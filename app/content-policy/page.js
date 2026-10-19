@@ -33,7 +33,7 @@ export default function ContentPolicyPage() {
           <li><strong>Before anything is made:</strong> every prompt, face photo and AI Director request is checked automatically. If it breaks the rules, it is refused and nothing is charged.</li>
           <li><strong>After it is made:</strong> every still, and frames from the start, middle and end of every take, are checked before you see them. Anything that breaks the rules is withheld (never shown to you or put in your project or downloads) and your credits are returned.</li>
           <li><strong>Private review:</strong> blocked items go to a review queue only CineXVideo’s super administrator can open. Previews stay heavily blurred until the reviewer chooses to look, so nobody is exposed to harmful material without need.</li>
-          <li><strong>Appeals:</strong> automated checks can make mistakes. Email <a href="mailto:safety@cinexvideo.app">safety@cinexvideo.app</a> and a person will review the decision and tell you the reason.</li>
+          <li><strong>Appeals:</strong> automated checks can make mistakes. Email <a href="mailto:hello@soundforgearena.app">hello@soundforgearena.app</a> and a person will review the decision and tell you the reason.</li>
           <li><strong>Child safety:</strong> anything that may sexualise a minor suspends the account immediately, the evidence is preserved, and it is reported to the authorities (see below).</li>
         </ol>
         <p>Repeated attempts to make content that breaks these rules can lead to the account being closed. See our <Link href="/terms">Terms of Service</Link>.</p>
@@ -74,7 +74,7 @@ export default function ContentPolicyPage() {
         <h2>Built to meet global rules</h2>
         <p>This policy and the review process are designed around notice-and-action, statements of reasons, appeals and transparency reporting. That includes the EU Digital Services Act, the UK Online Safety Act 2023, Australia’s Online Safety Act 2021, Canada’s law on mandatory reporting of child sexual abuse material, and US federal reporting requirements. Personal data is handled under our <Link href="/privacy">privacy policy</Link>.</p>
 
-        <p>Questions about this policy: <a href="mailto:safety@cinexvideo.app">safety@cinexvideo.app</a></p>
+        <p>Questions about this policy: <a href="mailto:hello@soundforgearena.app">hello@soundforgearena.app</a></p>
       </div>
     </CinexRoutePage>
   );

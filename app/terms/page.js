@@ -126,12 +126,7 @@ export default function TermsPage() {
         </ul>
 
         <h2>17. Contact</h2>
-        <ul>
-          <li>Help with your account, billing or credits: {mail(LEGAL.support)}</li>
-          <li>Safety reports and moderation appeals: {mail(LEGAL.safety)}</li>
-          <li>Privacy requests: {mail(LEGAL.privacy)}</li>
-          <li>Legal notices and copyright complaints: {mail(LEGAL.legal)}</li>
-        </ul>
+        <p>{LEGAL.entity}, operating as {LEGAL.service}, {LEGAL.location}. For account help, billing and credits, safety reports and moderation appeals, privacy requests, legal notices and copyright complaints, email {mail(LEGAL.support)}. Please put the topic in the subject line (for example “Safety report” or “Copyright notice”) so it reaches the right person quickly.</p>
       </div>
     </CinexRoutePage>
   );
