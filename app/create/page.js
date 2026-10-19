@@ -25,7 +25,7 @@ export default function CreatePage() {
     <CinexRoutePage
       eyebrow="CineXVideo production desk"
       title="Start a project"
-      description="Build a local storyboard preview safely while connected generation remains separate."
+      description="Describe your idea. The AI Director plans every scene around how you want viewers to feel, then the Studio turns it into video."
     >
       {demoModeEnabled && <p className="cinex-demo-indicator">Demo mode — local data only</p>}
       <div className="cinex-create-tabs" role="tablist" aria-label="Project source type">

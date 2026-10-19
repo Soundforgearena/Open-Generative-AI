@@ -3418,3 +3418,13 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .cinex-admin-overview .cinex-economics-section h2,
 .cinex-admin-overview .cinex-admin-panel h2 { margin-top: 0; }
 .cinex-admin-overview .cinex-admin-subhead { margin: 22px 0 10px; }
+
+/* Episode idea form: AI Director plan (paid) or a free basic draft. */
+.cinex-plan-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.cinex-plan-actions .cinex-route-secondary-link { margin-top: 0; }
+.cinex-plan-actions button.cinex-route-secondary-link { background: none; border: 0; cursor: pointer; font: inherit; }
+.cinex-plan-actions button:disabled { opacity: 0.6; cursor: not-allowed; }
+.cinex-plan-confirm { display: grid; gap: 10px; margin-top: 14px; padding: 16px; border: 1px solid rgba(233, 182, 92, 0.45); border-radius: 14px; background: rgba(12, 10, 8, 0.82); color: #f4ead8; line-height: 1.5; }
+.cinex-plan-confirm strong { font-size: 1.05rem; }
+.cinex-plan-confirm a { color: #e9b65c; }
+@media (max-width: 600px) { .cinex-plan-actions { flex-direction: column; align-items: stretch; } .cinex-plan-actions .cinex-route-primary { width: 100%; } }
