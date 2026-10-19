@@ -23,6 +23,7 @@ test('provider prompt carries story, camera language, style and tags', () => {
 test('scene health maps to Flight Path colours', () => {
   assert.equal(sceneHealth({ status: 'failed' }), 'issue');
   assert.equal(sceneHealth({ status: 'approved', continuity_locked: true }), 'good');
+  assert.equal(sceneHealth({ status: 'approved' }), 'good');
   assert.equal(sceneHealth({ status: 'needs_review' }), 'warning');
   assert.equal(sceneHealth({ status: 'draft' }), 'pending');
 });

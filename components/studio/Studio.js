@@ -48,6 +48,7 @@ import {
   parseShotDirection,
   previewTake,
   resolutionsFor,
+  rulerMarks,
   sceneHealth,
   serializeShotDirection,
   timelineOffsets,
@@ -221,6 +222,16 @@ function StudioWorkspace() {
   const [sequence, setSequence] = useState(false);
   const [playhead, setPlayhead] = useState(0);
   const [zoom, setZoom] = useState(1);
+  // Timeline width, so time labels never overlap.
+  const trackRef = useRef(null);
+  const [trackWidth, setTrackWidth] = useState(0);
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(([entry]) => setTrackWidth(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
   const [listMode, setListMode] = useState('detail');
   const [sortDesc, setSortDesc] = useState(false);
   const [menu, setMenu] = useState('');
@@ -791,6 +802,13 @@ function StudioWorkspace() {
       const tag = e.target?.tagName;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || e.target?.isContentEditable) return;
       if (tourOpen) return;
+      // Escape always closes the open window (unless it is mid-render).
+      if (e.key === 'Escape') {
+        if (exportState.open) { if (!exportBusy) closeExport(); return; }
+        if (deleteDialog) { setDeleteDialog(null); return; }
+        if (genDialog) { if (!generating) setGenDialog(null); return; }
+        if (lipDialog) { setLipDialog(null); return; }
+      }
       if (loadState !== 'ready' || genDialog || deleteDialog || exportState.open) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
@@ -1293,8 +1311,13 @@ function StudioWorkspace() {
     setDestinations((d) => ({ device: d.device, drive: d.drive && connected.drive, dropbox: d.dropbox && connected.dropbox }));
     setExportState({ open: true, phase: 'quoting', progress: 0, error: '' });
     try {
-      const [free, clean] = await Promise.all([quoteFinishedVideo(project.id, false), quoteFinishedVideo(project.id, true)]);
-      if (isCurrent()) setExportState((st) => ({ ...st, phase: 'choose', free, clean }));
+      // The free watermarked cut never depends on the paid quote: if the
+      // no-watermark price can't be checked, only that option is unavailable.
+      const [freeQ, cleanQ] = await Promise.allSettled([quoteFinishedVideo(project.id, false), quoteFinishedVideo(project.id, true)]);
+      if (freeQ.status === 'rejected') throw freeQ.reason;
+      const clean = cleanQ.status === 'fulfilled' ? cleanQ.value : null;
+      const cleanError = cleanQ.status === 'rejected' ? (cleanQ.reason?.message || 'Not available right now.') : '';
+      if (isCurrent()) setExportState((st) => ({ ...st, phase: 'choose', free: freeQ.value, clean, cleanError }));
     } catch (error) {
       if (isCurrent()) setExportState((st) => ({ ...st, phase: 'choose', error: error.message || 'Could not check your video.' }));
     }
@@ -1510,7 +1533,7 @@ function StudioWorkspace() {
             <span>{credits === null ? '—' : credits.toLocaleString()} credits{atCost ? ' · at cost' : ''}</span>
             <Icon.ChevronDown />
           </Link>
-          <button type="button" className="sx-btn sx-btn-ghost" onClick={openExport} disabled={(!hasAnyTake && !demoModeEnabled) || exportBusy} title="Download your finished video to this device"><Icon.Download /> <span className="sx-hide-xs">{exportBusy ? 'Rendering...' : 'Download'}</span></button>
+          <button type="button" className="sx-btn sx-btn-ghost" onClick={openExport} disabled={(!hasAnyTake && !demoModeEnabled) || exportBusy} title={(!hasAnyTake && !demoModeEnabled) ? 'Generate a take for your scenes first, then download your video' : 'Download your finished video to this device'}><Icon.Download /> <span className="sx-hide-xs">{exportBusy ? 'Rendering...' : 'Download'}</span></button>
           <button type="button" className="sx-btn sx-btn-ghost" onClick={playSequence} disabled={!scenes.length}><Icon.Play /> Preview</button>
           <button type="button" className="sx-btn sx-btn-gold" data-tour="generate" onClick={openGenerate} disabled={!scene || generating || genState === 'quoting'}>
             <Icon.Spark /> {generating ? 'Generating...' : genState === 'quoting' ? 'Pricing...' : 'Generate'}
@@ -1941,7 +1964,7 @@ function StudioWorkspace() {
         </div>
 
         <div className="sx-flight-scroll">
-          <div className="sx-flight-track" style={zoom > 1 ? { minWidth: `${Math.max(100, total * pxPerSecond)}px` } : undefined}>
+          <div className="sx-flight-track" ref={trackRef} style={zoom > 1 ? { minWidth: `${Math.max(100, total * pxPerSecond)}px` } : undefined}>
             <div className="sx-tiles">
               {scenes.map((s, i) => {
                 const h = sceneHealth(s);
@@ -1973,7 +1996,7 @@ function StudioWorkspace() {
               <span className="sx-playhead" style={{ left: `${total ? (globalTime / total) * 100 : 0}%` }} />
             </div>
             <div className="sx-ruler">
-              {offsets.map((o) => <span key={o.id} style={{ left: `${total ? (o.start / total) * 100 : 0}%` }}>{formatClock(o.start)}</span>)}
+              {rulerMarks(offsets, total, trackWidth).map((o) => <span key={o.id} style={{ left: `${total ? (o.start / total) * 100 : 0}%` }}>{formatClock(o.start)}</span>)}
               <span className="is-end">{formatClock(total)}</span>
             </div>
           </div>
@@ -2151,7 +2174,7 @@ function StudioWorkspace() {
                     <strong>No watermark</strong>
                     <span>{exportState.clean?.already_paid ? 'Already paid for this cut' : 'Paid with purchased credits'}</span>
                     <em className="sx-export-price">
-                      {exportState.clean ? (exportState.clean.credits_required ? `${exportState.clean.credits_required} credits · $${(exportState.clean.credits_required / 100).toFixed(2)}` : 'Included') : '...'}
+                      {exportState.clean ? (exportState.clean.credits_required ? `${exportState.clean.credits_required} credits · $${(exportState.clean.credits_required / 100).toFixed(2)}` : 'Included') : exportState.cleanError ? 'Not available right now' : '...'}
                     </em>
                   </button>
                 </div>
