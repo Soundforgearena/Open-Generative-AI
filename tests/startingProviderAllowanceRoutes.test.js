@@ -58,6 +58,7 @@ function routeHarness({ credits, used = 0, revenue = 0, chargeback = false, supe
     moderate: async () => ({ allowed: true, categories: [], labels: [], top: {} }),
     handleModeration: async () => null, blockedMessage: () => '', SAFETY_RULE: '',
     blockedPayload: () => ({}), suggestSafeAlternative: async () => null,
+    LIKENESS_VIDEO_MODEL: 'seedance-v1.5-pro-i2v-fast', LIP_SYNC_MODEL: 'veed-lipsync',
     AT_COST_POLICY, atCostCredits, isAtCostUser, providerCostCents,
     PLAN_PRICING_POLICY, planCredits, planCodeFor: async () => null, runStillJob: unexpected,
     loadRuntimeSafetySignals, evaluateProviderExposure, evaluateReservationRisk, buildPreflightReport,

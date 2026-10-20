@@ -59,7 +59,7 @@ test('routes use the live attempt id and offer a priced two-step fallback', () =
   const cron = readFileSync(new URL('../app/api/admin/cron/reconcile/route.js', import.meta.url), 'utf8');
   assert.match(cron, /currentRequestId\(job\)/);
   const gen = readFileSync(new URL('../app/api/generate/route.js', import.meta.url), 'utf8');
-  assert.match(gen, /retryState\(\{ endpoint: providerEndpoint, input: canonicalInput \}\)/);
+  assert.match(gen, /retryState\(\{ endpoint: providerEndpoint, input: canonicalInput, primaryModel: providerEndpoint,/);
   assert.match(gen, /body\.engine === 'two_step'/);
   const studio = readFileSync(new URL('../components/studio/Studio.js', import.meta.url), 'utf8');
   assert.match(studio, /Singing model busy · use the two-step method\?/);

@@ -5,13 +5,14 @@ import { keyframeCents, keyframePrompt, LIKENESS_VIDEO_MODEL, KEYFRAME_MODEL } f
 import { providerCostCents } from '../lib/billing/provider-pricing.js';
 
 test('real-face scenes price the first frame plus image-to-video per second', () => {
-  assert.equal(LIKENESS_VIDEO_MODEL, 'pixverse-v6-i2v');
+  assert.equal(LIKENESS_VIDEO_MODEL, 'seedance-v1.5-pro-i2v-fast');
   assert.equal(KEYFRAME_MODEL, 'nano-banana-2-edit');
   assert.equal(keyframeCents('720p'), 7);
   assert.equal(keyframeCents('1080p'), 10);
   assert.equal(keyframeCents('weird'), 10); // unknown resolution never under-charges
-  const video = providerCostCents({ model: LIKENESS_VIDEO_MODEL, operation: 'video', durationSeconds: 5, resolution: '1080p', ruleCostCents: 3.3 });
-  assert.equal(video, 59.5);
+  const video = providerCostCents({ model: LIKENESS_VIDEO_MODEL, operation: 'video', durationSeconds: 5, resolution: '1080p', ruleCostCents: 13 });
+  assert.equal(video, 19.5);
+  assert.equal(providerCostCents({ model: LIKENESS_VIDEO_MODEL, operation: 'video', durationSeconds: 7, resolution: '720p', ruleCostCents: 13 }), 18.2);
 });
 
 test('first-frame prompt keeps identity and adds frontal framing for sung shots', () => {

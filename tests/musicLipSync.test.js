@@ -131,7 +131,8 @@ test('lip sync is priced per second of song audio', () => {
 test('lip sync generation is server-controlled', () => {
   const route = readFileSync(new URL('../app/api/generate/route.js', import.meta.url), 'utf8');
   assert.match(route, /sliceSongForScene/);
-  assert.match(route, /separate_vocal: true/);
+  assert.match(route, /model = LIP_SYNC_MODEL;/);
+  assert.match(route, /video_url: lipSync\.source\.output_url,\n\s+audio_url: slice\.url,/);
   assert.match(route, /song slice longer than priced/);
   const migration = readFileSync(new URL('../supabase/migrations/20261015120000_music_lip_sync.sql', import.meta.url), 'utf8');
   assert.match(migration, /'lip_sync'/);
