@@ -99,7 +99,7 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
     setError(''); setResult(null); setNeedsCredits(false); setRetryAction(null);
     if (!retryIdempotencyKey && !demoModeEnabled && paidCredits !== null && paidCredits < price.max_credits) {
       setNeedsCredits(true);
-      setError(`The AI Director runs on purchased credits. A request can cost up to ${price.max_credits} credits (${usd(price.max_credits)}) and you have ${paidCredits} purchased credits. Sign-up bonus credits can't be used for the Director.`);
+      setError(`The AI Director runs on purchased credits. A request can cost up to ${price.max_credits} credits (${usd(price.max_credits)}) and you have ${paidCredits} purchased credits. Free bonus credits can't be used for the Director.`);
       onOpenChange(false);
       actionLock.current.release();
       return;
