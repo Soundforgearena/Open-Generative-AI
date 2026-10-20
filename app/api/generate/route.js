@@ -379,7 +379,7 @@ export async function POST(request) {
       await handleModeration(verdict, { userId: user.id, kind: 'prompt', where: `generate_${operation}`, projectId: projectId || null, sceneId: sceneId || null, prompt: promptText }, { insertRows, updateRows });
       if (!verdict.allowed) {
         const stored = sceneId ? await selectOne('scenes', { id: `eq.${sceneId}` }, 'prompt').catch(() => null) : null;
-        const alternative = await suggestSafeAlternative({ text: stored?.prompt || promptText, decision: verdict, userId: user.id });
+        const alternative = await suggestSafeAlternative({ text: stored?.prompt || promptText, decision: verdict, userId: user.id }, { insertRows });
         return Response.json(blockedPayload({ message: blockedMessage(verdict), decision: verdict, alternative, sceneId: sceneId || null }), { status: 422 });
       }
     }

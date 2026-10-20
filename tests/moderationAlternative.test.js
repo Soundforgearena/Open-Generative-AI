@@ -73,3 +73,30 @@ test('the Studio shows why, offers the alternative, and continues to the price c
   assert.match(read('components/studio/StudioDirector.js'), /Content check · suggested instead/);
   assert.match(read('components/AiDirectorAssistant.js'), /Here is a safe version you can use instead/);
 });
+
+test('refusals, 4xx models and flagged rewrites are handled; the reason is logged', async () => {
+  const reasons = [];
+  const refused = await suggestSafeAlternative({ text: 'x', decision, userId: 'r1' }, { fetchImpl: reply("I can't help with that request."), apiKey: 'k', check: ok, onResult: (r) => reasons.push(r) });
+  assert.equal(refused, null);
+  assert.equal(reasons.pop(), 'refused+refused');
+  const models = [];
+  const fetchImpl = async (url, init) => {
+    const body = JSON.parse(init.body); models.push(body.model);
+    if (body.model === 'gpt-5-mini') return { ok: false, status: 400 };
+    return { ok: true, json: async () => ({ output: [{ type: 'reasoning', summary: [] }, { type: 'message', content: [{ type: 'output_text', text: 'A dancer in a denim jacket under neon signs' }] }] }) };
+  };
+  const alt = await suggestSafeAlternative({ text: 'x', decision, userId: 'r2' }, { fetchImpl, apiKey: 'k', check: ok, onResult: (r) => reasons.push(r) });
+  assert.equal(alt.text, 'A dancer in a denim jacket under neon signs');
+  assert.deepEqual(models, ['gpt-5-mini', 'gpt-5']);
+  assert.equal(reasons.pop(), 'ok');
+  let n = 0;
+  const second = await suggestSafeAlternative({ text: 'x', decision, userId: 'r3' }, { fetchImpl: reply('A singer on a rooftop at golden hour'), apiKey: 'k', check: async () => ({ allowed: (n += 1) > 1 }), onResult: (r) => reasons.push(r) });
+  assert.ok(second);
+  assert.equal(reasons.pop(), 'ok_after_still_blocked');
+  const logged = [];
+  await suggestSafeAlternative({ text: 'x', decision, userId: 'r4' }, { fetchImpl: reply('A calm safe description here'), apiKey: 'k', check: ok, insertRows: async (t, row) => logged.push([t, row]) });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(logged[0][0], 'admin_metric_events');
+  assert.equal(logged[0][1].event_type, 'moderation_alternative');
+  assert.equal(logged[0][1].status, 'ok');
+});
