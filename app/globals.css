@@ -3473,3 +3473,6 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .cinex-mod-actions button, .cinex-mod-probe button { min-height: 40px; padding: 6px 14px; border: 1px solid var(--cinex-line, rgba(255,255,255,.18)); border-radius: 10px; background: rgba(255,255,255,.06); color: #fff; font: inherit; cursor: pointer; }
 .cinex-mod-actions button:hover, .cinex-mod-probe button:hover { border-color: var(--cinex-gold-light, #f6c76b); }
 .cinex-mod-actions button:disabled, .cinex-mod-probe button:disabled { opacity: .5; cursor: default; }
+.cinex-content-check { border-color: rgba(229, 72, 77, .55) !important; }
+.cinex-content-check-alt { display: grid; gap: 6px; }
+.cinex-content-check-alt textarea { width: 100%; box-sizing: border-box; }

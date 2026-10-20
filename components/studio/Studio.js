@@ -260,6 +260,10 @@ function StudioWorkspace() {
   const [menu, setMenu] = useState('');
   const [modelKey, setModelKey] = useState('');
   const [genDialog, setGenDialog] = useState(null);
+  // Content checks: blocked scenes wait here with a safe alternative to accept.
+  const [blocks, setBlocks] = useState([]);
+  const [blockDraft, setBlockDraft] = useState('');
+  const [continueScene, setContinueScene] = useState(null);
   const [lipDialog, setLipDialog] = useState(null);
   const [genState, setGenState] = useState('idle');
   const [readiness, setReadiness] = useState(null);
@@ -843,7 +847,7 @@ function StudioWorkspace() {
       if (e.key === 'd' || e.key === 'D') { e.preventDefault(); setDirectorOpen(true); }
       if (e.key === 'n' || e.key === 'N') addScene({ afterId: scene?.id });
       if (e.key === '?') setHelpOpen(true);
-      if (e.key === 'Escape') { setMenu(''); setGenDialog(null); setHelpOpen(false); setSceneMenu(''); setDirectorOpen(false); }
+      if (e.key === 'Escape') { setMenu(''); setGenDialog(null); setHelpOpen(false); setSceneMenu(''); setDirectorOpen(false); setBlocks((cur) => cur.slice(1)); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -1048,6 +1052,38 @@ function StudioWorkspace() {
     return { step: 'animate', still: 0, video, lip, perform, dance, total: video + lip, list: Number(q.list_credits || video) + lipList, plan: q.plan_code || null };
   }
 
+  /** Queue a blocked scene so the user sees why and can accept a safe alternative. */
+  function addBlock(s, data) {
+    const block = data?.block || {};
+    setBlocks((cur) => (cur.some((b) => b.sceneId === s.id) ? cur : [...cur, {
+      sceneId: s.id, title: s.title, message: data?.error || 'This scene breaks our content policy.',
+      stage: block.stage || 'request', target: block.target || 'prompt', severe: Boolean(block.severe),
+      reasons: block.reasons || [], alternative: block.alternative || null,
+    }]));
+  }
+  const activeBlock = blocks[0] || null;
+  useEffect(() => { setBlockDraft(activeBlock?.alternative?.text || ''); }, [activeBlock?.sceneId, activeBlock?.alternative?.text]);
+  const closeBlock = () => setBlocks((cur) => cur.slice(1));
+
+  /** Accept the alternative: replace the scene description, then continue to the price check. */
+  async function acceptAlternative() {
+    const b = activeBlock;
+    const text = blockDraft.trim();
+    if (!b || !text) return;
+    patchScene(b.sceneId, { prompt: text.slice(0, 5000) });
+    setSelectedId(b.sceneId);
+    closeBlock();
+    setContinueScene({ id: b.sceneId, prompt: text.slice(0, 5000) });
+  }
+  function editBlocked() {
+    const b = activeBlock;
+    if (!b) return;
+    setSelectedId(b.sceneId);
+    setTab('inspector');
+    closeBlock();
+    setToast(b.target === 'photo' ? 'Choose a different photo for this person in Faces, then make the still again.' : 'Change the description for this scene, then press Generate.');
+  }
+
   async function runStill(s, maxCredits) {
     const r = await startGeneration({ ...stillPayload(s), confirmed_max_credits: maxCredits });
     if (r?.keyframe_url) {
@@ -1116,6 +1152,15 @@ function StudioWorkspace() {
       if (isCurrent()) setGenState('idle');
     }
   }
+
+  useEffect(() => {
+    if (!continueScene || genDialog || blocks.length) return;
+    if (scene?.id === continueScene.id && scene.prompt === continueScene.prompt) {
+      setContinueScene(null);
+      openGenerate();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [continueScene, scene?.id, scene?.prompt, genDialog, blocks.length]);
 
   async function openGenerate() {
     if (!scene || !videoOption) { setToast('No video model is available right now.'); return; }
@@ -1229,7 +1274,6 @@ function StudioWorkspace() {
     setGenStartedAt(Date.now());
     let failed = 0;
     let lastDone = '';
-    let blockedNote = '';
     const busy = [];
     if (dialog.step === 'still') {
       try {
@@ -1242,8 +1286,8 @@ function StudioWorkspace() {
             made += 1; lastDone = s.id;
           } catch (error) {
             failed += 1;
-            if (error.data?.blocked || error.blocked) blockedNote = ` ${s.title} breaks our content policy, so it was not made.`;
             setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, status: 'draft' } : x)));
+            if (error.data?.blocked) { addBlock(s, error.data); continue; }
             if (error.status === 402) throw error;
             if (targets.length === 1) throw error;
           }
@@ -1254,7 +1298,7 @@ function StudioWorkspace() {
         setCredits(Number(account.credits ?? 0));
         if (lastDone) setSelectedId(lastDone);
         setToast(failed
-          ? `${made} still${made === 1 ? '' : 's'} ready, ${failed} failed and were refunded.${blockedNote} Review them, then approve.`
+          ? `${made} still${made === 1 ? '' : 's'} ready, ${failed} not made. Nothing was charged for those. Review the rest, then approve.`
           : `${made === 1 ? 'Still' : `${made} stills`} ready. Check the face and framing, then approve before animating.`);
       } catch (error) {
         if (isCurrent()) setToast(error.status === 402 ? 'Not enough credits. Open Account and billing to add more.' : error.message || 'The still could not be made.');
@@ -1269,7 +1313,15 @@ function StudioWorkspace() {
         setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, status: 'generating' } : x)));
         setToast(`Generating ${s.title}...`);
         const part = dialog.parts?.[s.id] || { video: dialog.byScene[s.id], lip: 0 };
-        const job = await startGeneration({ ...payloadFor(s, { twoStep: dialog.step === 'fallback' }), confirmed_max_credits: part.video });
+        let job;
+        try {
+          job = await startGeneration({ ...payloadFor(s, { twoStep: dialog.step === 'fallback' }), confirmed_max_credits: part.video });
+        } catch (error) {
+          if (!error.data?.blocked) throw error;
+          failed += 1; addBlock(s, error.data);
+          setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, status: 'draft' } : x)));
+          continue;
+        }
         let result = await waitForJob(job.request_id);
         if (!isCurrent()) return;
         // Sung scenes: lip sync the new take to its exact slice of the song.
@@ -1282,7 +1334,7 @@ function StudioWorkspace() {
           if (!isCurrent()) return;
         }
         if (result.busy && dialog.step !== 'fallback') busy.push(s);
-        else if (result.status !== 'completed') { failed += 1; if (result.blocked) blockedNote = ` ${result.error}`; }
+        else if (result.status !== 'completed') { failed += 1; if (result.blocked) addBlock(s, result); }
         else lastDone = s.id;
       }
       const [fresh, account] = await Promise.all([getProject(project.id), getAccount()]);
@@ -1291,7 +1343,7 @@ function StudioWorkspace() {
       setCredits(Number(account.credits ?? 0));
       if (lastDone) { setSelectedId(lastDone); setCelebrate(lastDone); }
       if (busy.length) { await offerFallback(busy, isCurrent); return; }
-      setToast(failed ? `${failed} scene${failed > 1 ? 's' : ''} failed. Credits for failed scenes were returned.${blockedNote}` : 'Generation complete. New takes are ready to review.');
+      setToast(failed ? `${failed} scene${failed > 1 ? 's' : ''} not finished. Credits for them were returned.` : 'Generation complete. New takes are ready to review.');
     } catch (error) {
       if (!isCurrent()) return;
       setToast(error.status === 402 ? 'Not enough credits. Open Account and billing to add more.' : error.message || 'Generation could not be started.');
@@ -2051,6 +2103,43 @@ function StudioWorkspace() {
       </section>
 
       {audioAsset && <audio ref={audioRef} src={audioAsset.preview_url} preload="auto" hidden />}
+
+      {/* ------------------------------------------------ content check */}
+      {activeBlock && !genDialog && (
+        <div className="sx-backdrop" role="presentation" onClick={closeBlock}>
+          <section className="sx-dialog sx-block" role="dialog" aria-modal="true" aria-labelledby="sx-block-title" onClick={(e) => e.stopPropagation()}>
+            <p className="sx-kicker">Content check{blocks.length > 1 ? ` · 1 of ${blocks.length}` : ''}</p>
+            <h2 id="sx-block-title">{activeBlock.title}: {activeBlock.stage === 'result' ? 'withheld and refunded' : "can't be made as written"}</h2>
+            <p className="sx-hint">{activeBlock.message.replace(/ See our content policy at \/content-policy\.?$/, '')}</p>
+            {activeBlock.severe ? (
+              <p className="sx-block-severe">This can never be made on CineXVideo. Read our <a href="/content-policy" target="_blank" rel="noreferrer">content policy</a>.</p>
+            ) : activeBlock.target === 'photo' ? (
+              <p className="sx-hint">Use a clear head-and-shoulders photo of the same person, fully clothed. Their face stays the same in every scene.</p>
+            ) : activeBlock.alternative ? (
+              <div className="sx-block-alt">
+                <label htmlFor="sx-block-alt">Suggested description <span>{activeBlock.alternative.note}</span></label>
+                <textarea id="sx-block-alt" value={blockDraft} onChange={(e) => setBlockDraft(e.target.value)} rows={6} maxLength={5000} />
+                <p className="sx-hint">Edit it if you like. Using it replaces this scene&apos;s description, then shows the price before anything is made.</p>
+              </div>
+            ) : (
+              <p className="sx-hint">Change the scene description so it fits our <a href="/content-policy" target="_blank" rel="noreferrer">content policy</a>, then generate again.</p>
+            )}
+            <div className="sx-dialog-actions">
+              {activeBlock.alternative && !activeBlock.severe && activeBlock.target !== 'photo' ? (
+                <>
+                  <button type="button" className="sx-btn" onClick={editBlocked}>I&apos;ll rewrite it</button>
+                  <button type="button" className="sx-btn sx-btn-gold" autoFocus disabled={!blockDraft.trim()} onClick={acceptAlternative}><Icon.Spark /> Use this and continue</button>
+                </>
+              ) : (
+                <>
+                  <button type="button" className="sx-btn" onClick={closeBlock}>Close</button>
+                  {!activeBlock.severe && <button type="button" className="sx-btn sx-btn-gold" autoFocus onClick={editBlocked}>{activeBlock.target === 'photo' ? 'Change the photo' : 'Edit the description'}</button>}
+                </>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* ------------------------------------------------ confirm dialog */}
       {genDialog && (
