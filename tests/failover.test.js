@@ -99,3 +99,10 @@ test('the export caps decoder threads so long songs never hit the thread limit',
   assert.match(src, /args\.push\('-threads', '1', '-i', clip\.file\)/);
   assert.match(src, /'-filter_complex_threads', '2'/);
 });
+
+test('a failed clean export can be retried with a fresh hold', () => {
+  const src = read('app/api/exports/video/route.js');
+  assert.match(src, /idempotency_key: `like\.\$\{baseKey\}\*`/);
+  assert.match(src, /idempotencyKey = `\$\{baseKey\}:retry-\$\{rows\.length\}`/);
+  assert.match(src, /const open = rows\.find\(\(r\) => r\.status === 'reserved'\)/);
+});
