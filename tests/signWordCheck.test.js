@@ -22,3 +22,10 @@ test('both still checks ask for every word, letter by letter', () => {
   assert.equal((s.match(/words: WORDS_SCHEMA/g) || []).length, 2);
   assert.equal((s.match(/textVerdict\(verdict\)/g) || []).length, 2);
 });
+
+test('stills wait up to 4 minutes for the provider before giving up', async () => {
+  const { STILL_POLL_TIMEOUT_MS } = await import('../lib/music/likeness.js');
+  assert.equal(STILL_POLL_TIMEOUT_MS, 240000);
+  const s = readFileSync(new URL('../lib/music/likeness.js', import.meta.url), 'utf8');
+  assert.match(s, /timeoutMs = STILL_POLL_TIMEOUT_MS/);
+});
