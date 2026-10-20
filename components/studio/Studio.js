@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Icon, Logo } from './StudioIcons';
 import StudioDirector from './StudioDirector';
 import FacesPanel, { isFace } from './FacesPanel';
+import { runSummary } from '@/lib/studio/run-summary';
 import SongSync from './SongSync';
 import StudioTour, { SHORTCUTS, TOUR_KEY } from './StudioTour';
 import { demoModeEnabled } from '@/lib/demo-mode';
@@ -1273,11 +1274,12 @@ function StudioWorkspace() {
     setGenState('running');
     setGenStartedAt(Date.now());
     let failed = 0;
+    let blocked = 0;
+    let made = 0;
     let lastDone = '';
     const busy = [];
     if (dialog.step === 'still') {
       try {
-        let made = 0;
         for (const s of targets) {
           setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, status: 'generating' } : x)));
           setToast(`Making the still for ${s.title}...`);
@@ -1287,7 +1289,7 @@ function StudioWorkspace() {
           } catch (error) {
             failed += 1;
             setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, status: 'draft' } : x)));
-            if (error.data?.blocked) { addBlock(s, error.data); continue; }
+            if (error.data?.blocked) { failed -= 1; blocked += 1; addBlock(s, error.data); continue; }
             if (error.status === 402) throw error;
             if (targets.length === 1) throw error;
           }
@@ -1297,9 +1299,7 @@ function StudioWorkspace() {
         if (!isCurrent()) return;
         setCredits(Number(account.credits ?? 0));
         if (lastDone) setSelectedId(lastDone);
-        setToast(failed
-          ? `${made} still${made === 1 ? '' : 's'} ready, ${failed} not made. Nothing was charged for those. Review the rest, then approve.`
-          : `${made === 1 ? 'Still' : `${made} stills`} ready. Check the face and framing, then approve before animating.`);
+        setToast(runSummary({ kind: 'still', made, blocked, failed }));
       } catch (error) {
         if (isCurrent()) setToast(error.status === 402 ? 'Not enough credits. Open Account and billing to add more.' : error.message || 'The still could not be made.');
       } finally {
@@ -1318,7 +1318,7 @@ function StudioWorkspace() {
           job = await startGeneration({ ...payloadFor(s, { twoStep: dialog.step === 'fallback' }), confirmed_max_credits: part.video });
         } catch (error) {
           if (!error.data?.blocked) throw error;
-          failed += 1; addBlock(s, error.data);
+          blocked += 1; addBlock(s, error.data);
           setScenes((cur) => cur.map((x) => (x.id === s.id ? { ...x, status: 'draft' } : x)));
           continue;
         }
@@ -1334,8 +1334,8 @@ function StudioWorkspace() {
           if (!isCurrent()) return;
         }
         if (result.busy && dialog.step !== 'fallback') busy.push(s);
-        else if (result.status !== 'completed') { failed += 1; if (result.blocked) addBlock(s, result); }
-        else lastDone = s.id;
+        else if (result.status !== 'completed') { if (result.blocked) { blocked += 1; addBlock(s, result); } else failed += 1; }
+        else { lastDone = s.id; made += 1; }
       }
       const [fresh, account] = await Promise.all([getProject(project.id), getAccount()]);
       if (!isCurrent()) return;
@@ -1343,7 +1343,7 @@ function StudioWorkspace() {
       setCredits(Number(account.credits ?? 0));
       if (lastDone) { setSelectedId(lastDone); setCelebrate(lastDone); }
       if (busy.length) { await offerFallback(busy, isCurrent); return; }
-      setToast(failed ? `${failed} scene${failed > 1 ? 's' : ''} not finished. Credits for them were returned.` : 'Generation complete. New takes are ready to review.');
+      setToast(runSummary({ kind: 'take', made, blocked, failed }));
     } catch (error) {
       if (!isCurrent()) return;
       setToast(error.status === 402 ? 'Not enough credits. Open Account and billing to add more.' : error.message || 'Generation could not be started.');

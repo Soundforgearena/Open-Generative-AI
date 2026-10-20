@@ -66,8 +66,8 @@ test('the Studio shows why, offers the alternative, and continues to the price c
   assert.match(s, /Use this and continue/);
   assert.match(s, /patchScene\(b\.sceneId, \{ prompt: text\.slice\(0, 5000\) \}\)/);
   assert.match(s, /setContinueScene\(null\);\n      openGenerate\(\);/);
-  assert.match(s, /if \(error\.data\?\.blocked\) \{ addBlock\(s, error\.data\); continue; \}/);
-  assert.match(s, /if \(result\.blocked\) addBlock\(s, result\)/);
+  assert.match(s, /if \(error\.data\?\.blocked\) \{ failed -= 1; blocked \+= 1; addBlock\(s, error\.data\); continue; \}/);
+  assert.match(s, /if \(result\.blocked\) \{ blocked \+= 1; addBlock\(s, result\); \}/);
   const d = read('components/DemoProjectBuilder.js');
   assert.match(d, /setValues\(\(current\) => \(\{ \.\.\.current, \[blocked\.field\]: blockedDraft\.trim\(\) \}\)\);\n\s+setBlocked\(null\);\n\s+setConfirmPlan\(true\);/);
   assert.match(read('components/studio/StudioDirector.js'), /Content check · suggested instead/);
