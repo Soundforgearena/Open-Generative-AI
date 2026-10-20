@@ -16,6 +16,7 @@ import { normalizeMuapiCost } from '../../../../lib/providers/muapi-cost-adapter
 import { settledGenerationCredits } from '../../../../lib/billing/at-cost.js';
 import { rateLimit } from '../../../../lib/rate-limit';
 import { muapiOutput, firstOutputUrl } from '../../../../lib/providers/muapi-output.js';
+import { attemptIsStuck, handleFailover } from '../../../../lib/generation/failover.js';
 import { currentRequestId, handleBusyFailure } from '../../../../lib/generation/busy-retry.js';
 
 function normaliseStatus(raw) {
@@ -92,7 +93,17 @@ export async function GET(request, { params }) {
     const outputUrl = firstUrl(output);
 
     if (status === 'running') {
-      return Response.json({ status: 'running', output_url: null, scene_version: job.scene_version });
+      // A model that sits on a job far longer than it ever should is treated
+      // as failed, so the job moves to the next model instead of hanging.
+      if (!attemptIsStuck(job)) {
+        return Response.json({ status: 'running', output_url: null, scene_version: job.scene_version });
+      }
+      console.warn('job stuck at provider, failing over', { requestId, model: job.output?.busy_retry?.endpoint || job.model });
+      const over = await handleFailover({ job, base, apiKey, updateRows, insertRows });
+      if (over.action === 'failed_over' || over.action === 'claimed_elsewhere') {
+        return Response.json({ status: 'running', output_url: null, scene_version: job.scene_version, failover: over.model || true });
+      }
+      // No model left: fall through to the failure path (full refund).
     }
 
     // A "completed" result with no usable video link is treated as a failure:
@@ -204,6 +215,15 @@ export async function GET(request, { params }) {
       return Response.json({ status: 'running', output_url: null, scene_version: job.scene_version, busy_retry: busy.attempt });
     }
     const busyExhausted = busy.action === 'exhausted';
+
+    // The model failed this job: hand it to the next most reliable model with
+    // the same inputs, at no extra cost to the customer (lib/generation/failover.js).
+    if (!blockedTake) {
+      const over = await handleFailover({ job, base, apiKey, updateRows, insertRows });
+      if (over.action === 'failed_over' || over.action === 'claimed_elsewhere') {
+        return Response.json({ status: 'running', output_url: null, scene_version: job.scene_version, failover: over.model || true });
+      }
+    }
 
     // Failure path — the customer gets their credits back. Keep the
     // provider's reason on the job so failures can be diagnosed.

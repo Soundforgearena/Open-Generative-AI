@@ -22,7 +22,7 @@ import { projectSong, sliceSongForScene } from '../../../lib/music/audio.js';
 import { blockedMessage, moderate } from '../../../lib/moderation/moderate.js';
 import { handleModeration } from '../../../lib/moderation/cases.js';
 import { blockedPayload, suggestSafeAlternative } from '../../../lib/moderation/alternative.js';
-import { FaceMismatchError, StillQualityError, LIKENESS_VIDEO_MODEL, PERFORM_AUDIO_MIN_MS, PERFORM_MAX_MS, PERFORM_MIN_MS, PERFORM_MODEL, keyframeCents, likenessMotionPrompt, SAFETY_RULE, makeKeyframe, performPrompt, resolveSceneLikeness } from '../../../lib/music/likeness.js';
+import { FaceMismatchError, StillQualityError, LIKENESS_VIDEO_MODEL, LIP_SYNC_MODEL, PERFORM_AUDIO_MIN_MS, PERFORM_MAX_MS, PERFORM_MIN_MS, PERFORM_MODEL, keyframeCents, likenessMotionPrompt, SAFETY_RULE, makeKeyframe, performPrompt, resolveSceneLikeness } from '../../../lib/music/likeness.js';
 import { PLAN_PRICING_POLICY, planCodeFor, planCredits } from '../../../lib/billing/plan-pricing.js';
 import { runStillJob } from '../../../lib/generation/still-job.js';
 import { retryState } from '../../../lib/generation/busy-retry.js';
@@ -202,6 +202,8 @@ export async function POST(request) {
       const song = await projectSong(timed.project_id);
       if (!song) return safeError('Upload your song first.', 409);
       lipSync = { scene: timed, source, song, seconds: Math.max(1, Math.ceil(windowMs / 1000)) };
+      // Most reliable lip-sync model (98.3% on MUAPI); failover in lib/generation/failover.js.
+      model = LIP_SYNC_MODEL;
       input = { video_url: source?.output_url || 'pending-take' };
     }
 
@@ -269,7 +271,11 @@ export async function POST(request) {
 
     // Price exactly what is sent to the provider. Never trust duplicate
     // top-level values that can disagree with the provider payload.
-    const durationSeconds = lipSync ? lipSync.seconds : perform ? perform.seconds : motion ? motion.seconds : beat ? beat.seconds : Number(input.duration_seconds ?? input.duration ?? requestedDuration);
+    const requestedSeconds = Number(input.duration_seconds ?? input.duration ?? requestedDuration);
+    const durationSeconds = lipSync ? lipSync.seconds : perform ? perform.seconds : motion ? motion.seconds : beat ? beat.seconds
+      // Seedance 1.5 Pro makes 4-12 s clips; price exactly what is sent.
+      : model === LIKENESS_VIDEO_MODEL ? Math.min(12, Math.max(4, Math.ceil(requestedSeconds || 5)))
+      : requestedSeconds;
     const resolution = input.resolution ?? requestedResolution;
     let referenceCount;
     try {
@@ -601,20 +607,18 @@ export async function POST(request) {
         image_url: firstFrame,
         audio_url: slice.url,
       } : (likeness || fromStill) ? {
-        prompt: likeness ? likenessMotionPrompt(input.prompt) : `${String(input.prompt || '').slice(0, 1850)} ${SAFETY_RULE}`,
-        images_list: [firstFrame],
+        // Seedance 1.5 Pro (fast): most reliable image-to-video on MUAPI
+        // (99.4%), keeps the still's face, composition and light.
+        prompt: (likeness ? likenessMotionPrompt(input.prompt) : `${String(input.prompt || '').slice(0, 1850)} ${SAFETY_RULE}`).slice(0, 2000),
+        image_url: firstFrame,
         duration: durationSeconds,
-        ...(resolution ? { resolution } : {}),
-        thinking_type: 'disabled',
-        generate_audio_switch: false,
+        resolution: resolution === '720p' ? '720p' : '1080p',
+        aspect_ratio: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'].includes(input.aspect_ratio) ? input.aspect_ratio : '16:9',
+        generate_audio: false,
+        camera_fixed: false,
       } : lipSync ? {
         video_url: lipSync.source.output_url,
         audio_url: slice.url,
-        // Lite = one frontal face. separate_vocal pulls the voice out of the
-        // full mix so drums and bass never drive the mouth.
-        mode: 'lite',
-        separate_vocal: true,
-        align_audio: true,
       } : {
         ...Object.fromEntries(
           Object.entries(input).filter(([field]) => SAFE_PROVIDER_FIELDS.has(field))
@@ -654,7 +658,7 @@ export async function POST(request) {
           'generation_requests',
           { id: `eq.${jobId}` },
           // The input is kept so a "provider busy" failure can be resubmitted.
-          { provider_request_id: providerRequestId, status: 'running', output: retryState({ endpoint: providerEndpoint, input: canonicalInput }) }
+          { provider_request_id: providerRequestId, status: 'running', output: retryState({ endpoint: providerEndpoint, input: canonicalInput, primaryModel: providerEndpoint, audioSeconds: perform ? perform.seconds : lipSync ? lipSync.seconds : null }) }
         );
         persisted = update.ok;
         if (!persisted && attempt < 2) {
