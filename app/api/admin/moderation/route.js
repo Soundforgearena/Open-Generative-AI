@@ -2,6 +2,7 @@ import { guard, insertRows, listAuthUsers, safeError, selectOne, selectRows, upd
 import { resolveMedia } from '../../../../lib/storage/media.js';
 import { CASE_STATUSES } from '../../../../lib/moderation/cases.js';
 import { MODERATION_MODEL, MODERATION_POLICY_VERSION, moderate } from '../../../../lib/moderation/moderate.js';
+import { suggestSafeAlternative } from '../../../../lib/moderation/alternative.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,7 +51,13 @@ export async function POST(request) {
     const text = String(body.text || '').slice(0, 4000);
     if (!text.trim()) return safeError('Type something to check.');
     const verdict = await moderate({ text });
-    return Response.json({ allowed: verdict.allowed, unchecked: Boolean(verdict.unchecked), categories: verdict.categories, labels: verdict.labels, scores: verdict.top });
+    // Blocked: also show the safe alternative users would be offered.
+    let alternative = null;
+    let alternativeResult = null;
+    if (!verdict.allowed && body.alternative !== false) {
+      alternative = await suggestSafeAlternative({ text, decision: verdict, userId: user.id }, { onResult: (r) => { alternativeResult = r; } });
+    }
+    return Response.json({ allowed: verdict.allowed, unchecked: Boolean(verdict.unchecked), categories: verdict.categories, labels: verdict.labels, scores: verdict.top, alternative, alternative_result: alternativeResult });
   }
   if (!superAdmin) return safeError('Only the super admin can review cases.', 403);
   if (body.action !== 'review') return safeError('Unknown action.');

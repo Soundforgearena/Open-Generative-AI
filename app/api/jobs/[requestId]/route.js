@@ -275,7 +275,7 @@ export async function GET(request, { params }) {
 /** A withheld take: tell the user why and offer a safer scene description. */
 async function blockedTakePayload(job, user, verdict) {
   const scene = job.scene_id ? await selectOne('scenes', { id: `eq.${job.scene_id}` }, 'prompt').catch(() => null) : null;
-  const alternative = scene?.prompt ? await suggestSafeAlternative({ text: scene.prompt, decision: verdict, stage: 'result', userId: user.id }) : null;
+  const alternative = scene?.prompt ? await suggestSafeAlternative({ text: scene.prompt, decision: verdict, stage: 'result', userId: user.id }, { insertRows }) : null;
   const message = `This take came out looking like ${verdict.labels.join(', ')}, so we withheld it and returned your credits. ${alternative ? 'Here is a safer version of the scene to try instead.' : 'Please change the description and try again.'}`;
   return blockedPayload({ message, decision: verdict, alternative, stage: 'result', sceneId: job.scene_id || null });
 }

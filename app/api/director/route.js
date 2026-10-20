@@ -303,7 +303,7 @@ export async function POST(request) {
         for (const [key, v] of candidates) {
           if (typeof v === 'string' && v.trim() && !(await moderate({ text: v })).allowed) { field = key; original = v; break; }
         }
-        const alternative = await suggestSafeAlternative({ text: String(original || ''), decision: verdict, kind: 'director', userId: user.id });
+        const alternative = await suggestSafeAlternative({ text: String(original || ''), decision: verdict, kind: 'director', userId: user.id }, { insertRows });
         return Response.json(blockedPayload({ message: blockedMessage(verdict), decision: verdict, alternative, target: 'director', field }), { status: 422 });
       }
     }

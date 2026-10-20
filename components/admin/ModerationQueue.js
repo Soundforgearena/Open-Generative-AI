@@ -109,7 +109,7 @@ export default function ModerationQueue() {
           <button type="submit" className="cinex-route-secondary" disabled={!probe.trim()}>Check</button>
         </div>
         {probeResult && (
-          <p role="status">{probeResult.error ? probeResult.error : probeResult.unchecked ? 'The check service did not answer; this would be allowed and logged.' : probeResult.allowed ? 'Allowed.' : `Blocked: ${probeResult.labels.join(', ')}.`}</p>
+          <p role="status">{probeResult.error ? probeResult.error : probeResult.unchecked ? 'The check service did not answer; this would be allowed and logged.' : probeResult.allowed ? 'Allowed.' : `Blocked: ${probeResult.labels.join(', ')}.${probeResult.alternative ? ` Users would be offered: “${probeResult.alternative.text}”` : ' No alternative offered.'}`}</p>
         )}
       </form>
     </section>
