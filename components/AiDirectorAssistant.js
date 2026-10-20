@@ -102,6 +102,21 @@ export default function AiDirectorAssistant({ fieldType, fieldLabel, value, cont
     } catch (assistError) {
       if (!mountedRef.current || requestRef.current !== request) return;
       setResult(null);
+      if (assistError.data?.blocked) {
+        // Content check: say why, and offer a safe version instead of a dead end.
+        const b = assistError.data.block || {};
+        const why = String(assistError.data.error || '').replace(/ See our content policy at \/content-policy\.?$/, '');
+        if (b.alternative && !b.severe && b.field === 'instruction') {
+          setInstruction(b.alternative.text.slice(0, 400));
+          setStatus(`${why} We rewrote your request so it fits our rules. Check it, then ask again.`);
+        } else if (b.alternative && !b.severe) {
+          setResult({ suggestion: b.alternative.text, whatChanged: b.alternative.note });
+          setStatus(`${why} Here is a safe version you can use instead.`);
+        } else {
+          setStatus(why);
+        }
+        return;
+      }
       setStatus(assistError.status === 402
         ? `${assistError.message || 'Not enough credits for the AI Director.'} Sign-up bonus credits can't be used for the Director. Add credits from Account and billing.`
         : `${assistError.message || 'The Director could not respond just now.'} The outcome could not be confirmed. Check your credit balance before starting a new request.`);

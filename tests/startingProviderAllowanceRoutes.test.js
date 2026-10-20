@@ -57,6 +57,7 @@ function routeHarness({ credits, used = 0, revenue = 0, chargeback = false, supe
     // Content checks are covered in moderation.test.js; here the prompt is clean.
     moderate: async () => ({ allowed: true, categories: [], labels: [], top: {} }),
     handleModeration: async () => null, blockedMessage: () => '', SAFETY_RULE: '',
+    blockedPayload: () => ({}), suggestSafeAlternative: async () => null,
     AT_COST_POLICY, atCostCredits, isAtCostUser, providerCostCents,
     PLAN_PRICING_POLICY, planCredits, planCodeFor: async () => null, runStillJob: unexpected,
     loadRuntimeSafetySignals, evaluateProviderExposure, evaluateReservationRisk, buildPreflightReport,

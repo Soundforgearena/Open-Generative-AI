@@ -33,7 +33,7 @@ test('clean export quote checks the margin on the real charge', () => {
 
 test('episode idea form is wired to the paid AI Director plan', () => {
   const b = readFileSync(new URL('../components/DemoProjectBuilder.js', import.meta.url), 'utf8');
-  assert.match(b, /requestDirectorPlan\(directorBrief\(\), 'episode'\)/);
+  assert.match(b, /requestDirectorPlan\(directorBrief\(\), 'episode'/);
   assert.match(b, /getDirectorPricing\(\)/);
   assert.match(b, /Confirm · max/);
   assert.match(b, /router\.push\(`\/studio\?project=/);

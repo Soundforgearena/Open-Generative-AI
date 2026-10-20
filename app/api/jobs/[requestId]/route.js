@@ -9,9 +9,9 @@ import {
   safeError,
 } from '../../../../lib/cinexvideo-server';
 import { archiveSoon } from '../../../../lib/storage/archive.js';
-import { blockedMessage } from '../../../../lib/moderation/moderate.js';
 import { handleModeration } from '../../../../lib/moderation/cases.js';
 import { checkTakeOnce } from '../../../../lib/moderation/take-check.js';
+import { blockedPayload, suggestSafeAlternative } from '../../../../lib/moderation/alternative.js';
 import { normalizeMuapiCost } from '../../../../lib/providers/muapi-cost-adapter.js';
 import { settledGenerationCredits } from '../../../../lib/billing/at-cost.js';
 import { rateLimit } from '../../../../lib/rate-limit';
@@ -260,7 +260,7 @@ export async function GET(request, { params }) {
       scene_version: job.scene_version,
       credits_returned: job.credits_reserved,
       ...(busyExhausted ? { busy: true } : {}),
-      ...(blockedTake ? { blocked: true, error: blockedMessage(blockedTake, { charged: true }) } : {}),
+      ...(blockedTake ? await blockedTakePayload(job, user, blockedTake) : {}),
       settled: true,
     });
   } catch (err) {
@@ -270,4 +270,12 @@ export async function GET(request, { params }) {
       { status: 502 }
     );
   }
+}
+
+/** A withheld take: tell the user why and offer a safer scene description. */
+async function blockedTakePayload(job, user, verdict) {
+  const scene = job.scene_id ? await selectOne('scenes', { id: `eq.${job.scene_id}` }, 'prompt').catch(() => null) : null;
+  const alternative = scene?.prompt ? await suggestSafeAlternative({ text: scene.prompt, decision: verdict, stage: 'result', userId: user.id }) : null;
+  const message = `This take came out looking like ${verdict.labels.join(', ')}, so we withheld it and returned your credits. ${alternative ? 'Here is a safer version of the scene to try instead.' : 'Please change the description and try again.'}`;
+  return blockedPayload({ message, decision: verdict, alternative, stage: 'result', sceneId: job.scene_id || null });
 }

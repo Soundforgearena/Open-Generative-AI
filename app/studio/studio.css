@@ -687,3 +687,13 @@
 .sx-finalcut-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .sx-finalcut-actions a { text-decoration: none; }
 @media (max-width: 520px) { .sx-finalcut-actions { width: 100%; } .sx-finalcut-actions a { flex: 1; justify-content: center; text-align: center; } }
+
+/* Content check: blocked scene with a safe alternative to accept */
+.sx-block .sx-kicker { color: #ffb4b4; }
+.sx-block-alt { display: grid; gap: 8px; margin: 12px 0 4px; }
+.sx-block-alt label { font-weight: 600; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.sx-block-alt label span { font-weight: 400; font-size: .85rem; opacity: .75; }
+.sx-block-alt textarea { width: 100%; min-height: 128px; resize: vertical; padding: 10px 12px; border: 1px solid rgba(232, 186, 92, .45); border-radius: 10px; background: rgba(0, 0, 0, .35); color: inherit; font: inherit; font-size: 16px; line-height: 1.5; box-sizing: border-box; }
+.sx-block-alt textarea:focus { outline: 2px solid rgba(232, 186, 92, .7); outline-offset: 1px; }
+.sx-block-severe { margin: 12px 0; padding: 10px 12px; border-left: 3px solid #e5484d; background: rgba(229, 72, 77, .1); border-radius: 8px; }
+.sx-block-severe a, .sx-block .sx-hint a { color: #f6c76b; text-decoration: underline; }

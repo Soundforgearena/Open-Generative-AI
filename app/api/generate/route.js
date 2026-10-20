@@ -21,6 +21,7 @@ import { rateLimit } from '../../../lib/rate-limit';
 import { projectSong, sliceSongForScene } from '../../../lib/music/audio.js';
 import { blockedMessage, moderate } from '../../../lib/moderation/moderate.js';
 import { handleModeration } from '../../../lib/moderation/cases.js';
+import { blockedPayload, suggestSafeAlternative } from '../../../lib/moderation/alternative.js';
 import { FaceMismatchError, StillQualityError, LIKENESS_VIDEO_MODEL, PERFORM_AUDIO_MIN_MS, PERFORM_MAX_MS, PERFORM_MIN_MS, PERFORM_MODEL, keyframeCents, likenessMotionPrompt, SAFETY_RULE, makeKeyframe, performPrompt, resolveSceneLikeness } from '../../../lib/music/likeness.js';
 import { PLAN_PRICING_POLICY, planCodeFor, planCredits } from '../../../lib/billing/plan-pricing.js';
 import { runStillJob } from '../../../lib/generation/still-job.js';
@@ -376,7 +377,11 @@ export async function POST(request) {
       const promptText = typeof input?.prompt === 'string' ? input.prompt : '';
       const verdict = await moderate({ text: promptText });
       await handleModeration(verdict, { userId: user.id, kind: 'prompt', where: `generate_${operation}`, projectId: projectId || null, sceneId: sceneId || null, prompt: promptText }, { insertRows, updateRows });
-      if (!verdict.allowed) return Response.json({ error: blockedMessage(verdict), blocked: true, policy: '/content-policy' }, { status: 422 });
+      if (!verdict.allowed) {
+        const stored = sceneId ? await selectOne('scenes', { id: `eq.${sceneId}` }, 'prompt').catch(() => null) : null;
+        const alternative = await suggestSafeAlternative({ text: stored?.prompt || promptText, decision: verdict, userId: user.id });
+        return Response.json(blockedPayload({ message: blockedMessage(verdict), decision: verdict, alternative, sceneId: sceneId || null }), { status: 422 });
+      }
     }
     let reference = null;
     {

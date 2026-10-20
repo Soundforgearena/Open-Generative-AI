@@ -24,6 +24,9 @@ export default function DemoProjectBuilder({ sourceType = 'idea', template, onCr
     notes: '',
   });
   const [errors, setErrors] = useState({});
+  // Content check: a blocked idea comes back with a safe version to accept.
+  const [blocked, setBlocked] = useState(null);
+  const [blockedDraft, setBlockedDraft] = useState('');
   const [message, setMessage] = useState('');
   const [project, setProject] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -74,7 +77,7 @@ export default function DemoProjectBuilder({ sourceType = 'idea', template, onCr
     setPlanning(true);
     setMessage('');
     try {
-      const plan = await requestDirectorPlan(directorBrief(), 'episode');
+      const plan = await requestDirectorPlan(directorBrief(), 'episode', { sourceText: values.sourceText, notes: values.notes, title: values.title });
       if (!plan?.scenes?.length) throw new Error('The Director could not plan this one. You were not charged. Try adding more detail.');
       const result = await createProject({
         lane: 'episode',
@@ -89,6 +92,14 @@ export default function DemoProjectBuilder({ sourceType = 'idea', template, onCr
       setMessage(`The Director planned ${plan.scenes.length} scenes. Opening the Studio...`);
       openStudio(result.project_id);
     } catch (planError) {
+      if (planError.data?.blocked) {
+        const block = planError.data.block || {};
+        const field = ['sourceText', 'notes', 'title'].includes(block.field) ? block.field : null;
+        setConfirmPlan(false);
+        setBlocked({ message: planError.data.error, field, severe: Boolean(block.severe), alternative: field ? block.alternative : null });
+        setBlockedDraft(field && block.alternative ? block.alternative.text : '');
+        return;
+      }
       setNeedsCredits(/credit/i.test(planError.message || ''));
       setMessage(planError.message || 'The Director is unavailable right now. You were not charged.');
     } finally {
@@ -231,6 +242,34 @@ export default function DemoProjectBuilder({ sourceType = 'idea', template, onCr
               <button type="button" className="cinex-route-primary" disabled={planning || !canAffordPlan} onClick={runPlan}>{planning ? 'Planning...' : `Confirm · max ${planPrice?.max_credits ?? 23} credits`}</button>
               <button type="button" className="cinex-route-secondary-link" disabled={planning} onClick={() => setConfirmPlan(false)}>Cancel</button>
             </div>
+          </div>
+        )}
+        {blocked && (
+          <div className="cinex-plan-confirm cinex-content-check" role="dialog" aria-label="Content check">
+            <strong>Content check: the Director can&apos;t plan this as written</strong>
+            <span>{blocked.message.replace(/ See our content policy at \/content-policy\.?$/, '')}</span>
+            {blocked.alternative && !blocked.severe ? (
+              <>
+                <label className="cinex-content-check-alt">
+                  Suggested {blocked.field === 'notes' ? 'visual notes' : blocked.field === 'title' ? 'title' : sourceLabel.toLowerCase()} <span className="cinex-form-optional">{blocked.alternative.note}</span>
+                  <textarea value={blockedDraft} onChange={(e) => setBlockedDraft(e.target.value)} rows={5} />
+                </label>
+                <span>Edit it if you like. Using it replaces your {blocked.field === 'notes' ? 'visual notes' : blocked.field === 'title' ? 'title' : sourceLabel.toLowerCase()}, then shows the Director price again before anything is charged.</span>
+                <div className="cinex-plan-actions">
+                  <button type="button" className="cinex-route-primary" disabled={!blockedDraft.trim()} onClick={() => {
+                    setValues((current) => ({ ...current, [blocked.field]: blockedDraft.trim() }));
+                    setBlocked(null);
+                    setConfirmPlan(true);
+                  }}>Use this and continue</button>
+                  <button type="button" className="cinex-route-secondary-link" onClick={() => setBlocked(null)}>I&apos;ll rewrite it</button>
+                </div>
+              </>
+            ) : (
+              <div className="cinex-plan-actions">
+                <span>{blocked.severe ? 'This can never be made on CineXVideo.' : 'Change your idea so it fits our content policy, then plan again.'} <Link href="/content-policy">Content policy</Link></span>
+                <button type="button" className="cinex-route-secondary-link" onClick={() => setBlocked(null)}>Close</button>
+              </div>
+            )}
           </div>
         )}
         {message && <p className="cinex-form-success" role="status">{message}{needsCredits && <> <Link href="/account?buy=1">Buy credits</Link></>}</p>}

@@ -149,6 +149,15 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
       onOpenChange(false);
     } catch (e) {
       if (!isCurrent()) return;
+      if (e.data?.blocked) {
+        // Content check: show why, and offer the safe version to use instead.
+        retryKey.current.complete();
+        const b = e.data.block || {};
+        const message = String(e.data.error || '').replace(/ See our content policy at \/content-policy\.?$/, '');
+        if (b.alternative && !b.severe) setResult({ suggestion: b.alternative.text, whatChanged: b.alternative.note, blocked: { message, field: b.field } });
+        else setError(message);
+        return;
+      }
       if (e.status === 402) {
         setNeedsCredits(true);
         retryKey.current.complete();
@@ -190,13 +199,17 @@ export default function StudioDirector({ scene, project, styleName, onApply, ope
           {retryAction && error && <button type="button" className="sx-btn sx-btn-sm" disabled={Boolean(busy)} onClick={() => run(retryAction.action, retryAction.custom, retryAction.idempotencyKey, retryAction.request)}>Try again</button>}
           {result && (
             <>
-              <p className="sx-kicker">Director&apos;s draft</p>
+              <p className="sx-kicker">{result.blocked ? 'Content check · suggested instead' : <>Director&apos;s draft</>}</p>
+              {result.blocked && <p className="sx-problem">{result.blocked.message}</p>}
               <p className="sx-dir-suggestion">{result.suggestion}</p>
               {result.whatChanged && <p className="sx-hint"><strong>What changed:</strong> {result.whatChanged}</p>}
               {result.craftNote && <p className="sx-hint sx-craft">“{result.craftNote}”</p>}
               <div className="sx-dir-actions">
-                <button type="button" className="sx-btn sx-btn-gold sx-btn-sm" onClick={() => { onApply(result.suggestion, 'replace'); setResult(null); }}><Icon.Check /> Use this</button>
-                {hasText && <button type="button" className="sx-btn sx-btn-sm" onClick={() => { onApply(result.suggestion, 'append'); setResult(null); }}>Add below</button>}
+                <button type="button" className="sx-btn sx-btn-gold sx-btn-sm" onClick={() => {
+                  if (result.blocked?.field === 'instruction') { setInstruction(result.suggestion.slice(0, 400)); onOpenChange(true); } else onApply(result.suggestion, 'replace');
+                  setResult(null);
+                }}><Icon.Check /> {result.blocked ? (result.blocked.field === 'instruction' ? 'Use this request' : 'Use this description') : 'Use this'}</button>
+                {hasText && !result.blocked && <button type="button" className="sx-btn sx-btn-sm" onClick={() => { onApply(result.suggestion, 'append'); setResult(null); }}>Add below</button>}
                 <button type="button" className="sx-btn sx-btn-ghost sx-btn-sm" onClick={() => setResult(null)}>Discard</button>
               </div>
             </>

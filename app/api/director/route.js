@@ -2,6 +2,7 @@ import { callRpc, guard, requireSecret, safeError, insertRows, selectOne, update
 import { runDirectorOnce } from '../../../lib/director-idempotency';
 import { blockedMessage, moderate } from '../../../lib/moderation/moderate.js';
 import { handleModeration } from '../../../lib/moderation/cases.js';
+import { blockedPayload, suggestSafeAlternative } from '../../../lib/moderation/alternative.js';
 
 /** What the user typed for the Director (not the project context). */
 function directorText(body) {
@@ -289,7 +290,22 @@ export async function POST(request) {
       const text = directorText(body);
       const verdict = await moderate({ text });
       await handleModeration(verdict, { userId: user.id, kind: 'director', where: body.action ? `director_${String(body.action).slice(0, 30)}` : 'director_plan', prompt: text }, { insertRows, updateRows });
-      if (!verdict.allowed) return Response.json({ error: blockedMessage(verdict), blocked: true, policy: '/content-policy' }, { status: 422 });
+      if (!verdict.allowed) {
+        // Offer a safe rewrite of whichever field was the problem.
+        // Plans may send the form fields separately (fields: { sourceText,
+        // notes, title }) so the suggestion replaces the field that was the
+        // problem. Text-only checks are free.
+        let field = body.action ? 'value' : 'prompt';
+        let original = body.action ? body.value : body.prompt;
+        const candidates = body.action
+          ? [['instruction', body.instruction], ['value', body.value]]
+          : Object.entries(body.fields && typeof body.fields === 'object' ? body.fields : {}).slice(0, 6);
+        for (const [key, v] of candidates) {
+          if (typeof v === 'string' && v.trim() && !(await moderate({ text: v })).allowed) { field = key; original = v; break; }
+        }
+        const alternative = await suggestSafeAlternative({ text: String(original || ''), decision: verdict, kind: 'director', userId: user.id });
+        return Response.json(blockedPayload({ message: blockedMessage(verdict), decision: verdict, alternative, target: 'director', field }), { status: 422 });
+      }
     }
     if (body.action) {
       const invalid = validateAssist(body);
