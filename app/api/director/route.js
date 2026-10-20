@@ -208,7 +208,7 @@ async function chargeDirector(user, kind, idempotencyKey, run, { atCost = false 
     if (message.includes('INSUFFICIENT_PAID_CREDITS') || message.includes('INSUFFICIENT_CREDITS')) {
       return Response.json(
         {
-          error: `The AI Director runs on purchased credits. This request can cost up to ${maxCredits} credits ($${(maxCredits / 100).toFixed(2)}); sign-up bonus credits can't be used for it.`,
+          error: `The AI Director runs on purchased credits. This request can cost up to ${maxCredits} credits ($${(maxCredits / 100).toFixed(2)}); free bonus credits can't be used for it.`,
           code: 'insufficient_paid_credits',
           credits_required: maxCredits,
         },

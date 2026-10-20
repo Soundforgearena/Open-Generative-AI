@@ -117,7 +117,7 @@ export default function PricingPage() {
             </div>
             {pricing.director && (
               <p className="cinex-form-optional">
-                The AI Director charges for what each request actually uses, never more than the maximum shown, and failed requests are never charged. It runs on purchased credits only; sign-up bonus credits can be used for generations.
+                The AI Director charges for what each request actually uses, never more than the maximum shown, and failed requests are never charged. It runs on purchased credits only; free bonus credits can be used for generations.
               </p>
             )}
             {pricing.free_actions?.length ? (

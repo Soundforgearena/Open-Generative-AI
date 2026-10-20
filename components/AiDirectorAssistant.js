@@ -118,7 +118,7 @@ export default function AiDirectorAssistant({ fieldType, fieldLabel, value, cont
         return;
       }
       setStatus(assistError.status === 402
-        ? `${assistError.message || 'Not enough credits for the AI Director.'} Sign-up bonus credits can't be used for the Director. Add credits from Account and billing.`
+        ? `${assistError.message || 'Not enough credits for the AI Director.'} Free bonus credits can't be used for the Director. Add credits from Account and billing.`
         : `${assistError.message || 'The Director could not respond just now.'} The outcome could not be confirmed. Check your credit balance before starting a new request.`);
     } finally {
       submittingRef.current = false;
