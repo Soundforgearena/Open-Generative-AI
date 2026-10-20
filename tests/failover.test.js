@@ -93,3 +93,9 @@ test('routes use the reliable models, fail over, and stills have backups', () =>
   assert.match(mig, /'seedance-v1\.5-pro-i2v-fast', 'video', 13/);
   assert.match(mig, /'veed-lipsync', 'lip_sync', 3/);
 });
+
+test('the export caps decoder threads so long songs never hit the thread limit', () => {
+  const src = read('lib/exports/render-video.js');
+  assert.match(src, /args\.push\('-threads', '1', '-i', clip\.file\)/);
+  assert.match(src, /'-filter_complex_threads', '2'/);
+});
