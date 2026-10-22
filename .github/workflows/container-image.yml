@@ -56,10 +56,13 @@ jobs:
       - name: Boot the published image and check health
         run: |
           docker run -d --name smoke -p 3000:3000 ghcr.io/soundforgearena/cinexvideo:${{ github.sha }}
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:3000/api/health | tee /tmp/health.json; then break; fi
+          ok=0
+          for i in $(seq 1 45); do
             sleep 2
+            if curl -fsS -o /tmp/health.json http://127.0.0.1:3000/api/health; then ok=1; break; fi
           done
+          test "$ok" = 1
+          cat /tmp/health.json; echo
           grep -q '"ok":true' /tmp/health.json
           grep -q '"video_renderer":"ready"' /tmp/health.json
           grep -q '${{ github.sha }}' /tmp/health.json
