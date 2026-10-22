@@ -1,5 +1,5 @@
--- Applied to production as version 20260912044632. This repository copy is the fresh-database-safe
--- equivalent of the applied statements (adds create-if-not-exists guards).
+-- Applied to production as version 20260912044632 (20260911184500_admin_rpc_audit_backfill).
+-- Content exported verbatim from supabase_migrations.schema_migrations.
 
 -- Backfill the missing admin audit tables and privileged admin/payout RPCs so
 -- the repository contains the security-critical control-plane logic that the
@@ -11,18 +11,6 @@
 -- It upgrades that table in-place to the richer audit schema.
 
 -- 1) Ensure the richer user_admin_actions schema exists and migrate legacy rows
-
--- Fresh databases: create the legacy shape first so the upgrade path below is
--- identical for new and existing environments.
-create table if not exists public.user_admin_actions (
-  id uuid primary key default gen_random_uuid(),
-  admin_user_id uuid references auth.users(id) on delete set null,
-  target_user_id uuid references auth.users(id) on delete set null,
-  action text,
-  credits integer,
-  note text,
-  created_at timestamptz not null default now()
-);
 
 alter table public.user_admin_actions
   add column if not exists action_type text,
@@ -79,7 +67,15 @@ grant select on public.revenue_split_audit to service_role;
 
 -- 3) Admin RPC functions
 
-create or replace function public.admin_grant_bonus(
+drop function if exists public.admin_grant_bonus(uuid, integer, text) cascade;
+drop function if exists public.admin_set_user_active(uuid, boolean, text) cascade;
+drop function if exists public.admin_set_discount(boolean, numeric, text) cascade;
+drop function if exists public.admin_set_maintenance(boolean, text) cascade;
+drop function if exists public.admin_set_revenue_split(numeric, text, text) cascade;
+drop function if exists public.open_partner_payout(uuid, text, text) cascade;
+drop function if exists public.settle_partner_payout(uuid, text, text) cascade;
+
+create function public.admin_grant_bonus(
   p_target_user_id uuid,
   p_credits integer,
   p_note text default null
@@ -127,7 +123,7 @@ $$;
 revoke all on function public.admin_grant_bonus(uuid, integer, text) from public, anon;
 grant execute on function public.admin_grant_bonus(uuid, integer, text) to authenticated;
 
-create or replace function public.admin_set_user_active(
+create function public.admin_set_user_active(
   p_target_user_id uuid,
   p_active boolean,
   p_reason text default null
@@ -176,7 +172,7 @@ $$;
 revoke all on function public.admin_set_user_active(uuid, boolean, text) from public, anon;
 grant execute on function public.admin_set_user_active(uuid, boolean, text) to authenticated;
 
-create or replace function public.admin_set_discount(
+create function public.admin_set_discount(
   p_enabled boolean,
   p_percent numeric,
   p_label text default null
@@ -220,7 +216,7 @@ $$;
 revoke all on function public.admin_set_discount(boolean, numeric, text) from public, anon;
 grant execute on function public.admin_set_discount(boolean, numeric, text) to authenticated;
 
-create or replace function public.admin_set_maintenance(
+create function public.admin_set_maintenance(
   p_enabled boolean,
   p_message text default null
 ) returns jsonb
@@ -263,7 +259,7 @@ $$;
 revoke all on function public.admin_set_maintenance(boolean, text) from public, anon;
 grant execute on function public.admin_set_maintenance(boolean, text) to authenticated;
 
-create or replace function public.admin_set_revenue_split(
+create function public.admin_set_revenue_split(
   p_platform_percent numeric,
   p_basis text,
   p_reason text default null
@@ -313,7 +309,7 @@ $$;
 revoke all on function public.admin_set_revenue_split(numeric, text, text) from public, anon;
 grant execute on function public.admin_set_revenue_split(numeric, text, text) to authenticated;
 
-create or replace function public.open_partner_payout(
+create function public.open_partner_payout(
   p_partner_id uuid,
   p_provider text,
   p_note text default null
@@ -377,7 +373,7 @@ $$;
 revoke all on function public.open_partner_payout(uuid, text, text) from public, anon;
 grant execute on function public.open_partner_payout(uuid, text, text) to authenticated;
 
-create or replace function public.settle_partner_payout(
+create function public.settle_partner_payout(
   p_payout_id uuid,
   p_status text,
   p_provider_transfer_id text default null

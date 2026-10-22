@@ -1,12 +1,15 @@
--- Applied to production as version 20260912044607. This repository copy is the fresh-database-safe
--- equivalent of the applied statements (adds create-if-not-exists guards).
+-- Applied to production as version 20260912044607 (20260911180500_supabase_production_security_hardening).
+-- Content exported verbatim from supabase_migrations.schema_migrations.
 
 -- Production Supabase hardening for sensitive public-schema tables and admin
 -- helper functions. The application reads these relations only through
 -- service-role server routes or SECURITY DEFINER RPCs, so browser roles should
 -- never access them directly through PostgREST.
 
-create or replace function public.is_cinex_admin(p_user_id uuid)
+drop function if exists public.is_cinex_admin(uuid) cascade;
+drop function if exists public.is_cinex_super_admin(uuid) cascade;
+
+create function public.is_cinex_admin(p_user_id uuid)
 returns boolean
 language sql
 stable
@@ -25,7 +28,7 @@ as $$
   end;
 $$;
 
-create or replace function public.is_cinex_super_admin(p_user_id uuid)
+create function public.is_cinex_super_admin(p_user_id uuid)
 returns boolean
 language sql
 stable
