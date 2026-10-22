@@ -89,7 +89,7 @@ test('global navigation follows the Supabase auth session', async () => {
 });
 
 test('idempotency keys are bound to the original reservation quote', async () => {
-  const migration = await read('supabase/migrations/20260907_transaction_integrity_hardening.sql');
+  const migration = await read('supabase/migrations/20260907043922_transaction_integrity_hardening.sql');
   assert.match(migration, /v_existing\.operation is distinct from p_operation/);
   assert.match(migration, /v_existing\.max_reservation_credits is distinct from p_max_reservation_credits/);
   assert.match(migration, /IDEMPOTENCY_KEY_CONFLICT/);
@@ -138,7 +138,7 @@ test('legacy direct provider rewrite is removed', async () => {
 });
 
 test('finance migration upgrades the legacy reservation table safely', async () => {
-  const migration = await read('supabase/migrations/20260906_finance_safety_controls.sql');
+  const migration = await read('supabase/migrations/20260907040718_finance_safety_controls.sql');
   assert.match(migration, /alter table public\.credit_reservations[\s\S]*add column if not exists operation/);
   assert.match(migration, /where user_id = p_user_id and idempotency_key = p_idempotency_key/);
   assert.match(migration, /grant execute on function public\.reserve_credits_v2/);
@@ -159,7 +159,7 @@ test('shared Stripe events are ignored before database access', async () => {
 });
 
 test('Stripe reversals are payment-aware and atomic', async () => {
-  const migration = await read('supabase/migrations/20260907_transaction_integrity_hardening.sql');
+  const migration = await read('supabase/migrations/20260907043922_transaction_integrity_hardening.sql');
   assert.match(migration, /refunded_credits integer not null default 0/);
   assert.match(migration, /disputed_credits integer not null default 0/);
   assert.match(migration, /available_credits integer not null default 0/);
@@ -173,11 +173,11 @@ test('Stripe reversals are payment-aware and atomic', async () => {
 });
 
 test('production hardening migration binds admin helper lookups and locks internal tables', async () => {
-  const migration = await read('supabase/migrations/20260911180500_supabase_production_security_hardening.sql');
-  assert.match(migration, /create or replace function public\.is_cinex_admin\(p_user_id uuid\)/);
+  const migration = await read('supabase/migrations/20260912044607_supabase_production_security_hardening.sql');
+  assert.match(migration, /create (or replace )?function public\.is_cinex_admin\(p_user_id uuid\)/);
   assert.match(migration, /auth\.role\(\) = 'service_role'/);
   assert.match(migration, /auth\.uid\(\) is not null and p_user_id = auth\.uid\(\)/);
-  assert.match(migration, /create or replace function public\.is_cinex_super_admin\(p_user_id uuid\)/);
+  assert.match(migration, /create (or replace )?function public\.is_cinex_super_admin\(p_user_id uuid\)/);
   for (const tableName of [
     'admin_members',
     'app_settings',
@@ -194,18 +194,20 @@ test('production hardening migration binds admin helper lookups and locks intern
 });
 
 test('admin RPC backfill migration restores audited admin and payout functions', async () => {
-  const migration = await read('supabase/migrations/20260911184500_admin_rpc_audit_backfill.sql');
-  assert.match(migration, /create table if not exists public\.user_admin_actions/);
+  const migration = await read('supabase/migrations/20260912044632_admin_rpc_audit_backfill.sql');
+  // user_admin_actions is created earlier, in the admin cockpit migration that ran first in production.
+  const cockpit = await read('supabase/migrations/20260902191220_cinexvideo_admin_cockpit_controls.sql');
+  assert.match(cockpit, /create table if not exists public\.user_admin_actions/);
   assert.match(migration, /create table if not exists public\.revenue_split_audit/);
-  assert.match(migration, /create or replace function public\.admin_grant_bonus\(/);
-  assert.match(migration, /create or replace function public\.admin_set_user_active\(/);
-  assert.match(migration, /create or replace function public\.admin_set_discount\(/);
-  assert.match(migration, /create or replace function public\.admin_set_maintenance\(/);
-  assert.match(migration, /create or replace function public\.admin_set_revenue_split\(\s*p_platform_percent numeric,\s*p_basis text,/);
+  assert.match(migration, /create (or replace )?function public\.admin_grant_bonus\(/);
+  assert.match(migration, /create (or replace )?function public\.admin_set_user_active\(/);
+  assert.match(migration, /create (or replace )?function public\.admin_set_discount\(/);
+  assert.match(migration, /create (or replace )?function public\.admin_set_maintenance\(/);
+  assert.match(migration, /create (or replace )?function public\.admin_set_revenue_split\(\s*p_platform_percent numeric,\s*p_basis text,/);
   assert.match(migration, /p_basis not in \('net', 'gross'\)/);
-  assert.match(migration, /create or replace function public\.open_partner_payout\(/);
+  assert.match(migration, /create (or replace )?function public\.open_partner_payout\(/);
   assert.match(migration, /returns uuid/);
-  assert.match(migration, /create or replace function public\.settle_partner_payout\(/);
+  assert.match(migration, /create (or replace )?function public\.settle_partner_payout\(/);
   assert.match(migration, /auth\.role\(\) <> 'service_role'/);
   assert.match(migration, /grant execute on function public\.admin_set_revenue_split\(numeric, text, text\) to authenticated/);
   assert.match(migration, /grant execute on function public\.settle_partner_payout\(uuid, text, text\) to service_role/);

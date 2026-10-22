@@ -69,7 +69,7 @@ test('export saves the final cut and only then deletes the rendered file', () =>
   assert.match(r, /kind: 'final'/);
   const g = readFileSync(new URL('../app/api/projects/[id]/route.js', import.meta.url), 'utf8');
   assert.match(g, /final_cut: finalCutView\(project\.final_cut, project\.title\)/);
-  const m = readFileSync(new URL('../supabase/migrations/20261019170000_final_cut.sql', import.meta.url), 'utf8');
+  const m = readFileSync(new URL('../supabase/migrations/20261019182714_final_cut.sql', import.meta.url), 'utf8');
   assert.match(m, /add column if not exists final_cut jsonb/);
   assert.match(m, /check \(kind in \('take', 'still', 'final'\)\)/);
   const s = readFileSync(new URL('../components/studio/Studio.js', import.meta.url), 'utf8');

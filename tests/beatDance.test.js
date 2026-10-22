@@ -54,7 +54,7 @@ test('generate sends the still and the song slice, priced as one flat clip', () 
   const gen = readFileSync(new URL('../app/api/generate/route.js', import.meta.url), 'utf8');
   assert.match(gen, /images_list: \[firstFrame\],\n\s+audio_files: \[beatSlice\.url\]/);
   assert.match(gen, /beat \? 'beat_dance'/);
-  const sql = readFileSync(new URL('../supabase/migrations/20261016210000_beat_dance.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../supabase/migrations/20261016200639_beat_dance.sql', import.meta.url), 'utf8');
   assert.match(sql, /'seedance-2-omni-reference-no-video-fast', 'video', 75/);
   assert.match(sql, /false, 'Beat-synced dance shot'/);
 });

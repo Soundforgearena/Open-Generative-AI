@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const sql = readFileSync(new URL('../supabase/migrations/20261018060000_super_admin_money_guards.sql', import.meta.url), 'utf8');
+const sql = readFileSync(new URL('../supabase/migrations/20261018173703_super_admin_money_guards.sql', import.meta.url), 'utf8');
 const fn = (name) => sql.slice(sql.indexOf(`function public.${name}(`), sql.indexOf('$function$;', sql.indexOf(`function public.${name}(`)));
 
 test('only the super admin can grant credits or cut prices, even directly in the database', () => {

@@ -70,7 +70,7 @@ test('Director spends purchased credits only and never runs without a reservatio
 });
 
 test('paid-only reservation refuses bonus credits in the database', async () => {
-  const sql = await readFile(new URL('../supabase/migrations/20261002200000_director_paid_credits_only.sql', import.meta.url), 'utf8');
+  const sql = await readFile(new URL('../supabase/migrations/20261002210757_director_paid_credits_only.sql', import.meta.url), 'utf8');
   assert.match(sql, /least\(v_balance, v_paid_available\) < p_max_reservation_credits/);
   assert.match(sql, /INSUFFICIENT_PAID_CREDITS/);
   assert.match(sql, /v_to_allocate := p_max_reservation_credits/);

@@ -26,7 +26,7 @@ test('timeline labels never overlap', () => {
 });
 
 test('clean export quote checks the margin on the real charge', () => {
-  const sql = readFileSync(new URL('../supabase/migrations/20261019120000_fix_clean_export_quote.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../supabase/migrations/20261019162443_fix_clean_export_quote.sql', import.meta.url), 'utf8');
   assert.match(sql, /charged := greatest\(r\.credits, price\)::integer;/);
   assert.match(sql, /margin := \(\(charged - total_cost/);
 });

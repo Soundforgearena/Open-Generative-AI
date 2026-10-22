@@ -125,7 +125,7 @@ test('every reader signs stored media; nothing signed is written to the database
   assert.match(read('../app/api/jobs/[requestId]/route.js'), /archiveSoon\('take'/);
   assert.match(read('../lib/generation/still-job.js'), /archiveSoon\('still'/);
   assert.match(read('../app/api/admin/cron/reconcile/route.js'), /sweepMedia\(/);
-  const mig = read('../supabase/migrations/20261018190000_media_objects.sql');
+  const mig = read('../supabase/migrations/20261018205526_media_objects.sql');
   assert.match(mig, /enable row level security/);
   assert.match(mig, /create or replace view public\.media_orphans/);
   assert.ok(!/drop |delete from|alter table public\.(scenes|scene_versions)/i.test(mig));

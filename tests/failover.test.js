@@ -89,7 +89,7 @@ test('routes use the reliable models, fail over, and stills have backups', () =>
   assert.match(likeness, /KEYFRAME_FALLBACK_MODEL = 'bytedance-seedream-v4\.5-edit'/);
   assert.match(likeness, /STILL_FALLBACK_MODEL = 'nano-banana'/);
   assert.equal((likeness.match(/return withFallback\(/g) || []).length, 2);
-  const mig = read('supabase/migrations/20261020170000_reliable_models.sql');
+  const mig = read('supabase/migrations/20261020165118_reliable_models.sql');
   assert.match(mig, /'seedance-v1\.5-pro-i2v-fast', 'video', 13/);
   assert.match(mig, /'veed-lipsync', 'lip_sync', 3/);
 });
