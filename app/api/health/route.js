@@ -19,6 +19,7 @@ export async function GET() {
     service: 'cinexvideo',
     revision:
       process.env.RAILWAY_GIT_COMMIT_SHA ||
+      process.env.SOURCE_COMMIT ||
       process.env.RAILWAY_DEPLOYMENT_ID ||
       'local',
     video_renderer: (await rendererReady()) ? 'ready' : 'missing',

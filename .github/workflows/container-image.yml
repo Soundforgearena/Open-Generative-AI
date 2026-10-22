@@ -1,0 +1,55 @@
+name: Container image
+
+# Builds the production Dockerfile on GitHub-hosted runners and publishes it to
+# GitHub Container Registry. This lets Railway deploy a prebuilt image when its
+# own builder is unavailable (Settings -> Source -> Docker Image).
+on:
+  push:
+    branches: [main, ci/ghcr-image]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: container-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: |
+            ghcr.io/soundforgearena/cinexvideo:${{ github.sha }}
+            ghcr.io/soundforgearena/cinexvideo:${{ github.ref_name == 'main' && 'latest' || 'preview' }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          # NEXT_PUBLIC_* values are compiled into the bundle, so they are build
+          # arguments. They are public by design and stored as repository variables.
+          build-args: |
+            SOURCE_COMMIT=${{ github.sha }}
+            NEXT_PUBLIC_SUPABASE_URL=${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+            NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+            NEXT_PUBLIC_SITE_URL=${{ vars.NEXT_PUBLIC_SITE_URL }}
+            NEXT_PUBLIC_APP_URL=${{ vars.NEXT_PUBLIC_APP_URL }}
+            NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+            NEXT_PUBLIC_GOOGLE_CLIENT_ID=${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
+            NEXT_PUBLIC_DROPBOX_APP_KEY=${{ vars.NEXT_PUBLIC_DROPBOX_APP_KEY }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

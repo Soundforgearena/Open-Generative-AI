@@ -54,6 +54,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # The standalone server binds to HOSTNAME; it must be 0.0.0.0 to be reachable
 # from outside the container. PORT is overridden by the platform at runtime.
 ENV HOSTNAME=0.0.0.0
+# Commit baked in by the GitHub image workflow, so /api/health reports the
+# revision even when Railway deploys a prebuilt image (no RAILWAY_GIT_* vars).
+ARG SOURCE_COMMIT
+ENV SOURCE_COMMIT=${SOURCE_COMMIT}
 ENV PORT=3000
 
 # ffmpeg renders the finished video (scenes joined, soundtrack, watermark)
