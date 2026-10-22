@@ -76,16 +76,24 @@ export async function POST(request) {
     .update([user.id, project.id, 'clean', ...takes.map((t) => t.version_id)].join('|'))
     .digest('hex')
     .slice(0, 40);
-  const idempotencyKey = `clean-export:${cutKey}`;
+  // A failed render releases its hold; the retry then needs a fresh key, or
+  // the ledger would refuse it as a duplicate forever. A hold still in
+  // progress keeps its key so the same cut can't be rendered twice at once.
+  const baseKey = `clean-export:${cutKey}`;
+  let idempotencyKey = baseKey;
   let alreadyPaid = false;
   if (clean && price > 0) {
     const since = new Date(Date.now() - REDOWNLOAD_DAYS * 86400_000).toISOString();
-    const prior = await selectOne(
+    const prior = await selectRows(
       'credit_reservations',
-      { user_id: `eq.${user.id}`, idempotency_key: `eq.${idempotencyKey}`, status: 'in.(settled,consumed)', created_at: `gte.${since}` },
-      'id'
+      { user_id: `eq.${user.id}`, idempotency_key: `like.${baseKey}*`, order: 'created_at.desc' },
+      'idempotency_key,status,created_at'
     );
-    alreadyPaid = Boolean(prior);
+    const rows = Array.isArray(prior) ? prior : [];
+    alreadyPaid = rows.some((r) => ['settled', 'consumed'].includes(r.status) && r.created_at >= since);
+    const open = rows.find((r) => r.status === 'reserved');
+    if (open) idempotencyKey = open.idempotency_key;
+    else if (rows.length) idempotencyKey = `${baseKey}:retry-${rows.length}`;
   }
   const credits = alreadyPaid ? 0 : price;
 
