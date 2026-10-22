@@ -34,6 +34,6 @@ test('subscription checkout never grants credits; invoices do', async () => {
   const hook = await readFile(new URL('../app/api/billing/webhook/route.js', import.meta.url), 'utf8');
   assert.match(hook, /session\.mode === 'subscription'/);
   assert.match(hook, /case 'invoice\.paid'/);
-  const migration = await readFile(new URL('../supabase/migrations/20261005180000_monthly_subscriptions.sql', import.meta.url), 'utf8');
+  const migration = await readFile(new URL('../supabase/migrations/20261005175031_monthly_subscriptions.sql', import.meta.url), 'utf8');
   for (const plan of CUSTOMER_SUBSCRIPTION_PLANS) assert.match(migration, new RegExp(`'${plan.id}',\\s+'${plan.name}',\\s+${plan.priceCents}, ${plan.creditsGranted}`));
 });

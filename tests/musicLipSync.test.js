@@ -134,7 +134,7 @@ test('lip sync generation is server-controlled', () => {
   assert.match(route, /model = LIP_SYNC_MODEL;/);
   assert.match(route, /video_url: lipSync\.source\.output_url,\n\s+audio_url: slice\.url,/);
   assert.match(route, /song slice longer than priced/);
-  const migration = readFileSync(new URL('../supabase/migrations/20261015120000_music_lip_sync.sql', import.meta.url), 'utf8');
+  const migration = readFileSync(new URL('../supabase/migrations/20261016005608_music_lip_sync.sql', import.meta.url), 'utf8');
   assert.match(migration, /'lip_sync'/);
   assert.match(migration, /volcengine-video-to-video-lip-sync/);
 });

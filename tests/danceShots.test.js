@@ -23,7 +23,7 @@ test('dance clips upload as MP4 or MOV only, up to 60 MB', () => {
 });
 
 test('migration adds the asset kind, scene columns, bucket types and a hidden price rule', () => {
-  const sql = read('supabase/migrations/20261016190000_dance_shots.sql');
+  const sql = read('supabase/migrations/20261016194450_dance_shots.sql');
   assert.match(sql, /'audio','motion'/);
   assert.match(sql, /motion_asset_id uuid references public\.project_assets\(id\) on delete set null/);
   assert.match(sql, /motion_start_ms integer not null default 0/);

@@ -144,7 +144,7 @@ test('the review queue is super admin only', () => {
   assert.ok(!sectionsForRole('admin').some((s) => s.href === '/admin/moderation'));
   assert.ok(sectionsForRole('super_admin').some((s) => s.href === '/admin/moderation'));
   assert.match(read('app/globals.css'), /filter: blur\(28px\) grayscale\(1\)/);
-  const sql = read('supabase/migrations/20261019200000_moderation_cases.sql');
+  const sql = read('supabase/migrations/20261019195310_moderation_cases.sql');
   assert.match(sql, /enable row level security/);
   assert.match(sql, /revoke all on public\.moderation_cases from anon, authenticated/);
 });

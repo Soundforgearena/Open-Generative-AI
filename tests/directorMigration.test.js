@@ -20,7 +20,7 @@ test('Director migration executes, is repeatable, locks duplicates and denies cl
       create function public.calculate_customer_price(numeric,numeric,numeric,numeric,numeric,numeric,numeric)
         returns numeric language sql as $$ select $1 $$;
     `);
-    const sql = await readFile(new URL('../supabase/migrations/20261011080000_director_request_idempotency.sql', import.meta.url), 'utf8');
+    const sql = await readFile(new URL('../supabase/migrations/20261011184932_director_request_idempotency.sql', import.meta.url), 'utf8');
     await db.exec(sql);
     await db.exec(sql);
     const [security] = (await db.query("select relrowsecurity from pg_class where oid='public.director_requests'::regclass")).rows;

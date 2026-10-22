@@ -71,7 +71,7 @@ test('animating needs an approved still and the migration adds the new rules hid
   const route = readFileSync(new URL('../app/api/generate/route.js', import.meta.url), 'utf8');
   assert.match(route, /keyframe_approved !== true/);
   assert.match(route, /runStillJob/);
-  const sql = readFileSync(new URL('../supabase/migrations/20261016150000_stills_and_performance.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../supabase/migrations/20261016163402_stills_and_performance.sql', import.meta.url), 'utf8');
   for (const m of ['flux-krea-dev', 'nano-banana-2-edit', 'omnihuman-1-5']) assert.match(sql, new RegExp(m));
   assert.doesNotMatch(sql, /[^_]customer_price_cents/);
   assert.doesNotMatch(sql, /, true, '/);

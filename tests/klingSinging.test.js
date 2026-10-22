@@ -9,7 +9,7 @@ test('sung scenes use Kling Avatar, not OmniHuman', () => {
   assert.equal(PERFORM_MODEL, 'kling-v1-avatar-standard');
   const gen = readFileSync(new URL('../app/api/generate/route.js', import.meta.url), 'utf8');
   assert.ok(!/output_resolution/.test(gen), 'OmniHuman-only field removed');
-  const mig = readFileSync(new URL('../supabase/migrations/20261018210000_kling_avatar_singing.sql', import.meta.url), 'utf8');
+  const mig = readFileSync(new URL('../supabase/migrations/20261018211152_kling_avatar_singing.sql', import.meta.url), 'utf8');
   assert.match(mig, /'kling-v1-avatar-standard', 'video', 35/);
   assert.match(mig, /set active = false\s+where provider = 'muapi' and model = 'omnihuman-1-5'/);
 });
